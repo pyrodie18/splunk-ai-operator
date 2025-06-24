@@ -1,0 +1,34 @@
+---
+apiVersion: v2
+name: splunk-ai
+description: A Helm chart for deploying SplunkAIPlatform custom resources
+type: application
+version: 0.1.0
+appVersion: "v4.0.0"
+icon: https://example.com/icon.png
+keywords:
+  - splunk
+  - ai
+  - kuberay
+home: https://github.com/splunk/splunk-operator
+sources:
+  - https://github.com/splunk/splunk-operator
+maintainers:
+  - name: Splunk AI Team
+    email: splunkai@cisco.com
+# dependencies:
+  # - name: splunk-operator
+  #   version: "2.8.0"
+  #   repository: "file://../splunk-operator"
+  # - name: kuberay-operator
+  #   version: "1.3.2"
+  #   repository: "https://ray-project.github.io/kuberay-helm"
+  # - name: cert-manager
+  #   version: "1.18.0"
+  #   repository: "https://charts.jetstack.io"
+  # - name: prometheus
+  #   version: "27.20.0"
+  #   repository: "https://prometheus-community.github.io/helm-charts"
+  # - name: opentelemetry-collector
+  #   version: "0.126.0"
+  #   repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"

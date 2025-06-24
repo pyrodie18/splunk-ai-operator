@@ -1,0 +1,18 @@
+# templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "splunk-ai.fullname" . }}
+  namespace: {{ include "splunk-ai.namespace" . }}
+  labels:
+    {{- include "splunk-ai.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "splunk-ai.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
