@@ -40,7 +40,7 @@ type AIServiceSpec struct {
 	Port        int32               `json:"port,omitempty" default:"80"`
 	Env         map[string]string   `json:"env,omitempty"`
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-	// node affinity configuraiton
+	// node affinity configuration
 	Affinity corev1.Affinity `json:"affinity,omitempty"`
 	// resources k8s resources cpu, memory
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
