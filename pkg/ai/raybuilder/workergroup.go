@@ -1,53 +1,43 @@
 package raybuilder
 
 import (
+	"context"
 	"fmt"
 	"strconv"
-aiApi "github.com/splunk/splunk-ai-operator/api/v1"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilpointer "k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type ModelSpec struct {
-	Name               string `json:"name"`
-	GPUType            string `json:"gpuType,omitempty"`
-	GPUsPerReplica     int    `json:"gpusPerReplica"`
-	TensorParallelism  int    `json:"tensorParallelism"`
-	Replicas           int    `json:"replicas"`
-	CPU                string `json:"cpu,omitempty"`
-	Memory             string `json:"memory,omitempty"`
-}
-
-type WorkerGroupKey struct {
-	GPUType           string
-	GPUsPerReplica    int
-	TensorParallelism int
-	CPU               string
-	Memory            string
-}
-
-// GenerateWorkerGroups takes a slice of ModelSpec and generates a slice of rayv1.WorkerGroupSpec,
-// grouping models by their resource requirements (GPU type, GPUs per replica, tensor parallelism, CPU, and memory).
-// For each unique group, it aggregates the total number of replicas and constructs a corresponding WorkerGroupSpec
-// with appropriate resource requests, environment variables, and node selectors. Models with mismatched
-// tensor parallelism and GPUs per replica are skipped with a warning.
-//
-// Parameters:
-//   - models: A slice of ModelSpec representing the models to be deployed.
-//
-// Returns:
-//   - A slice of rayv1.WorkerGroupSpec, each representing a group of workers with shared resource requirements.
-func GenerateWorkerGroups(models []ModelSpec, spec aiApi.AIPlatformSpec) []rayv1.WorkerGroupSpec {
+func GenerateWorkerGroups(ctx context.Context, models []ModelSpec, instanceMap map[string]InstanceMapping) []rayv1.WorkerGroupSpec {
 	groupMap := make(map[WorkerGroupKey]int)
+	modelMetadata := make(map[WorkerGroupKey]ModelSpec)
 
 	for _, model := range models {
-		// Validate tensor parallelism
+		if model.InstanceType != "" {
+			instance, ok := instanceMap[model.InstanceType]
+			if !ok {
+				log.Log.Error(fmt.Errorf("unknown instance type %s for model %s", model.InstanceType, model.Name), "Warning")
+				continue
+			}
+			model.GPUType = instance.GPUType
+			if len(model.NodeSelector) == 0 {
+				model.NodeSelector = instance.NodeSelector
+			}
+			if instance.NumGPUs > 0 && model.GPUsPerReplica > 0 {
+				cpuPerGPU := instance.TotalCPU / instance.NumGPUs
+				model.CPU = strconv.Itoa(cpuPerGPU * model.GPUsPerReplica)
+				model.Memory = instance.TotalMemory
+			}
+		}
+
 		if model.GPUsPerReplica > 0 && model.TensorParallelism != model.GPUsPerReplica {
-			fmt.Printf("Warning: model %s: tensorParallelism (%d) does not match GPUsPerReplica (%d)\n",
-				model.Name, model.TensorParallelism, model.GPUsPerReplica)
+			log.Log.Error(fmt.Errorf("model %s: tensorParallelism (%d) != GPUsPerReplica (%d)", model.Name, model.TensorParallelism, model.GPUsPerReplica), "Warning",
+				"name", model.Name, "tensorParallelism", model.TensorParallelism, "GPUsPerReplicas", model.GPUsPerReplica)
 			continue
 		}
 
@@ -59,22 +49,22 @@ func GenerateWorkerGroups(models []ModelSpec, spec aiApi.AIPlatformSpec) []rayv1
 			Memory:            model.Memory,
 		}
 		groupMap[key] += model.Replicas
+		modelMetadata[key] = model
 	}
 
 	var workerGroups []rayv1.WorkerGroupSpec
 
 	for key, totalReplicas := range groupMap {
+		model := modelMetadata[key]
 		groupName := "cpu-group"
 		if key.GPUsPerReplica > 0 {
 			groupName = fmt.Sprintf("%s-gpu%d-tp%d", key.GPUType, key.GPUsPerReplica, key.TensorParallelism)
 		}
 
-		// Build resources conditionally
 		resources := corev1.ResourceRequirements{
 			Limits:   corev1.ResourceList{},
 			Requests: corev1.ResourceList{},
 		}
-
 		if key.GPUsPerReplica > 0 {
 			gpuQty := resource.MustParse(strconv.Itoa(key.GPUsPerReplica))
 			resources.Limits["nvidia.com/gpu"] = gpuQty
@@ -99,11 +89,32 @@ func GenerateWorkerGroups(models []ModelSpec, spec aiApi.AIPlatformSpec) []rayv1
 			})
 		}
 
-		var nodeSelector map[string]string
-		if key.GPUsPerReplica > 0 {
-			nodeSelector = spec.GPUSchedulingSpec.NodeSelector
-		} else {
-			nodeSelector = spec.CPUSchedulingSpec.NodeSelector
+		tolerations := model.Tolerations
+		if key.GPUsPerReplica > 0 && len(tolerations) == 0 {
+			tolerations = []corev1.Toleration{{
+				Key:      "nvidia.com/gpu",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}}
+		}
+
+		affinity := model.Affinity
+		if affinity == nil {
+			affinity = &corev1.Affinity{
+				PodAntiAffinity: &corev1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+						Weight: 100,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							TopologyKey: "topology.kubernetes.io/zone",
+							LabelSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"ray.io/group": groupName,
+								},
+							},
+						},
+					}},
+				},
+			}
 		}
 
 		workerGroups = append(workerGroups, rayv1.WorkerGroupSpec{
@@ -121,14 +132,14 @@ func GenerateWorkerGroups(models []ModelSpec, spec aiApi.AIPlatformSpec) []rayv1
 					},
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:      "ray",
-							Resources: resources,
-							Env:       envs,
-						},
-					},
-					NodeSelector: nodeSelector,
+					Containers: []corev1.Container{{
+						Name:      "ray",
+						Resources: resources,
+						Env:       envs,
+					}},
+					NodeSelector: model.NodeSelector,
+					Tolerations:  tolerations,
+					Affinity:     affinity,
 				},
 			},
 		})

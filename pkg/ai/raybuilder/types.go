@@ -65,3 +65,34 @@ type RayWorkerGroupSpec struct {
 	Resources      corev1.ResourceRequirements `json:"resources"`
 	Scheduling     aiApi.SchedulingSpec        `json:"scheduling"`
 }
+
+type ModelSpec struct {
+	Name              string              `json:"name"`
+	InstanceType      string              `json:"instanceType,omitempty"`
+	GPUType           string              `json:"gpuType,omitempty"`
+	GPUsPerReplica    int                 `json:"gpusPerReplica"`
+	TensorParallelism int                 `json:"tensorParallelism"`
+	Replicas          int                 `json:"replicas"`
+	CPU               string              `json:"cpu,omitempty"`
+	Memory            string              `json:"memory,omitempty"`
+	NodeSelector      map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations       []corev1.Toleration `json:"tolerations,omitempty"`
+	Affinity          *corev1.Affinity    `json:"affinity,omitempty"`
+}
+
+type InstanceMapping struct {
+	GPUType         string            `json:"gpuType"`
+	AcceleratorType string            `json:"acceleratorType"`
+	NumGPUs         int               `json:"numGPUs"`
+	TotalCPU        int               `json:"totalCPU"`
+	TotalMemory     string            `json:"totalMemory"`
+	NodeSelector    map[string]string `json:"nodeSelector"`
+}
+
+type WorkerGroupKey struct {
+	GPUType           string
+	GPUsPerReplica    int
+	TensorParallelism int
+	CPU               string
+	Memory            string
+}
