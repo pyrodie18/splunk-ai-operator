@@ -3,7 +3,7 @@ package raybuilder
 import (
 	"fmt"
 	"strconv"
-
+aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -40,7 +40,7 @@ type WorkerGroupKey struct {
 //
 // Returns:
 //   - A slice of rayv1.WorkerGroupSpec, each representing a group of workers with shared resource requirements.
-func GenerateWorkerGroups(models []ModelSpec) []rayv1.WorkerGroupSpec {
+func GenerateWorkerGroups(models []ModelSpec, spec aiApi.AIPlatformSpec) []rayv1.WorkerGroupSpec {
 	groupMap := make(map[WorkerGroupKey]int)
 
 	for _, model := range models {
@@ -99,11 +99,11 @@ func GenerateWorkerGroups(models []ModelSpec) []rayv1.WorkerGroupSpec {
 			})
 		}
 
-		nodeSelector := map[string]string{}
+		var nodeSelector map[string]string
 		if key.GPUsPerReplica > 0 {
-			nodeSelector["cloud.google.com/gke-accelerator"] = key.GPUType
+			nodeSelector = spec.GPUSchedulingSpec.NodeSelector
 		} else {
-			nodeSelector["purpose"] = "cpu-only"
+			nodeSelector = spec.CPUSchedulingSpec.NodeSelector
 		}
 
 		workerGroups = append(workerGroups, rayv1.WorkerGroupSpec{
