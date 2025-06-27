@@ -1,0 +1,83 @@
+aws:
+  p4d.24xlarge:
+    gpuType: nvidia-a100
+    acceleratorType: A100
+    numGPUs: 8
+    totalCPU: 96
+    totalMemory: "1152Gi"
+  g5.12xlarge:
+    gpuType: nvidia-a10g
+    acceleratorType: A10G
+    numGPUs: 4
+    totalCPU: 48
+    totalMemory: "192Gi"
+  g6.12xlarge:
+    gpuType: nvidia-h100
+    acceleratorType: H100
+    numGPUs: 4
+    totalCPU: 48
+    totalMemory: "384Gi"
+  p3.8xlarge:
+    gpuType: nvidia-v100
+    acceleratorType: V100
+    numGPUs: 4
+    totalCPU: 32
+    totalMemory: "244Gi"
+  g4dn.12xlarge:
+    gpuType: nvidia-t4
+    acceleratorType: T4
+    numGPUs: 4
+    totalCPU: 48
+    totalMemory: "192Gi"
+
+gcp:
+  a2-highgpu-1g:
+    gpuType: nvidia-a100
+    acceleratorType: A100
+    numGPUs: 1
+    totalCPU: 12
+    totalMemory: "85Gi"
+  a2-highgpu-8g:
+    gpuType: nvidia-a100
+    acceleratorType: A100
+    numGPUs: 8
+    totalCPU: 96
+    totalMemory: "680Gi"
+  n1-standard-16-l4:
+    gpuType: nvidia-l4
+    acceleratorType: L4
+    numGPUs: 1
+    totalCPU: 16
+    totalMemory: "60Gi"
+  n1-standard-16-t4:
+    gpuType: nvidia-t4
+    acceleratorType: T4
+    numGPUs: 1
+    totalCPU: 16
+    totalMemory: "60Gi"
+
+azure:
+  Standard_ND96asr_v4:
+    gpuType: nvidia-a100
+    acceleratorType: A100
+    numGPUs: 8
+    totalCPU: 96
+    totalMemory: "900Gi"
+  Standard_ND40rs_v2:
+    gpuType: nvidia-v100
+    acceleratorType: V100
+    numGPUs: 4
+    totalCPU: 40
+    totalMemory: "672Gi"
+  Standard_NC24s_v3:
+    gpuType: nvidia-v100
+    acceleratorType: V100
+    numGPUs: 4
+    totalCPU: 24
+    totalMemory: "448Gi"
+  Standard_NV12s_v3:
+    gpuType: nvidia-m60
+    acceleratorType: M60
+    numGPUs: 2
+    totalCPU: 12
+    totalMemory: "112Gi"
