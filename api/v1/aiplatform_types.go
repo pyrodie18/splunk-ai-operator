@@ -41,7 +41,9 @@ type AIPlatform struct {
 type AIPlatformSpec struct {
 	Volume AiVolumeSpec `json:"volume,omitempty"`
 	// s3://bucket/artifacts
-	// s3://bucket/tasks - get rid of this
+	// s3://bucket/tasks
+	// s3://bucket/models
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	Features []Features `json:"features,omitempty"`
 	//HeadGroupSpec          HeadGroupSpec   `json:"headGroupSpec,omitempty"`
@@ -57,13 +59,47 @@ type AIPlatformSpec struct {
 	// +kubebuilder:default=cluster.local
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 
+	Images Images `json:"images,omitempty"` // list of image registries to use for Ray
+
+	DefaultAcceleratorType string `json:"defaultAcceleratorType,omitempty"` // e.g. "nvidia-tesla-t4"
+
 	// SplunkConfiguration instance reference
 	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
 
 	//Weaviate       WeaviateSpec     `json:"weaviate,omitempty"`
-	WeaviateStorage corev1.PersistentVolumeSpec `json:"storage,omitempty"`
-	SchedulingSpec  `json:",inline"`            // inlines NodeSelector, Tolerations, Affinity
-	Ingress         corev1.LoadBalancerIngress  `json:",inline"`
+	Storage           StorageSpec                `json:"storage,omitempty"`
+	GPUSchedulingSpec *SchedulingSpec            `json:"gpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
+	CPUSchedulingSpec *SchedulingSpec            `json:"cpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
+	Ingress           corev1.LoadBalancerIngress `json:",inline"`
+}
+type Images struct {
+	SAIAImage string `json:"saiaImage,omitempty"`
+	// Weaviate image, e.g. "docker.io/weaviate:latest"
+	WeaviateImage string `json:"weaviateImage,omitempty"`
+	// Ray head group image, e.g. "rayproject/ray-head:latest"
+	RayHeadGroupImage string `json:"rayHeadGroupImage,omitempty"`
+	// Ray worker group image, e.g. "rayproject/ray-worker:latest"
+	RayWorkerGroupImage string `json:"rayWorkerGroupImage,omitempty"`
+}
+
+type StorageSpec struct {
+	VectorDB VectorDBStorageSpec `json:"vectorDB,omitempty"`
+	// Add other storage categories here if needed, e.g., for model artifacts
+}
+
+type VectorDBStorageSpec struct {
+	// Optional name of an existing PVC to use
+	// +optional
+	PVCName string `json:"pvcName,omitempty"`
+
+	// Size of the volume to create if PVCName is not provided
+	// +kubebuilder:default="50Gi"
+	// +optional
+	Size string `json:"size,omitempty"`
+
+	// Optional StorageClassName to use for dynamic PVC provisioning
+	// +optional
+	StorageClassName string `json:"storageClassName,omitempty"`
 }
 
 // Features defines the features to enable in the AIPlatform

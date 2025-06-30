@@ -1,0 +1,18 @@
+{
+  "AWS": {
+    "g4dn.xlarge":     { "GPUType": "T4", "GPUs": 1, "Memory": 16, "VCPUs": 4 },
+    "g5.xlarge":       { "GPUType": "A10G", "GPUs": 1, "Memory": 24, "VCPUs": 4 },
+    "p4d.24xlarge":    { "GPUType": "A100", "GPUs": 8, "Memory": 320, "VCPUs": 96 },
+    "g6.12xlarge" :    { "GPUType": "L4", "GPUs": 4, "Memory": 64, "VCPUs": 48 }
+  },
+  "GCP": {
+    "n1-standard-4+T4": { "GPUType": "T4", "GPUs": 1, "Memory": 15, "VCPUs": 4 },
+    "a2-highgpu-1g":    { "GPUType": "A100", "GPUs": 1, "Memory": 85, "VCPUs": 12 },
+    "a2-highgpu-4g":    { "GPUType": "A100", "GPUs": 4, "Memory": 340, "VCPUs": 48 },
+    "tpu-v4-8":         { "GPUType": "TPU-v4", "GPUs": 8, "Memory": 256, "VCPUs": 32 }
+  },
+  "Azure": {
+    "NC4as_T4_v3":      { "GPUType": "T4", "GPUs": 1, "Memory": 16, "VCPUs": 4 },
+    "ND40rs_v2":        { "GPUType": "A100", "GPUs": 8, "Memory": 320, "VCPUs": 96 }
+  }
+}

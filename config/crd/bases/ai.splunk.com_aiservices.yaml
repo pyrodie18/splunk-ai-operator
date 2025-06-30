@@ -49,7 +49,7 @@ spec:
             description: AIServiceSpec defines the desired state of AIService
             properties:
               affinity:
-                description: node affinity configuraiton
+                description: node affinity configuration
                 properties:
                   nodeAffinity:
                     description: Describes node affinity scheduling rules for the
