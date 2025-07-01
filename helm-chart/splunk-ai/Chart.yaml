@@ -1,7 +1,7 @@
 ---
 apiVersion: v2
 name: splunk-ai
-description: A Helm chart for deploying SplunkAIPlatform custom resources
+description: A Helm chart for deploying Splunk AIPlatform custom resources
 type: application
 version: 0.1.0
 appVersion: "v4.0.0"
@@ -10,9 +10,9 @@ keywords:
   - splunk
   - ai
   - kuberay
-home: https://github.com/splunk/splunk-operator
+home: https://github.com/splunk/splunk-ai-operator
 sources:
-  - https://github.com/splunk/splunk-operator
+  - https://github.com/splunk/splunk-ai-operator
 maintainers:
   - name: Splunk AI Team
     email: splunkai@cisco.com

@@ -6,162 +6,94 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# apps volumes and artifacts volumes
-appsVolume:
-  path: "s3://my-bucket/apps"
-  region: "us-west-2"
-artifactsVolume:
-  path: "s3://my-bucket"
-  region: "us-west-2"
+# Storage volume
+volume:
+  # Remote volume URI in the format s3://bucketname/<path prefix>
+  path: ""
+  # Optional override endpoint (only really needed for S3-compatible like MinIO)
+  endpoint: ""
+  # Region of the remote storage volume where apps reside. Used for aws, if provided. Not used for minio and azure.
+  region: ""
+  # Secret object name
+  secretRef: ""
 
-# list of enabled AI services (e.g., saia-spl, saia-sec) and version
+# Name of service account to use for the AIPlatform CR
+serviceAccountName: ""
+
+# List of defined features to enable in the AI platform (e.g., saia) and version
 features:
-  saiaSpl:
-    # enables the Splunk AI Service for SPL
-    enabled: true
-    # version of the Splunk AI Service for SPL
-    version: ""
-  saiaSec:
-    # enables the Splunk AI Service for Security
-    enabled: false
-    # version of the Splunk AI Service for Security
+  - name: ""
+    # Name of service account to use for the AI feature CR
+    serviceAccountName: ""
+    # Version of the feature
     version: ""
 
-# specifies object storage for AI artifacts (e.g., S3 or GCS bucket)
-storage: ""
-
-sidecar:
-  otel:
-    # enables the OpenTelemetry collector sidecar
-    enabled: true
-  prometheusOperator:
-    # enables the Prometheus Operator sidecar
-    enabled: true
+sidecars:
+  # Enables the Envoy sidecar
+  envoy: true
+  # Enables the Fluent Bit sidecar
+  fluentBit: true
+  # Enables the OpenTelemetry collector sidecar
+  otel: true
+  # Enables the Prometheus Operator sidecar
+  prometheusOperator: true
 
 # TLS cert secret managed by cert-manager
 certificateRef: ""
-# internal cluster DNS suffix
+# Internal cluster DNS suffix
 clusterDomain: "cluster.local"
-# K8s secretRef for HEC token
-splunkConfiguration:
-  crName: "splunk-standalone"
-  crNamespace: default
-  secretRef:
-    name: "splunk-secret"
-    namespace: default
-  endpoint: "https://splunk.default.svc.cluster.local:8089"
-  token: "splunk-token"  # Optional, if not using secretRef
 
-scheduling:
-  ray:
-    # controls GPU node placement for Ray workloads
-    nodeSelector: {}
-    # affinity for GPU/CPU nodes
-    affinity: {}
-    # required if GPU nodes are tainted
-    tolerations: []
-  featureAndVectorDB:
-    # CPU nodes scheduling for SAIA and Weaviate
-    nodeSelector: {}
-    # CPU workload tolerations
-    tolerations: []
-
-# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
-serviceAccount:
-  # specifies whether a service account should be created
-  create: true
-  # automatically mount a ServiceAccount's API credentials?
-  automount: true
-  # annotations to add to the service account
-  annotations: {}
-  # name of the service account to use.
-  # if not set and create is true, a name is generated using the fullname template
-  name: ""
+# List of image registries to use for Ray
+images:
+  # Image for SAIA
+  saiaImage: "splunkai/saia:latest"
+  # Image for Weaviate
+  weaviateImage: "docker.io/weaviate:latest"
+  # Image for Ray head group
+  rayHeadGroupImage: "rayproject/ray-head:latest"
+  # Image for Ray worker group
+  rayWorkerGroupImage: "rayproject/ray-worker:latest"
 
 defaultAcceleratorType: "LS04S"  # e.g. "L40S", "LS04S", "A10G", "A100", "V100"
 
-# settings for the Ray head node
-headGroupSpec:
-  serviceAccountName: "default"
-  imageRegistry: ""
-  schedulingSpec:
-    nodeSelector: {}
-    tolerations: []
-    # - key: nvidia.com/gpu
-    #   operator: Exists
-    #   effect: NoSchedule
-    affinity: {}
-    # nodeAffinity:
-    #   preferredDuringSchedulingIgnoredDuringExecution:
-    #     - weight: 1
-    #       preference:
-    #         matchExpressions:
-    #           - key: node.kubernetes.io/instance-type
-    #             operator: In
-    #             values:
-    #               - g6.24xlarge
+splunkConfiguration:
+  # Name of the SplunkConfiguration instance
+  crName: "splunk-standalone"
+  # Namespace of the SplunkConfiguration instance
+  crNamespace: "default"
+  # Splunk secret reference
+  secretRef:
+    name: "splunk-secret"
+    namespace: "default"
+  endpoint: "https://splunk.default.svc.cluster.local:8089"
+  # Optional, if not using secretRef
+  token: "splunk-token"
 
-# settings for the Ray worker nodes
-workerGroupSpec:
-  serviceAccountName: "default"
-  imageRegistry: ""
-  gpuConfigs: []        # e.g. [{tier: "gpu", minReplicas: 1, ...}]
-  # - tier: g6.24xlarge-0-gpu
-  #   minReplicas: 0
-  #   maxReplicas: 10
-  #   gpusPerPod: 1
-  #   resources:
-  #     requests:
-  #       cpu: "16"
-  #       memory: "32Gi"
-  #       ephemeral-storage: "10Gi"
-  #       nvidia.com/gpu: "1"
-  #     limits:
-  #       cpu: "16"
-  #       memory: "32Gi"
-  #       ephemeral-storage: "10Gi"
-  #       nvidia.com/gpu: "1"
-  schedulingSpec:
-    nodeSelector: {}
-    tolerations: []
-    # - key: nvidia.com/gpu
-    #   operator: Exists
-    #   effect: NoSchedule
-    affinity: {}
-    # nodeAffinity:
-    #   requiredDuringSchedulingIgnoredDuringExecution:
-    #     nodeSelectorTerms:
-    #       - matchExpressions:
-    #         - key: node.kubernetes.io/instance-type
-    #           operator: In
-    #           values:
-    #             - g6.24xlarge
+# specifies object storage for AI artifacts (e.g., S3 or GCS bucket)
+storage:
+  vectorDB:
+    # Optional name of an existing PVC to use
+    pvcName: ""
+    # Size of the volume to create if PVCName is not provided
+    size: "100Gi"  # e.g., "100Gi", "1Ti"
+    # Optional StorageClassName to use for dynamic PVC provisioning
+    storageClassName: ""  # e.g., "gp2", "standard", "azurefile"
 
-weaviate:
-  replicas: 1
-  resources: {}
-  # requests:
-  #   cpu: "0.5"
-  #   memory: "1Gi"
-  # limits:
-  #   cpu: "1"
-  #   memory: "2Gi"
-  serviceAccountName: "default"
-  # inline SchedulingSpec:
+gpuScheduling:
+  # controls GPU node placement for Ray workloads
   nodeSelector: {}
-  tolerations: []
-  # - key: dedicated
-  #   operator: Equal
-  #   value: cpu
-  #   effect: NoSchedule
+  # affinity for GPU/CPU nodes
   affinity: {}
+  # required if GPU nodes are tainted
+  tolerations: []
 
-# service for exposing the AIPlatform API or UI
-service:
-  # service type, more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
-  type: ClusterIP
-  # ports, more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 80
+cpuScheduling:
+  # controls CPU node placement for CPU workloads
+  nodeSelector: {}
+  # affinity for CPU nodes
+  affinity: {}
+  # required if CPU nodes are tainted
+  tolerations: []
 
 # ingress settings (fully optional)
 ingress:

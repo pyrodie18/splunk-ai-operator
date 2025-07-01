@@ -22,17 +22,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
-Create the name of the service account to use
-*/}}
-{{- define "splunk-ai.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create -}}
-    {{ default (include "splunk-ai.fullname" .) .Values.serviceAccount.name }}
-{{- else -}}
-    {{ default "default" .Values.serviceAccount.name }}
-{{- end -}}
-{{- end -}}
-
-{{/*
 Define namespace of release and allow for namespace override
 */}}
 {{- define "splunk-ai.namespace" -}}

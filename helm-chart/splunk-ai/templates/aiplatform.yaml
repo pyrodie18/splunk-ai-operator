@@ -8,50 +8,47 @@ metadata:
   labels:
     {{- include "splunk-ai.labels" . | nindent 4 }}
 spec:
-  appsVolume:
-    path: {{ .Values.appsVolume.path | quote }}
-    endpoint: {{ .Values.appsVolume.endpoint | quote }}
-    region: {{ .Values.appsVolume.region | quote }}
-    secretRef: {{ .Values.appsVolume.secretRef | quote }}
-  artifactsVolume:
-    path: {{ .Values.artifactsVolume.path | quote }}
-    endpoint: {{ .Values.artifactsVolume.endpoint | quote }}
-    region: {{ .Values.artifactsVolume.region | quote }}
-    secretRef: {{ .Values.artifactsVolume.secretRef | quote }}
-  headGroupSpec:
-    serviceAccountName: {{ .Values.headGroupSpec.serviceAccountName | quote }}
-    imageRegistry: {{ .Values.headGroupSpec.imageRegistry | quote }}
-    schedulingSpec:
-      nodeSelector: {{ toYaml .Values.headGroupSpec.schedulingSpec.nodeSelector | nindent 6 }}
-      tolerations: {{ toYaml .Values.headGroupSpec.schedulingSpec.tolerations | nindent 6 }}
-      affinity: {{ toYaml .Values.headGroupSpec.schedulingSpec.affinity | nindent 6 }}
-  workerGroupSpec:
-    serviceAccountName: {{ .Values.workerGroupSpec.serviceAccountName | quote }}
-    imageRegistry: {{ .Values.workerGroupSpec.imageRegistry | quote }}
-    gpuConfigs: {{ toYaml .Values.workerGroupSpec.gpuConfigs | nindent 4 }}
-    schedulingSpec:
-      nodeSelector: {{ toYaml .Values.workerGroupSpec.schedulingSpec.nodeSelector | nindent 6 }}
-      tolerations: {{ toYaml .Values.workerGroupSpec.schedulingSpec.tolerations | nindent 6 }}
-      affinity: {{ toYaml .Values.workerGroupSpec.schedulingSpec.affinity | nindent 6 }}
-  defaultAcceleratorType: {{ .Values.defaultAcceleratorType | quote }}
+  volume:
+    path: {{ .Values.volume.path | quote }}
+    {{- if .Values.volume.endpoint }}
+    endpoint: {{ .Values.volume.endpoint | quote }}
+    {{- end }}
+    region: {{ .Values.volume.region | quote }}
+    secretRef: {{ .Values.volume.secretRef | quote }}
+  {{- if .Values.serviceAccountName}}
+  serviceAccountName: {{ .Values.serviceAccountName | quote }}
+  {{- end }}
+  features:
+    {{- range .Values.features }}
+    - name: {{ .name | quote }}
+      serviceAccountName: {{ .serviceAccountName | quote }}
+      version: {{ .version | quote }}
+    {{- end }}
   sidecars:
-    otel: {{ .Values.sidecar.otel.enabled | quote }}
-    prometheusOperator: {{ .Values.sidecar.prometheusOperator.enabled | quote }}
+    envoy: {{ .Values.sidecars.envoy }}
+    fluentBit: {{ .Values.sidecars.fluentBit }}
+    otel: {{ .Values.sidecars.otel }}
+    prometheusOperator: {{ .Values.sidecars.prometheusOperator }}
   certificateRef: {{ .Values.certificateRef | quote }}
   clusterDomain: {{ .Values.clusterDomain | quote }}
+  images:
+    saiaImage: {{ .Values.images.saiaImage | quote }}
+    weaviateImage: {{ .Values.images.weaviateImage | quote }}
+    rayHeadGroupImage: {{ .Values.images.rayHeadGroupImage | quote }}
+    rayWorkerGroupImage: {{ .Values.images.rayWorkerGroupImage | quote }}
+  defaultAcceleratorType: {{ .Values.defaultAcceleratorType | quote }}
   splunkConfiguration: {{ toYaml .Values.splunkConfiguration | nindent 4 }}
-  weaviate:
-    replicas: {{ .Values.weaviate.replicas }}
-    resources: {{ toYaml .Values.weaviate.resources | nindent 4 }}
-    serviceAccountName: {{ .Values.weaviate.serviceAccountName | quote }}
-    nodeSelector: {{ toYaml .Values.weaviate.nodeSelector | nindent 4 }}
-    tolerations: {{ toYaml .Values.weaviate.tolerations | nindent 4 }}
-    affinity: {{ toYaml .Values.weaviate.affinity | nindent 4 }}
-  features:
-    saia-spl:
-      enabled: {{ .Values.features.saiaSpl.enabled | quote }}
-      version: {{ .Values.features.saiaSpl.version | quote }}
-    saia-sec:
-      enabled: {{ .Values.features.saiaSec.enabled | quote }}
-      version: {{ .Values.features.saiaSec.version | quote }}
+  storage:
+    vectorDB:
+      pvcName: {{ .Values.storage.vectorDB.pvcName | quote }}
+      size: {{ .Values.storage.vectorDB.size | quote }}
+      storageClassName: {{ .Values.storage.vectorDB.storageClassName | quote }}
+  gpuScheduling:
+    nodeSelector: {{ toYaml .Values.gpuScheduling.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.gpuScheduling.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.gpuScheduling.tolerations | nindent 4 }}
+  cpuScheduling:
+    nodeSelector: {{ toYaml .Values.cpuScheduling.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.cpuScheduling.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.cpuScheduling.tolerations | nindent 4 }}
 {{- end -}}
