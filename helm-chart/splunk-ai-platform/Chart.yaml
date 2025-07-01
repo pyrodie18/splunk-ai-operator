@@ -1,6 +1,6 @@
 ---
 apiVersion: v2
-name: splunk-ai
+name: splunk-ai-platform
 description: A Helm chart for deploying Splunk AIPlatform custom resources
 type: application
 version: 0.1.0
@@ -16,10 +16,10 @@ sources:
 maintainers:
   - name: Splunk AI Team
     email: splunkai@cisco.com
-# dependencies:
-  # - name: splunk-operator
-  #   version: "2.8.0"
-  #   repository: "file://../splunk-operator"
+dependencies:
+  - name: splunk-ai-operator
+    version: "0.1.0"
+    repository: "file://../splunk-ai-operator"
   # - name: kuberay-operator
   #   version: "1.3.2"
   #   repository: "https://ray-project.github.io/kuberay-helm"

@@ -3,10 +3,10 @@
 apiVersion: v4.splunkai/v1
 kind: AIPlatform
 metadata:
-  name: {{ include "splunk-ai.fullname" . }}
-  namespace: {{ include "splunk-ai.namespace" . }}
+  name: {{ include "splunk-ai-platform.fullname" . }}
+  namespace: {{ include "splunk-ai-platform.namespace" . }}
   labels:
-    {{- include "splunk-ai.labels" . | nindent 4 }}
+    {{- include "splunk-ai-platform.labels" . | nindent 4 }}
 spec:
   volume:
     path: {{ .Values.volume.path | quote }}
