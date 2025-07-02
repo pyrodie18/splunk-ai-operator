@@ -1,3 +1,11 @@
+# Metadata overrides:
+# Override the Splunk AI Operator helm chart name
+nameOverride: ""
+# Override the Splunk AI Operator deployment name
+fullnameOverride: ""
+# Override the namespace for the Splunk AI Operator deployment
+namespaceOverride: ""
+
 # Add labels to Splunk AI Operator deployment
 labels: {}
 

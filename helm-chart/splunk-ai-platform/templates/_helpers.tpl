@@ -25,5 +25,5 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 Define namespace of release and allow for namespace override
 */}}
 {{- define "splunk-ai-platform.namespace" -}}
-{{- default .Release.Namespace }}
+{{- default .Release.Namespace .Values.namespaceOverride }}
 {{- end }}

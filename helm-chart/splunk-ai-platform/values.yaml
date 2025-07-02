@@ -3,8 +3,12 @@
 # Users can override these (e.g. via --values) to configure both the CR and the Ingress.
 
 # Metadata overrides:
+# Override the Splunk AI Platform helm chart name
 nameOverride: ""
+# Override the Splunk AI Platform deployment name
 fullnameOverride: ""
+# Override the namespace for the Splunk AI Platform deployment
+namespaceOverride: ""
 
 # Storage volume
 volume:
