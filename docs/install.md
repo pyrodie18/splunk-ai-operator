@@ -10,7 +10,7 @@ wget -O splunk-ai-operator-cluster.yaml https://github.com/splunk/splunk-ai-oper
 
 ## Default Installation (Cluster-Scoped)
 
-By default, the `splunk-ai-operator` is installed in the `splunk-ai-operator` namespace and is configured to watch **all namespaces** in the cluster.
+By default, the `splunk-ai-operator` is installed in the `splunk-ai-operator` namespace and is configured to watch **all namespaces** in the cluster for Splunk AI custom resources.
 
 ```bash
 wget -O splunk-ai-operator-cluster.yaml https://github.com/splunk/splunk-ai-operator/releases/download/0.1.0/splunk-ai-operator-cluster.yaml
@@ -94,3 +94,9 @@ env:
 - name: CLUSTER_DOMAIN
   value: "internal.mycluster"
 ```
+
+## Deploy the Splunk AI Platform
+
+After the operator is installed, it can manage the CRDs for the Splunk AI Platform. The Splunk AI Platform CR will create the necessary Splunk AI Service CRs, based on the `features` listed in the manifest.
+
+See [Custom Resources Documentation](CustomResources.md) for more information on configuring the Splunk AI Platform on your cluster.
