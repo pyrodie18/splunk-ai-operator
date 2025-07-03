@@ -102,7 +102,7 @@ The `AIPlatform` resource provides the following `Spec` configuration parameters
 
 | Key        | Type    | Description                                       |
 | ---------- | ------- | ------------------------------------------------- |
-| volume   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models |
+| volume   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models. See [Service Artifacts Storage](ServiceArtifactsStorage.md) |
 | serviceAccountName   | string | The name of the [Service Account](https://kubernetes.io/docs/concepts/security/service-accounts/) for the project |
 | features   | array | List of features to be installed by the AI Platform |
 | sidecars   | object | Boolean values for which sidecars to deploy |
