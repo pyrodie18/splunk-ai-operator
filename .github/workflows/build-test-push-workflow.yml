@@ -38,10 +38,6 @@ jobs:
         run: |
           go version
           go install github.com/mattn/goveralls@latest
-      - name: Install Ginkgo
-        run: |
-          make setup/ginkgo
-          go mod tidy
       - name: Run Unit Tests
         run: |
           make test
