@@ -15,8 +15,16 @@ jobs:
       - run: |
           go install github.com/mattn/goveralls@latest
           make test
-      - run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
-      - uses: actions/upload-artifact@v4.4.0
+      #- run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
+      #- uses: actions/upload-artifact@v4.4.0
+      #  with:
+      #    name: coverage.out
+      #    path: coverage.out
+      - name: Run Unit Tests with Coverage
+        run: go test ./... -coverprofile=coverage.out
+
+      - name: Upload coverage file
+        uses: actions/upload-artifact@v4
         with:
-          name: coverage.out
+          name: code-coverage
           path: coverage.out
