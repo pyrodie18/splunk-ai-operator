@@ -1,0 +1,434 @@
+rayService:
+  applications:
+    - name: bi_encoder
+      args:
+        deployment_type: encoder_deployment
+        model_definition:
+          model_id: bi_encoder
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/bi-encoder
+          model_type: sentence_transformer
+      LLMDeployment:
+        gpu_type_options_override:
+          A100:
+            autoscaling_config:
+              max_replicas: 0
+              min_replicas: 0
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          A10G:
+            autoscaling_config:
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          L40S:
+            autoscaling_config:
+              max_replicas: 2
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 2
+              memory: "8Gi" 
+          T4:
+            ray_actor_options:
+              num_gpus: 8
+              memory: "8Gi" 
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: cross_encoder
+      args:
+        deployment_configs:
+          EncoderDeployment:
+            options:
+              ray_actor_options:
+                num_gpus: 0.01
+        deployment_type: encoder_deployment
+        model_definition:
+          model_id: cross_encoder
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/cross-encoder
+          model_type: sentence_transformer_cross_encoder
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+      LLMDeployment:
+        gpu_type_options_override:
+          A100:
+            autoscaling_config:
+              max_replicas: 0
+              min_replicas: 0
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          A10G:
+            autoscaling_config:
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          L40S:
+            autoscaling_config:
+              max_replicas: 2
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 2
+              memory: "8Gi" 
+          T4:
+            ray_actor_options:
+              num_gpus: 8
+              memory: "8Gi" 
+
+    - name: e5_language_classifier
+      args:
+        deployment_type: classifier_deployment
+        model_definition:
+          model_id: e5_language_classifier
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/e5-language-classifier
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+      LLMDeployment:
+        gpu_type_options_override:
+          A100:
+            autoscaling_config:
+              max_replicas: 0
+              min_replicas: 0
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          A10G:
+            autoscaling_config:
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          L40S:
+            autoscaling_config:
+              max_replicas: 2
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 2
+              memory: "8Gi" 
+          T4:
+            ray_actor_options:
+              num_gpus: 8
+              memory: "8Gi" 
+
+    - name: mbart_translator
+      args:
+        custom_deployment_import_path: mbart_translator:MbartTranslatorDeployment
+        deployment_configs:
+          MbartTranslatorDeployment:
+            options:
+              ray_actor_options:
+                num_gpus: 0.1
+        deployment_type: custom_deployment
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+      LLMDeployment:
+        gpu_type_options_override:
+          A100:
+            autoscaling_config:
+              max_replicas: 0
+              min_replicas: 0
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          A10G:
+            autoscaling_config:
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 4
+              memory: "8Gi" 
+          L40S:
+            autoscaling_config:
+              max_replicas: 2
+              min_replicas: '0'
+            ray_actor_options:
+              num_gpus: 2
+              memory: "8Gi" 
+          T4:
+            ray_actor_options:
+              num_gpus: 8
+
+    - name: llama31_instruct
+      args:
+        deployment_configs:
+          LLMDeployment:
+            env_options_override:
+              prod:
+                autoscaling_config:
+                  min_replicas: 1
+            gpu_type_options_override:
+              A10G:
+                ray_actor_options:
+                  num_gpus: 2
+                  memory: "8Gi" 
+              L40S:
+                ray_actor_options:
+                  num_gpus: 1
+                  memory: "8Gi" 
+              T4:
+                ray_actor_options:
+                  num_gpus: 4
+                  memory: "8Gi" 
+            options:
+              autoscaling_config:
+                min_replicas: 2
+                memory: "8Gi" 
+        deployment_type: vllm_text_gen_model_deployment
+        model_definition:
+          gpu_type_model_config_override:
+            A10G:
+              engine_args:
+                max_model_len: 14190
+                tensor_parallel_size: 2
+            L40S:
+              engine_args:
+                max_model_len: 14190
+                tensor_parallel_size: 1
+            T4:
+              engine_args:
+                dtype: half
+                max_model_len: 14190
+                tensor_parallel_size: 4
+          model_id: llama31_instruct
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/llama31-8b-instruct
+        tokenizer_definition:
+          model_id: llama31_instruct
+          model_loader:
+            remote_artifact:
+              artifacts_list:
+                - tokenizer_config.json
+                - tokenizer.json
+                - config.json
+              key_prefix: model_artifacts/llama31-8b-instruct
+      runtime_env:
+        env_vars:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: llama31_70b_instruct_awq
+      args:
+        deployment_configs:
+          LLMDeployment:
+            env_options_override:
+              dev:
+                autoscaling_config:
+                  min_replicas: 2
+            gpu_type_options_override:
+              A10G:
+                ray_actor_options:
+                  memory: "8Gi" 
+                  num_gpus: 4
+              L40S:
+                ray_actor_options:
+                  num_gpus: 2
+                  memory: "8Gi" 
+              T4:
+                ray_actor_options:
+                  num_gpus: 8
+                  memory: "8Gi" 
+            options:
+              autoscaling_config:
+                min_replicas: 1
+                target_ongoing_requests: 3
+              max_ongoing_requests: 4
+        deployment_type: vllm_text_gen_model_deployment
+        model_definition:
+          gpu_type_model_config_override:
+            A10G:
+              engine_args:
+                gpu_memory_utilization: 0.95
+                max_model_len: 28930
+                tensor_parallel_size: 4
+            L40S:
+              engine_args:
+                gpu_memory_utilization: 0.95
+                max_model_len: 28930
+                tensor_parallel_size: 2
+            T4:
+              engine_args:
+                dtype: half
+                max_model_len: 28930
+                tensor_parallel_size: 8
+          model_id: llama31_70b_instruct_awq
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/llama31-70b-instruct-awq
+        tokenizer_definition:
+          model_id: llama31_70b_instruct_awq
+          model_loader:
+            remote_artifact:
+              artifacts_list:
+                - tokenizer_config.json
+                - tokenizer.json
+              key_prefix: model_artifacts/llama31-70b-instruct-awq
+      runtime_env:
+        env_vars:
+          VLLM_WORKER_MULTIPROC_METHOD: spawn
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: pii_classifier
+      args:
+        custom_deployment_import_path: pii_classifier:PIIClassifierDeployment
+        deployment_configs:
+          PIIClassifierDeployment:
+            options:
+              ray_actor_options:
+                num_cpus: 4
+                memory: "8Gi" 
+        deployment_type: custom_deployment
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: prompt_injection_classifier
+      args:
+        deployment_type: classifier_deployment
+        model_definition:
+          custom_model_import_path: prompt_injection_classifier:PromptInjectionClassifier
+          model_id: prompt_injection_classifier
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/prompt-injection-classifier-01052025
+          model_type: custom_model
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: prompt_injection_cross_encoder
+      args:
+        deployment_configs:
+          EncoderDeployment:
+            options:
+              ray_actor_options:
+                num_gpus: 0.01
+                memory: "8Gi" 
+        deployment_type: encoder_deployment
+        model_definition:
+          model_id: prompt_injection_cross_encoder
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/prompt-injection-cross-encoder-1114
+          model_type: sentence_transformer_cross_encoder
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: prompt_injection_tfidf
+      args:
+        custom_deployment_import_path: prompt_injection_tfidf:PromptInjectionTfidfDeployment
+        deployment_type: custom_deployment
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: uae_large
+      args:
+        deployment_configs:
+          EncoderDeployment:
+            env_options_override:
+              prod:
+                autoscaling_config:
+                  min_replicas: 1
+            options:
+              autoscaling_config:
+                max_replicas: 12
+                min_replicas: 3
+                target_ongoing_requests: 3
+              ray_actor_options:
+                num_gpus: 0.05
+                memory: "8Gi" 
+        deployment_type: encoder_deployment
+        model_definition:
+          model_id: uae_large
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/uae-large
+          model_type: sentence_transformer
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: xlm_roberta_language_classifier
+      args:
+        deployment_type: classifier_deployment
+        model_definition:
+          model_id: xlm_roberta_language_classifier
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/xlm-roberta-language-classifier
+      runtime_env:
+        pip:
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: langkit_prompt_injection
+      runtime_env:
+        pip: 
+          - langkit
+          - azure-storage-blob
+          - google-cloud-storage
+
+    - name: spacy_di
+      args:
+        custom_deployment_import_path: spacy_di:SpacyDiDeployment
+        deployment_configs:
+          SpacyDiDeployment:
+            options:
+              ray_actor_options:
+                num_gpus: 0.01
+                memory: "8Gi" 
+        deployment_type: custom_deployment
+        runtime_env:
+          pip: 
+            - azure-storage-blob
+            - google-cloud-storage
+
+    - name: all_minilm_l6_v2
+      args:
+        deployment_configs:
+          EncoderDeployment:
+            options:
+              autoscaling_config:
+                max_replicas: 12
+                min_replicas: 1
+                target_ongoing_requests: 3
+              ray_actor_options:
+                num_gpus: 0.01
+                memory: "8Gi" 
+        deployment_type: encoder_deployment
+        model_definition:
+          model_id: all_minilm_l6_v2
+          model_loader:
+            remote_artifact:
+              key_prefix: model_artifacts/all-minilm-l6-v2
+          model_type: sentence_transformer
+        runtime_env:
+          pip: 
+            - azure-storage-blob
+            - google-cloud-storage

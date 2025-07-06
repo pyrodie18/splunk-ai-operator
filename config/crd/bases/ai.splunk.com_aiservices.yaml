@@ -1691,7 +1691,6 @@ spec:
                 required:
                 - path
                 - region
-                - secretRef
                 type: object
               tolerations:
                 items:

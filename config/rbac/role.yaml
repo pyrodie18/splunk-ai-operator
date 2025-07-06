@@ -7,7 +7,18 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - secrets
   - serviceaccounts
+  - services
   verbs:
   - create
   - delete
@@ -17,20 +28,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - deleteR
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - ai.splunk.com
   resources:
+  - aiplatforms
   - aiservices
   verbs:
   - create
@@ -43,12 +43,14 @@ rules:
 - apiGroups:
   - ai.splunk.com
   resources:
+  - aiplatforms/finalizers
   - aiservices/finalizers
   verbs:
   - update
 - apiGroups:
   - ai.splunk.com
   resources:
+  - aiplatforms/status
   - aiservices/status
   verbs:
   - get
@@ -58,6 +60,19 @@ rules:
   - apps
   resources:
   - deployments
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
   verbs:
   - create
   - delete
@@ -75,35 +90,9 @@ rules:
   - list
   - watch
 - apiGroups:
-  - enterprise.splunk.com
+  - monitoring
   resources:
-  - aiplatforms
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - enterprise.splunk.com
-  resources:
-  - aiplatforms/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - enterprise.splunk.com
-  resources:
-  - aiplatforms/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - jobs
-  resources:
-  - batch
+  - servicemonitors
   verbs:
   - create
   - delete

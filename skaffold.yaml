@@ -1,0 +1,74 @@
+# NOTE: Only edit skaffold.yaml.tmpl (the rest is generated)
+---
+apiVersion: skaffold/v3
+kind: SkaffoldConfig
+build:
+  local:
+    push: false
+    useBuildkit: true
+  tagPolicy:
+    gitCommit: {}
+  platforms: ["linux/amd64"]
+  artifacts:
+    - image: splunk-ai-operator
+      platforms:
+        - linux/amd64
+      context: .
+      docker:
+        dockerfile: Dockerfile
+      hooks:
+        after: 
+        - command: [ "sh", "-c", "./prehook.sh"]
+          dir: .
+          os: [ darwin, linux]
+        before: 
+        - command: [ "sh", "-c", "./cleanup.sh"]
+          dir: tools
+          os: [ darwin, linux]
+
+deploy:
+  kubectl:
+    #defaultNamespace: splunk-operator
+    flags:
+      apply:
+        - --server-side
+
+manifests:
+  kustomize:
+    paths:
+      - config/default
+
+#test:
+#  - image: splunk/splunk-operator
+#    #structureTests:
+#    #  - tests
+#    custom:
+#      - command: test/run-tests.sh
+#        timeoutSeconds: 1000
+
+profiles:
+  - name: gke
+    activation:
+      - kubeContext: gke_cmp-gke_us-west1_mixed-gpu-cpu-cluster-gke
+    build:
+      local:
+        push: true
+      platforms:
+        - linux/amd64
+
+portForward:
+  - resourceType: deployment
+    resourceName: controller-manager
+    port: 9443
+    localPort: 9443
+    namespace: system
+  - resourceType: deployment
+    resourceName: cm
+    port: 8089
+    localPort: 8089
+    namespace: ingestion
+  - resourceType: deployment
+    resourceName: standalone
+    port: 8089
+    localPort: 8089
+    namespace: ingestion

@@ -39,12 +39,17 @@ type AIPlatform struct {
 
 // AIPlatformSpec defines the desired state
 type AIPlatformSpec struct {
-	Volume AiVolumeSpec `json:"volume,omitempty"`
-	// s3://bucket/artifacts
-	// s3://bucket/tasks
-	// s3://bucket/models
+	// user needs to create directory structure
+	// s3://bucket/artifacts for AI artifacts
+	// s3://bucket/tasks for AI tasks (read and write permission)
+	// s3://bucket/models for AI models
+	// preferred authentication is via IAM role
+	ObjectStorage AiVolumeSpec `json:"objectStorage"`
+	// ServiceAccountName is the name of the service account to use for the AIPlatform
+	// used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
+	// options are "saia", "seca"
 	Features []Features `json:"features,omitempty"`
 	//HeadGroupSpec          HeadGroupSpec   `json:"headGroupSpec,omitempty"`
 	//WorkerGroupSpec        WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
@@ -67,10 +72,10 @@ type AIPlatformSpec struct {
 	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
 
 	//Weaviate       WeaviateSpec     `json:"weaviate,omitempty"`
-	Storage           StorageSpec                `json:"storage,omitempty"`
-	GPUSchedulingSpec *SchedulingSpec            `json:"gpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
-	CPUSchedulingSpec *SchedulingSpec            `json:"cpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
-	Ingress           corev1.LoadBalancerIngress `json:",inline"`
+	Storage           StorageSpec     `json:"storage,omitempty"`
+	GPUSchedulingSpec *SchedulingSpec `json:"gpuScheduler,omitempty"` // NodeSelector, Tolerations, Affinity
+	CPUSchedulingSpec *SchedulingSpec `json:"cpuScheduler,omitempty"` // NodeSelector, Tolerations, Affinity
+	Ingress           *IngressSpec    `json:"ingress,omitempty"`
 }
 type Images struct {
 	SAIAImage string `json:"saiaImage,omitempty"`
@@ -104,6 +109,7 @@ type VectorDBStorageSpec struct {
 
 // Features defines the features to enable in the AIPlatform
 type Features struct {
+	// +kubebuilder:validation:Enum=saia;seca
 	Name               string `json:"name,omitempty"`
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	Version            string `json:"version,omitempty"`
@@ -201,16 +207,40 @@ type AiVolumeSpec struct {
 	Region string `json:"region"`
 
 	// Secret object name
-	SecretRef string `json:"secretRef"`
+	SecretRef string `json:"secretRef,omitempty"`
+}
+
+type IngressSpec struct {
+	Enabled     bool              `json:"enabled,omitempty"`
+	ClassName   string            `json:"className,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Hosts       []IngressHost     `json:"hosts,omitempty"`
+	TLS         []IngressTLS      `json:"tls,omitempty"`
+}
+
+type IngressHost struct {
+	Host  string        `json:"host"`
+	Paths []IngressPath `json:"paths"`
+}
+
+type IngressPath struct {
+	Path     string `json:"path"`
+	PathType string `json:"pathType"` // e.g., Prefix or Exact
+}
+
+type IngressTLS struct {
+	Hosts      []string `json:"hosts"`
+	SecretName string   `json:"secretName"`
 }
 
 // AIPlatformStatus defines observed state
 type AIPlatformStatus struct {
-	RayServiceName      string              `json:"rayServiceName,omitempty"`
-	VectorDbServiceName string              `json:"vectorDbServiceName,omitempty"`
-	RayServiceStatus    rayv1.ServiceStatus `json:"rayServiceStatus,omitempty"`
-	Conditions          []metav1.Condition  `json:"conditions,omitempty"`
-	ObservedGeneration  int64               `json:"observedGeneration,omitempty"`
+	RayServiceName      string                     `json:"rayServiceName,omitempty"`
+	VectorDbServiceName string                     `json:"vectorDbServiceName,omitempty"`
+	RayServiceStatus    rayv1.ServiceStatus        `json:"rayServiceStatus,omitempty"`
+	Conditions          []metav1.Condition         `json:"conditions,omitempty"`
+	ObservedGeneration  int64                      `json:"observedGeneration,omitempty"`
+	Ingress             corev1.LoadBalancerIngress `json:"ingress,omitempty"` // Ingress for the AIPlatform, e.g. for SAIA or Weaviate
 }
 
 // +kubebuilder:object:root=true
