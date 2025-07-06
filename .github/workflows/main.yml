@@ -1,0 +1,29 @@
+name: Build and Test
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - develop
+      - CSPL-3725
+
+jobs:
+  check-formatting:
+    uses: ./.github/workflows/check-formatting.yml
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    needs: check-formatting
+
+  build-image:
+    uses: ./.github/workflows/build-image.yml
+    needs: unit-tests
+
+  vulnerability-scan:
+    uses: ./.github/workflows/vulnerability-scan.yml
+    needs: build-image
+
+  smoke-tests:
+    uses: ./.github/workflows/smoke-tests.yml
+    needs: vulnerability-scan
