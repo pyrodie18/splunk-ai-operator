@@ -27,13 +27,14 @@ import (
 
 // AIServiceSpec defines the desired state of AIService
 type AIServiceSpec struct {
+	Feature FeatureSpec `json:"features,omitempty"`
 	// SplunkConfiguration instance reference
 	Version             string                 `json:"version,omitempty"`
-	TaskVolume          AiVolumeSpec           `json:"taskVolume,omitempty"`
+	TaskVolume          ObjectStorageSpec      `json:"taskVolume,omitempty"`
 	SplunkConfiguration SplunkConfiguration    `json:"splunkConfiguration,omitempty"`
 	VectorDbUrl         string                 `json:"vectorDbUrl"`
 	AIPlatformUrl       string                 `json:"aiPlatformUrl,omitempty"`
-	AIPlatformRef       corev1.ObjectReference `json:"aiPlatformRef,omitempty"`
+	AIPlatformRef       corev1.ObjectReference `json:"aiPlatformRef"`
 	Replicas            int32                  `json:"replicas,omitempty"`
 	ServiceAccountName  string                 `json:"serviceAccountName,omitempty"`
 	//Port specifies the default port for the service

@@ -19,7 +19,7 @@ build:
       hooks:
         after: 
         - command: [ "sh", "-c", "./prehook.sh"]
-          dir: .
+          dir: tools
           os: [ darwin, linux]
         before: 
         - command: [ "sh", "-c", "./cleanup.sh"]

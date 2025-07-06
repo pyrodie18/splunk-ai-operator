@@ -507,7 +507,7 @@ func (b *Builder) ReconcileApplicationsConfigMap(ctx context.Context, p *aiApi.A
 		}
 		if _, exists := cm.Data["applications.yaml"]; !exists {
 			home := os.Getenv("HOME")
-      home = "/Users/vivekr/Projects/splunk-ai-operator/config/configs"
+			home = "/Users/vivekr/Projects/splunk-ai-operator/config/configs"
 			content, err := os.ReadFile(path.Join(home, "applications.yaml"))
 			if err != nil {
 				return err
@@ -585,10 +585,10 @@ func BuildModelSpecsFromApplicationsYAML(data string) ([]ModelSpec, error) {
 			if numGPUs > 0 {
 				tp = numGPUs
 			}
-      memory := config.Options.RayActorOptions.Memory
-      if memory == "" {
-        memory = "8Gi" // default memory if not specified TODO FIXME: make this configurable
-      }
+			memory := config.Options.RayActorOptions.Memory
+			if memory == "" {
+				memory = "8Gi" // default memory if not specified TODO FIXME: make this configurable
+			}
 
 			modelSpec := ModelSpec{
 				Name:              app.Name,

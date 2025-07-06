@@ -26,7 +26,7 @@ type gcsClient struct {
 func NewGCSClient(
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
-	vs ai.AiVolumeSpec,
+	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
 	opts := []option.ClientOption{}
 

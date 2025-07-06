@@ -44,13 +44,13 @@ type AIPlatformSpec struct {
 	// s3://bucket/tasks for AI tasks (read and write permission)
 	// s3://bucket/models for AI models
 	// preferred authentication is via IAM role
-	ObjectStorage AiVolumeSpec `json:"objectStorage"`
+	ObjectStorage ObjectStorageSpec `json:"objectStorage"`
 	// ServiceAccountName is the name of the service account to use for the AIPlatform
 	// used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// options are "saia", "seca"
-	Features []Features `json:"features,omitempty"`
+	Features []FeatureSpec `json:"features,omitempty"`
 	//HeadGroupSpec          HeadGroupSpec   `json:"headGroupSpec,omitempty"`
 	//WorkerGroupSpec        WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
 	//DefaultAcceleratorType string          `json:"defaultAcceleratorType"`
@@ -107,8 +107,8 @@ type VectorDBStorageSpec struct {
 	StorageClassName string `json:"storageClassName,omitempty"`
 }
 
-// Features defines the features to enable in the AIPlatform
-type Features struct {
+// FeatureSpec defines the features to enable in the AIPlatform
+type FeatureSpec struct {
 	// +kubebuilder:validation:Enum=saia;seca
 	Name               string `json:"name,omitempty"`
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
@@ -196,7 +196,7 @@ type SidecarConfig struct {
 	PrometheusOperator bool `json:"prometheusOperator,omitempty"`
 }
 
-type AiVolumeSpec struct {
+type ObjectStorageSpec struct {
 	// Remote volume URI in the format s3://bucketname/<path prefix>
 	Path string `json:"path"` // s3://bucketname/<path prefix> or gs://bucketname/<path prefix> or azure://containername/<path prefix>
 

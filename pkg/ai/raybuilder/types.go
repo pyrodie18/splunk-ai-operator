@@ -146,7 +146,7 @@ type DeploymentConfig struct {
 		RayActorOptions struct {
 			NumGPUs float64 `yaml:"num_gpus"`
 			NumCPUs float64 `yaml:"num_cpus"`
-			Memory string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
+			Memory  string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
 		} `yaml:"ray_actor_options"`
 	} `yaml:"gpu_type_options_override"`
 	Options struct {
@@ -157,7 +157,7 @@ type DeploymentConfig struct {
 		RayActorOptions struct {
 			NumGPUs float64 `yaml:"num_gpus"`
 			NumCPUs float64 `yaml:"num_cpus"`
-			Memory string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
+			Memory  string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
 		} `yaml:"ray_actor_options"`
 	} `yaml:"options"`
 }

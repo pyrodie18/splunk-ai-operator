@@ -1025,7 +1025,7 @@ spec:
               features:
                 description: options are "saia", "seca"
                 items:
-                  description: Features defines the features to enable in the AIPlatform
+                  description: FeatureSpec defines the features to enable in the AIPlatform
                   properties:
                     name:
                       enum:

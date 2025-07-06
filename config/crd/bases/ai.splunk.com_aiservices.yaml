@@ -1010,6 +1010,19 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              features:
+                description: FeatureSpec defines the features to enable in the AIPlatform
+                properties:
+                  name:
+                    enum:
+                    - saia
+                    - seca
+                    type: string
+                  serviceAccountName:
+                    type: string
+                  version:
+                    type: string
+                type: object
               metrics:
                 description: metrics configuration
                 properties:
@@ -1736,6 +1749,7 @@ spec:
                 description: SplunkConfiguration instance reference
                 type: string
             required:
+            - aiPlatformRef
             - serviceTemplate
             - vectorDbUrl
             type: object

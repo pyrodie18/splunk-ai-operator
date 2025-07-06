@@ -32,7 +32,7 @@ type s3Client struct {
 func NewS3Client(
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
-	vs ai.AiVolumeSpec,
+	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
 	// Use env var or fallback default cert path
 	caCertPath := os.Getenv("CA_CERT_PATH")
