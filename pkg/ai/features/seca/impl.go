@@ -11,7 +11,7 @@ import (
 func ConfigMap(namespace, name string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-SECA-config", name),
+			Name:      fmt.Sprintf("%s-seca-config", name),
 			Namespace: namespace,
 		},
 		Data: map[string]string{
@@ -23,7 +23,7 @@ func ConfigMap(namespace, name string) *corev1.ConfigMap {
 func Secret(namespace, name string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-SECA-secret", name),
+			Name:      fmt.Sprintf("%s-seca-secret", name),
 			Namespace: namespace,
 		},
 		StringData: map[string]string{
@@ -33,11 +33,11 @@ func Secret(namespace, name string) *corev1.Secret {
 }
 
 func Deployment(namespace, name string) *appsv1.Deployment {
-	labels := map[string]string{"app": "SECA"}
+	labels := map[string]string{"app": "seca"}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-SECA", name),
+			Name:      fmt.Sprintf("%s-seca", name),
 			Namespace: namespace,
 			Labels:    labels,
 		},
@@ -53,14 +53,14 @@ func Deployment(namespace, name string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "SECA",
+							Name:  "seca",
 							Image: "docker.io/splunk/SECA:latest",
 							Env: []corev1.EnvVar{
 								{Name: "TOAD_CONFIG", ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										Key: "TOAD_FEATURE_ENABLED",
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: fmt.Sprintf("%s-SECA-config", name),
+											Name: fmt.Sprintf("%s-seca-config", name),
 										},
 									},
 								}},
@@ -76,11 +76,11 @@ func Deployment(namespace, name string) *appsv1.Deployment {
 func Service(namespace, name string) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-SECA-svc", name),
+			Name:      fmt.Sprintf("%s-seca-svc", name),
 			Namespace: namespace,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"app": "SECA"},
+			Selector: map[string]string{"app": "seca"},
 			Ports: []corev1.ServicePort{
 				{
 					Name: "http",
