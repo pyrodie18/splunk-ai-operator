@@ -7,6 +7,10 @@ on:
       - main
       - develop
       - CSPL-3725
+permissions:
+  actions: read
+  contents: read
+  security-events: write
 
 jobs:
   check-formatting:
