@@ -22,7 +22,7 @@ spec:
               service:
                 name: {{ include "splunk-ai-platform.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.port }}
+                  number: {{ .port }}
           {{- end }}
     {{- end }}
   {{- if .Values.ingress.tls }}
