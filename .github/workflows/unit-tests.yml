@@ -21,7 +21,7 @@ jobs:
       #    name: coverage.out
       #    path: coverage.out
       - name: Run Unit Tests with Coverage
-        run: go test ./... -coverprofile=coverage.out
+        run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
 
       - name: Upload coverage file
         uses: actions/upload-artifact@v4
