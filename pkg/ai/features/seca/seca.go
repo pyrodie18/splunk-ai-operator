@@ -1,12 +1,16 @@
 package seca
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type SecaHandler struct{}
+type SecaReconciler struct{
+	client.Client
+	Scheme *runtime.Scheme
+}
 
-func (h *SecaHandler) BuildResources(namespace, name string) []client.Object {
+func (h *SecaReconciler) BuildResources(namespace, name string) []client.Object {
 	return []client.Object{
 		ConfigMap(namespace, name),
 		Secret(namespace, name),

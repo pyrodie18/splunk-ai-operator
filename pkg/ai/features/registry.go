@@ -6,6 +6,6 @@ import (
 )
 
 var FeatureHandlers = map[string]FeatureHandler{
-	"saia": &saia.SaiaHandler{},
-	"seca": &seca.SecaHandler{},
+	"saia": &saia.SaiaReconciler{},
+	"seca": &seca.SecaReconciler{},
 }
