@@ -43,7 +43,7 @@ metadata:
 ## AI Platform Spec Parameters
 
 ```yaml
-apiVersion: v4.splunkai/v1
+apiVersion: ai.splunk.com/v1
 kind: AIPlatform
 metadata:
   name: example
@@ -128,7 +128,7 @@ The `AIPlatform` resource provides the following `Spec` configuration parameters
 
 | Key        | Type    | Description                                       |
 | ---------- | ------- | ------------------------------------------------- |
-| storageObject   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models. See [Service Artifacts Storage](ServiceArtifactsStorage.md) |
+| objectStorage   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models. See [Service Artifacts Storage](ServiceArtifactsStorage.md) |
 | serviceAccountName   | string | The name of the [Service Account](https://kubernetes.io/docs/concepts/security/service-accounts/) for the project |
 | features   | array | List of features to be installed by the AI Platform |
 | headGroupSpec   | object | Information for the Ray head group configuration |

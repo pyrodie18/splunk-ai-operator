@@ -1,7 +1,7 @@
 # Service Artifacts Storage
 
 ## Splunk AI Artifacts
-The Splunk AI team has provided global artifact storage in a publicly readable S3 bucket. This bucket contains LLM model files and weaviate bootstrap data. In order to create the Splunk AI Platform and Splunk AI Service CRs, users need to have a storage bucket created to transfer the data. Include the bucket connection information in the `spec.volume` field in the [Splunk AI Platform CR](CustomResources.md##ai-platform-spec-parameters) to trigger a job to transfer the data from the public bucket to the local bucket.
+The Splunk AI team has provided global artifact storage in a publicly readable S3 bucket. This bucket contains LLM model files and weaviate bootstrap data. In order to create the Splunk AI Platform and Splunk AI Service CRs, users need to have a storage bucket created to transfer the data. Include the bucket connection information in the `spec.volume` field in the [Splunk AI Platform CR](CustomResources.md#ai-platform-spec-parameters) to trigger a job to transfer the data from the public bucket to the local bucket.
 
 ## Prerequisites
 
@@ -16,9 +16,9 @@ Utilizing the AI Platform requires one of the following remote storage providers
 * Three folders are created within the bucket with the following names: `artifacts`, `tasks`, `models`
     So, the three paths should be:
     ```
-    // s3://bucket/artifacts
-	// s3://bucket/tasks
-	// s3://bucket/models
+    s3://bucket/artifacts
+	s3://bucket/tasks
+	s3://bucket/models
     ```
 
 ### Prerequisites for S3 based remote object storage
@@ -28,7 +28,7 @@ Utilizing the AI Platform requires one of the following remote storage providers
 
 ### Prerequisites for Azure Blob remote object storage
 * The remote object storage credentials provided as a kubernetes secret.
-* OR, Use "Managed Indentity" role assigment to the Azure blob container. See [Setup Azure bob access with Managed Indentity](#setup-azure-bob-access-with-managed-indentity)
+* OR, Use "Managed Identity" role assignment to the Azure blob container. See [Setup Azure blob access with Managed Identity](#setup-azure-blob-access-with-managed-identity)
 
 ### Prerequisites for GCP bucket based remote object storage
 To use GCP storage in the App Framework, follow these setup requirements:
