@@ -5,8 +5,13 @@ package raybuilder
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -26,6 +31,8 @@ import (
 
 	//"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/utils/pointer"
+	//utilpointer "k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -50,7 +57,11 @@ func New(ai *aiApi.AIPlatform, client client.Client, scheme *runtime.Scheme, rec
 // --- 7️⃣ ReconcileRayService: build & create/update the RayService CR ---
 func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) error {
 	logger := log.FromContext(ctx) // Define logger
-	rs := b.Build()
+	rs, err := b.Build(ctx)
+	if err != nil {
+		logger.Error(err, "failed to build RayService")
+		return fmt.Errorf("failed to build RayService: %w", err)
+	}
 
 	// Fetch the ServeConfigMap
 	serveConfigMap := &corev1.ConfigMap{}
@@ -66,7 +77,7 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) 
 			Namespace: p.Namespace,
 		},
 	}
-	err := b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
+	err = b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
 	if errors.IsNotFound(err) {
 		rayService = &rayv1.RayService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -201,7 +212,11 @@ func (b *Builder) ReconcileRayServiceStatus(
 }
 
 // Build constructs a RayService resource based on the AI CR.
-func (b *Builder) Build() *rayv1.RayService {
+func (b *Builder) Build(ctx context.Context) (*rayv1.RayService, error) {
+	clusterConfig, err := b.buildClusterConfig(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to build cluster config: %w", err)
+	}
 	rs := &rayv1.RayService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        b.ai.Name,
@@ -210,13 +225,13 @@ func (b *Builder) Build() *rayv1.RayService {
 			Labels:      b.ai.Labels,
 		},
 		Spec: rayv1.RayServiceSpec{
-			RayClusterSpec: b.buildClusterConfig(),
+			RayClusterSpec: clusterConfig,
 		},
 	}
-	return rs
+	return rs, nil
 }
 
-func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
+func (b *Builder) buildClusterConfig(ctx context.Context) (rayv1.RayClusterSpec, error) {
 	annotations, labels := buildHeadAnnotationsAndLabels(b.ai)
 	head := rayv1.HeadGroupSpec{
 		RayStartParams: map[string]string{
@@ -237,87 +252,26 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 	head.Template.ObjectMeta.Annotations = annotations
 	head.Template.ObjectMeta.Labels = labels
 
-	var workers []rayv1.WorkerGroupSpec
-	// List all nodes in the cluster
-	nodeList := &corev1.NodeList{}
-	if err := b.Client.List(context.Background(), nodeList); err != nil {
-		// If we can't list nodes, fallback to static config
-		/* for i, cfg := range b.ai.Spec.GPUs {
-			annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
-			wg := rayv1.WorkerGroupSpec{
-				GroupName:   cfg.Tier,
-				MinReplicas: &cfg.MinReplicas,
-				MaxReplicas: &cfg.MaxReplicas,
-				RayStartParams: map[string]string{
-					"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":%d}"`, b.ai.Spec.DefaultAcceleratorType, i, cfg.GPUsPerPod),
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: annotations,
-						Labels:      labels,
-					},
-					Spec: b.makeWorkerTemplate(cfg).Spec,
-				},
-			}
-			workers = append(workers, wg)
-		} */
-	} else {
-		// Map GPU nodes by GPU type
-		gpuNodes := map[string][]corev1.Node{}
-		for _, node := range nodeList.Items {
-			for k, v := range node.Status.Capacity {
-				if strings.HasPrefix(string(k), "nvidia.com/gpu") && v.Value() > 0 {
-					gpuType := node.Labels["nvidia.com/gpu.product"]
-					if gpuType == "" {
-						gpuType = "unknown"
-					}
-					gpuNodes[gpuType] = append(gpuNodes[gpuType], node)
-				}
-			}
-		}
-
-		// For each model in modelToGPUConfig, try to match to available GPU nodes
-		for model, cfg := range modelToGPUConfig {
-			gpuType := cfg.GPUType
-			nodes := gpuNodes[gpuType]
-			replicas := int32(len(nodes))
-			if replicas == 0 {
-				// fallback to config
-				replicas = int32(cfg.Replicas)
-			}
-			// Build dummy GPUConfig for annotation/label helpers
-			gpuConfig := aiApi.GPUConfig{
-				Tier:        model, // Use model name as tier/group
-				MinReplicas: replicas,
-				MaxReplicas: replicas,
-				//GPUsPerPod:  cfg.TPSize,
-			}
-			annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, gpuConfig)
-			wg := rayv1.WorkerGroupSpec{
-				GroupName:   model,
-				MinReplicas: &replicas,
-				MaxReplicas: &replicas,
-				RayStartParams: map[string]string{
-					"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count\":%d}"`, b.ai.Spec.DefaultAcceleratorType, cfg.TPSize),
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: annotations,
-						Labels:      labels,
-					},
-					Spec: b.makeWorkerTemplate(gpuConfig).Spec,
-				},
-			}
-			workers = append(workers, wg)
-		}
+	yamlData, err := ReadApplicationsYAMLFromConfigMap(ctx, b.Client, b.ai.Name+"-applications", b.ai.Namespace)
+	if err != nil {
+		return rayv1.RayClusterSpec{}, err
 	}
+	modelSpecs, err := BuildModelSpecsFromApplicationsYAML(yamlData)
+	if err != nil {
+		return rayv1.RayClusterSpec{}, fmt.Errorf("failed to build model specs from applications YAML: %w", err)
+	}
+	instanceMap, err := ReadInstanceMapFromConfigMap(ctx, b.Client, b.ai.Name+"-instances", b.ai.Namespace)
+	if err != nil {
+		return rayv1.RayClusterSpec{}, fmt.Errorf("failed to read instance map from config map: %w", err)
+	}
+	workerGroups := b.GenerateWorkerGroups(ctx, b.Client, modelSpecs, instanceMap)
 
 	return rayv1.RayClusterSpec{
 		RayVersion:              os.Getenv("RAY_VERSION"),
 		EnableInTreeAutoscaling: boolPtr(true),
 		HeadGroupSpec:           head,
-		WorkerGroupSpecs:        workers,
-	}
+		WorkerGroupSpecs:        workerGroups,
+	}, nil
 }
 
 func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
@@ -393,13 +347,28 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 		}},
 	}
 
-	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
-	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
-	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+	spec.NodeSelector = b.ai.Spec.CPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.CPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
 	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
 	// FIXME need to find better way to add sidecars
 	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
 	sidecars.AddFluentBitSidecar(&spec)
+	found := false
+	for _, vol := range spec.Volumes {
+		if vol.Name == "ray-logs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{
+			Name: "ray-logs",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
 	return corev1.PodTemplateSpec{Spec: spec}
 }
 
@@ -485,7 +454,6 @@ func (b *Builder) makeWorkerTemplate(cfg aiApi.GPUConfig) corev1.PodTemplateSpec
 	// FIXME need to find better way to add sidecars
 	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
 	sidecars.AddFluentBitSidecar(&spec)
-
 	return corev1.PodTemplateSpec{Spec: spec}
 }
 
@@ -570,4 +538,188 @@ func buildHeadAnnotationsAndLabels(aiPlatform *aiApi.AIPlatform) (map[string]str
 // boolPtr returns a pointer to the given boolean value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func hashWorkerGroupKey(key WorkerGroupKey) string {
+	b, _ := json.Marshal(key)
+	h := sha1.Sum(b)
+	return hex.EncodeToString(h[:])[:6] // short hash
+}
+
+func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Client, models []ModelSpec, instanceMap InstanceMap) []rayv1.WorkerGroupSpec {
+	logger := log.FromContext(ctx)
+	groupMap := make(map[WorkerGroupKey]int)
+	modelMetadata := make(map[WorkerGroupKey]ModelSpec)
+
+	for _, model := range models {
+		if model.InstanceType == "" {
+			found := false
+			nodes := &corev1.NodeList{}
+			if err := k8sClient.List(ctx, nodes); err != nil {
+				logger.Error(err, "Failed to list nodes")
+			} else {
+				for _, node := range nodes.Items {
+					instanceType := node.Labels["node.kubernetes.io/instance-type"]
+					provider, err := detectProvider(k8sClient, ctx)
+					if err != nil {
+						logger.Error(err, "Failed to detect provider")
+						continue
+					}
+					instanceInfo, ok := instanceMap[provider][instanceType]
+					if ok && satisfies(model, instanceInfo) {
+						model.InstanceType = instanceType
+						model.GPUType = instanceInfo.GPUType
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				logger.Info("No matching instance found for model, using fallback", "model", model.Name)
+				provider, err := detectProvider(k8sClient, ctx)
+				if err != nil {
+					logger.Error(err, "Failed to detect provider")
+					continue
+				}
+				fallbackInfo, ok := instanceMap[provider]["fallback"]
+				if !ok {
+					logger.Error(fmt.Errorf("fallback not found for provider %s", provider), "Fallback failed")
+					continue
+				}
+				model.InstanceType = "fallback"
+				model.GPUType = fallbackInfo.GPUType
+			}
+		}
+
+		if model.GPUsPerReplica > 0 && model.TensorParallelism != model.GPUsPerReplica {
+			logger.Error(fmt.Errorf("tensorParallelism (%f) != GPUsPerReplica (%f)", model.TensorParallelism, model.GPUsPerReplica), "Invalid model config", "model", model.Name)
+			continue
+		}
+
+		// Normalize and hash key
+		memQty := resource.MustParse(model.Memory)
+		key := WorkerGroupKey{
+			GPUType:           model.GPUType,
+			GPUsPerReplica:    int(math.Ceil(model.GPUsPerReplica)),
+			TensorParallelism: int(math.Ceil(model.TensorParallelism)),
+			CPU:               int(math.Ceil(model.CPU)),
+			Memory:            memQty.String(),
+		}
+		groupMap[key] += model.Replicas
+		modelMetadata[key] = model
+	}
+
+	var workerGroups []rayv1.WorkerGroupSpec
+
+	for key, totalReplicas := range groupMap {
+		model := modelMetadata[key]
+		groupName := "cpu-group"
+		if key.GPUsPerReplica > 0 {
+			groupName = fmt.Sprintf("%s-gpu%d-tp%d-%s", key.GPUType, key.GPUsPerReplica, key.TensorParallelism, hashWorkerGroupKey(key))
+		}
+
+		resources := corev1.ResourceRequirements{
+			Limits:   corev1.ResourceList{},
+			Requests: corev1.ResourceList{},
+		}
+		if key.GPUsPerReplica > 0 {
+			gpuQty := resource.MustParse(strconv.Itoa(key.GPUsPerReplica))
+			resources.Limits["nvidia.com/gpu"] = gpuQty
+			resources.Requests["nvidia.com/gpu"] = gpuQty
+		}
+		if key.Memory != "" {
+			memQty := resource.MustParse(key.Memory)
+			resources.Limits[corev1.ResourceMemory] = memQty
+			resources.Requests[corev1.ResourceMemory] = memQty
+		}
+		if key.CPU > 0 {
+			cpuQty := resource.MustParse(strconv.Itoa(key.CPU))
+			resources.Limits[corev1.ResourceCPU] = cpuQty
+			resources.Requests[corev1.ResourceCPU] = cpuQty
+		}
+
+		gpuConfig := aiApi.GPUConfig{
+			Tier:      groupName,
+			Resources: resources,
+		}
+		podSpec := b.makeWorkerTemplate(gpuConfig)
+
+		envs := []corev1.EnvVar{}
+		if key.TensorParallelism > 0 {
+			envs = append(envs, corev1.EnvVar{
+				Name:  "TENSOR_PARALLELISM",
+				Value: strconv.Itoa(key.TensorParallelism),
+			})
+		}
+
+		tolerations := model.Tolerations
+		if key.GPUsPerReplica > 0 && len(tolerations) == 0 {
+			tolerations = []corev1.Toleration{{
+				Key:      "nvidia.com/gpu",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}}
+		}
+
+		affinity := model.Affinity
+		if affinity == nil {
+			affinity = &corev1.Affinity{
+				PodAntiAffinity: &corev1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+						Weight: 100,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							TopologyKey: "topology.kubernetes.io/zone",
+							LabelSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"ray.io/group": groupName,
+								},
+							},
+						},
+					}},
+				},
+			}
+		}
+
+		workerGroups = append(workerGroups, rayv1.WorkerGroupSpec{
+			GroupName:   groupName,
+			Replicas:    pointer.Int32(int32(totalReplicas)),
+			MinReplicas: pointer.Int32(int32(totalReplicas)),
+			MaxReplicas: pointer.Int32(int32(totalReplicas)),
+			RayStartParams: map[string]string{
+				"num-gpus": strconv.Itoa(key.GPUsPerReplica),
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"ray.io/group": groupName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers:   podSpec.Spec.Containers,
+					NodeSelector: model.NodeSelector,
+					Tolerations:  tolerations,
+					Affinity:     affinity,
+					Volumes:      podSpec.Spec.Volumes,
+				},
+			},
+		})
+	}
+
+	return workerGroups
+}
+
+func satisfies(model ModelSpec, info InstanceDetails) bool {
+	// Parse model requirements
+	modelCPUQty := resource.MustParse(fmt.Sprintf("%v", model.CPU))
+	modelMemQty := resource.MustParse(model.Memory)
+	requiredGPUs := model.GPUsPerReplica
+
+	// Parse instance capacity
+	instanceCPUQty := resource.MustParse(fmt.Sprintf("%f", info.VCPUs))
+	instanceMemQty := resource.MustParse(info.Memory)
+
+	// Check if the instance has enough CPU, memory, and GPUs
+	return instanceCPUQty.Cmp(modelCPUQty) >= 0 &&
+		instanceMemQty.Cmp(modelMemQty) >= 0 &&
+		info.GPUs >= requiredGPUs
 }

@@ -1,2 +1,27 @@
 resources:
 - manager.yaml
+
+
+
+# currently patch is set to change deployment environment variables
+patches:
+- patch: "- op: add\n  path: /spec/template/spec/containers/0/env\n  value: \n  -
+    name: WATCH_NAMESPACE\n    value: WATCH_NAMESPACE_VALUE\n  - name: RELATED_IMAGE_SPLUNK_ENTERPRISE\n
+    \   value: SPLUNK_ENTERPRISE_IMAGE\n  - name: OPERATOR_NAME\n    value: splunk-operator\n
+    \ - name: POD_NAME\n    valueFrom:\n      fieldRef:\n        fieldPath: metadata.name\n
+    \ - name: RELATED_IMAGE_RAY_HEAD\n    value: \"667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5\"\n
+    \ - name: RELATED_IMAGE_RAY_WORKER\n    value: \"667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6\"\n
+    \ - name: RELATED_IMAGE_WEAVIATE\n    value: \"semitechnologies/weaviate:stable-v1.28-007846a\"\n
+    \ - name: RELATED_IMAGE_SAIA_API\n    value: \"667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-6\"\n
+    \ - name: RELATED_IMAGE_POST_INSTALL_HOOK\n    value: \"667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5\"\n
+    \ - name: MODEL_VERSION\n    value: \"v0.3.14-36-g1549f5a\"\n  - name: RAY_VERSION\n
+    \   value: \"2.44.0\""
+  target:
+    kind: Deployment
+    name: controller-manager
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: controller
+  newName: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/splunk/splunk-ai-operator
+  newTag: ai-2

@@ -56,13 +56,16 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 	}{
 		{"Validate", r.validate},
 		{"ApplicationsConfigMap", raybuilder.ReconcileApplicationsConfigMap},
+		{"InstancesConfigMap", raybuilder.ReconcileInstancesConfigMap},
 		{"ServeConfigMap", raybuilder.ReconcileServeConfigMap},
 		{"Sidecars", sidecarBuilder.Reconcile},
 		{"rayAutoscalerRBAC", raybuilder.ReconcileRayAutoscalerRBAC},
 		{"RayService", raybuilder.ReconcileRayService},
 		{"WeaviateDatabase", r.ReconcileWeaviateDatabase},
+		// collect status of each stage
 		{"RayServiceStatus", raybuilder.ReconcileRayServiceStatus},
 		{"WeaviateDatabaseStatus", r.ReconcileWeaviateDatabaseStatus},
+		//{"AIService", saia.ReconcileAIServicesStatus},
 	}
 
 	for _, stage := range stages {

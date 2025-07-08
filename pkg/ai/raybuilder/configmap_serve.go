@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/types"
 	"github.com/splunk/splunk-ai-operator/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,15 +22,18 @@ import (
 func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
 	log := log.FromContext(ctx) // Define logger
 
-	// 2️⃣ List actual artifacts in storage
-	storCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.Volume)
+	// 2️⃣ List actual applications in storage
+	copyPath := p.Spec.ObjectStorage.Path
+	p.Spec.ObjectStorage.Path = fmt.Sprintf("%s/%s", p.Spec.ObjectStorage.Path, types.ApplicationPath)
+	storCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.ObjectStorage)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err
 	}
 
 	// 2️⃣ List actual artifacts in storage
-	artfCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.Volume)
+	p.Spec.ObjectStorage.Path = fmt.Sprintf("%s/%s", copyPath, types.ArtifactsPath)
+	artfCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.ObjectStorage)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err
@@ -64,7 +68,8 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *aiApi.AIPlatfo
 			return fmt.Errorf("checking existence of %s: %w", key, err)
 		}
 		if !ok {
-			// skip it — ZIP not in th bucket/container
+			// skip it — ZIP not in th bucket/container //FIXME TODO: log this
+			log.Info("Skipping application", "name", a.Name, "version", version, "reason", "not found in storage")
 			continue
 		}
 
