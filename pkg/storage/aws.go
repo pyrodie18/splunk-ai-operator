@@ -3,7 +3,11 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/http"
+	"os"
 	"path"
 	"strings"
 
@@ -13,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	ai "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/types"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -27,16 +32,46 @@ type s3Client struct {
 func NewS3Client(
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
-	vs ai.AiVolumeSpec,
+	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
+	// Use env var or fallback default cert path
+	caCertPath := os.Getenv("CA_CERT_PATH")
+	if caCertPath == "" {
+		caCertPath = types.CertPath // e.g., "/etc/certs/ca.crt"
+	}
+
+	// Load CA cert
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		rootCAs = x509.NewCertPool()
+	}
+	if certData, err := os.ReadFile(caCertPath); err == nil {
+		if ok := rootCAs.AppendCertsFromPEM(certData); !ok {
+			fmt.Printf("warning: could not append cert from %s\n", caCertPath)
+		}
+	} else {
+		fmt.Printf("warning: failed to read CA cert from %s: %v\n", caCertPath, err)
+	}
+
+	// Setup custom TLS and HTTP transport
+	tlsConfig := &tls.Config{RootCAs: rootCAs}
+	tlsConfig = &tls.Config{
+		InsecureSkipVerify: true, // For local testing, skip TLS verification
+	}
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = tlsConfig
+	httpClient := &http.Client{Transport: customTransport}
+
+	// AWS config
 	awsCfg := &aws.Config{
 		Endpoint:         aws.String(vs.Endpoint),
 		Region:           aws.String(vs.Region),
 		S3ForcePathStyle: aws.Bool(true),
+		HTTPClient:       httpClient,
 	}
 
+	// Load static credentials if SecretRef is set
 	if vs.SecretRef != "" {
-		// static creds from k8s secret
 		secret := &corev1.Secret{}
 		if err := k8sClient.Get(context.TODO(),
 			client.ObjectKey{Namespace: namespace, Name: vs.SecretRef},
@@ -50,13 +85,17 @@ func NewS3Client(
 			"",
 		)
 	}
-	// if no SecretRef, AWS SDK will pick up IRSA / env / shared‐config by itself
 
+	// Create AWS session and S3 client
 	sess, err := session.NewSession(awsCfg)
 	if err != nil {
 		return nil, err
 	}
-	return &s3Client{cli: s3.New(sess), bucket: bucket, prefix: prefix}, nil
+	return &s3Client{
+		cli:    s3.New(sess),
+		bucket: bucket,
+		prefix: prefix,
+	}, nil
 }
 
 // ListObjects returns all object keys under the configured prefix, across all pages.

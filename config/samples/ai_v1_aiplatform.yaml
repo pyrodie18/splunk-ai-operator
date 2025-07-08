@@ -1,9 +1,67 @@
 apiVersion: ai.splunk.com/v1
 kind: AIPlatform
 metadata:
-  labels:
-    app.kubernetes.io/name: splunk-ai-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: aiplatform-sample
+  name: splunk-ai-stack
 spec:
-  # TODO(user): Add fields here
+  objectStorage:
+    path: s3://ai-platform-dev-vivekr
+    region: us-west-2
+  serviceAccountName: ray-head-sa
+  features:
+    - name: saia
+      version: "1.1.0"
+      serviceAccountName: saia-service-account
+    - name: seca
+      version: "1.0.0"
+      serviceAccountName: saia-secure-account
+  storage:
+    vectorDB:
+      pvcName: weaviate-pvc             # Optional: if you want to use a pre-created PVC
+      size: 50Gi                        # Optional: used if pvcName is not provided
+      storageClassName: gp3             # Optional: used for dynamic PVC provisioning
+  cpuScheduler:
+    affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: node.kubernetes.io/instance-type
+                      operator: In
+                      values:
+                        - g6.24xlarge
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  gpuScheduler:
+    tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+              - g6.24xlarge
+  ingress:
+    className: nginx
+    hosts:
+      - host: ai.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts:
+          - ai.example.com
+        secretName: ai-platform-tls
+  splunkConfiguration:
+    endpoint: https://splunk.mycorp.com
+    secretRef:
+      name: splunk-token
+      namespace: test
+  certificateRef: saia-cert
