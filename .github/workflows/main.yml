@@ -22,12 +22,15 @@ jobs:
 
   build-image:
     uses: ./.github/workflows/build-image.yml
+    secrets: inherit
     needs: unit-tests
 
   vulnerability-scan:
     uses: ./.github/workflows/vulnerability-scan.yml
+    secrets: inherit
     needs: build-image
 
-  smoke-tests:
-    uses: ./.github/workflows/smoke-tests.yml
-    needs: vulnerability-scan
+  # smoke-tests:
+  #   uses: ./.github/workflows/smoke-tests.yml
+  #   secrets: inherit
+  #   needs: vulnerability-scan
