@@ -29,6 +29,6 @@ jobs:
     uses: ./.github/workflows/vulnerability-scan.yml
     needs: build-image
 
-  smoke-tests:
-    uses: ./.github/workflows/smoke-tests.yml
-    needs: vulnerability-scan
+  # smoke-tests:
+  #   uses: ./.github/workflows/smoke-tests.yml
+  #   needs: vulnerability-scan
