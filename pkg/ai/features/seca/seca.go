@@ -5,7 +5,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type SecaReconciler struct{
+type SecaReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }

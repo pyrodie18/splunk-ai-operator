@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-type SaiaReconciler struct{
+type SaiaReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
@@ -41,7 +41,6 @@ func (h *SaiaReconciler) BuildResources(namespace, name string) []client.Object 
 		Service(namespace, name),
 	}
 }
-
 
 // validateAIService ensures required fields are set and defaults.
 func (r *SaiaReconciler) validateAIService(
@@ -124,7 +123,6 @@ func (r *SaiaReconciler) reconcileServiceAccount(
 	}
 	return nil
 }
-
 
 // reconcileCertificate manages cert-manager Certificate for mTLS.
 func (r *SaiaReconciler) reconcileCertificate(

@@ -94,6 +94,8 @@ func (in *AIPlatformSpec) DeepCopyInto(out *AIPlatformSpec) {
 		*out = make([]FeatureSpec, len(*in))
 		copy(*out, *in)
 	}
+	in.HeadGroupSpec.DeepCopyInto(&out.HeadGroupSpec)
+	in.WorkerGroupSpec.DeepCopyInto(&out.WorkerGroupSpec)
 	out.Sidecars = in.Sidecars
 	out.Images = in.Images
 	out.SplunkConfiguration = in.SplunkConfiguration

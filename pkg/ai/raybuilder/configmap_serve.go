@@ -68,7 +68,8 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *aiApi.AIPlatfo
 			return fmt.Errorf("checking existence of %s: %w", key, err)
 		}
 		if !ok {
-			// skip it — ZIP not in th bucket/container
+			// skip it — ZIP not in th bucket/container //FIXME TODO: log this
+			log.Info("Skipping application", "name", a.Name, "version", version, "reason", "not found in storage")
 			continue
 		}
 

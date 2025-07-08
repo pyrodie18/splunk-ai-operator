@@ -5,7 +5,11 @@ package raybuilder
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -27,7 +31,8 @@ import (
 
 	//"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	rbacv1 "k8s.io/api/rbac/v1"
-	utilpointer "k8s.io/utils/pointer"
+	"k8s.io/utils/pointer"
+	//utilpointer "k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -342,9 +347,9 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 		}},
 	}
 
-	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
-	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
-	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+	spec.NodeSelector = b.ai.Spec.CPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.CPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
 	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
 	// FIXME need to find better way to add sidecars
 	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
@@ -535,62 +540,54 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
+func hashWorkerGroupKey(key WorkerGroupKey) string {
+	b, _ := json.Marshal(key)
+	h := sha1.Sum(b)
+	return hex.EncodeToString(h[:])[:6] // short hash
+}
+
 func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Client, models []ModelSpec, instanceMap InstanceMap) []rayv1.WorkerGroupSpec {
 	logger := log.FromContext(ctx)
 	groupMap := make(map[WorkerGroupKey]int)
 	modelMetadata := make(map[WorkerGroupKey]ModelSpec)
 
 	for _, model := range models {
-		// If instance type is not specified, try to find one that satisfies model requirements
 		if model.InstanceType == "" {
 			found := false
-			for _, instances := range instanceMap {
-				for instance, info := range instances {
-					// compare against model requirements
-					modelCPUQty := resource.MustParse(fmt.Sprintf("%v", model.CPU))
-					modelMemQty := resource.MustParse(model.Memory)
-					requiredGPUs := model.GPUsPerReplica
-
-					instanceCPUQty := resource.MustParse(fmt.Sprintf("%v", info.VCPUs))
-					instanceMemQty := resource.MustParse(info.Memory)
-
-					if instanceCPUQty.Cmp(modelCPUQty) >= 0 &&
-						instanceMemQty.Cmp(modelMemQty) >= 0 &&
-						info.GPUs >= requiredGPUs {
-						model.InstanceType = instance
-						if model.GPUType == "" {
-							model.GPUType = info.GPUType
-						}
+			nodes := &corev1.NodeList{}
+			if err := k8sClient.List(ctx, nodes); err != nil {
+				logger.Error(err, "Failed to list nodes")
+			} else {
+				for _, node := range nodes.Items {
+					instanceType := node.Labels["node.kubernetes.io/instance-type"]
+					provider, err := detectProvider(k8sClient, ctx)
+					if err != nil {
+						logger.Error(err, "Failed to detect provider")
+						continue
+					}
+					instanceInfo, ok := instanceMap[provider][instanceType]
+					if ok && satisfies(model, instanceInfo) {
+						model.InstanceType = instanceType
+						model.GPUType = instanceInfo.GPUType
 						found = true
 						break
 					}
 				}
-				if found {
-					break
-				}
 			}
-
-			// fallback to default instance
 			if !found {
-				logger.Info("No matching instance found for model, using fallback instance", "model", model.Name)
-
-				// Detect cloud provider from label or configuration (assume model.Provider is set)
+				logger.Info("No matching instance found for model, using fallback", "model", model.Name)
 				provider, err := detectProvider(k8sClient, ctx)
 				if err != nil {
 					logger.Error(err, "Failed to detect provider")
 					continue
 				}
-				fallbackInfo, ok := instanceMap[provider]["default-gpu-instance"]
+				fallbackInfo, ok := instanceMap[provider]["fallback"]
 				if !ok {
-					logger.Error(fmt.Errorf("fallback instance not found for provider %s", provider), "Fallback failed")
+					logger.Error(fmt.Errorf("fallback not found for provider %s", provider), "Fallback failed")
 					continue
 				}
-
-				model.InstanceType = "default-gpu-instance"
+				model.InstanceType = "fallback"
 				model.GPUType = fallbackInfo.GPUType
-				model.Memory = fallbackInfo.Memory
-				model.CPU = fallbackInfo.VCPUs
-				model.GPUsPerReplica = fallbackInfo.GPUs
 			}
 		}
 
@@ -599,12 +596,14 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 			continue
 		}
 
+		// Normalize and hash key
+		memQty := resource.MustParse(model.Memory)
 		key := WorkerGroupKey{
 			GPUType:           model.GPUType,
-			GPUsPerReplica:    model.GPUsPerReplica,
-			TensorParallelism: model.TensorParallelism,
-			CPU:               model.CPU,
-			Memory:            model.Memory,
+			GPUsPerReplica:    int(math.Ceil(model.GPUsPerReplica)),
+			TensorParallelism: int(math.Ceil(model.TensorParallelism)),
+			CPU:               int(math.Ceil(model.CPU)),
+			Memory:            memQty.String(),
 		}
 		groupMap[key] += model.Replicas
 		modelMetadata[key] = model
@@ -616,7 +615,7 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 		model := modelMetadata[key]
 		groupName := "cpu-group"
 		if key.GPUsPerReplica > 0 {
-			groupName = fmt.Sprintf("%s-gpu%d-tp%d", key.GPUType, int(key.GPUsPerReplica), int(key.TensorParallelism))
+			groupName = fmt.Sprintf("%s-gpu%d-tp%d-%s", key.GPUType, key.GPUsPerReplica, key.TensorParallelism, hashWorkerGroupKey(key))
 		}
 
 		resources := corev1.ResourceRequirements{
@@ -624,7 +623,7 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 			Requests: corev1.ResourceList{},
 		}
 		if key.GPUsPerReplica > 0 {
-			gpuQty := resource.MustParse(strconv.Itoa(int(key.GPUsPerReplica)))
+			gpuQty := resource.MustParse(strconv.Itoa(key.GPUsPerReplica))
 			resources.Limits["nvidia.com/gpu"] = gpuQty
 			resources.Requests["nvidia.com/gpu"] = gpuQty
 		}
@@ -633,8 +632,8 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 			resources.Limits[corev1.ResourceMemory] = memQty
 			resources.Requests[corev1.ResourceMemory] = memQty
 		}
-		if key.CPU != 0 {
-			cpuQty := resource.MustParse(fmt.Sprintf("%v", model.CPU))
+		if key.CPU > 0 {
+			cpuQty := resource.MustParse(strconv.Itoa(key.CPU))
 			resources.Limits[corev1.ResourceCPU] = cpuQty
 			resources.Requests[corev1.ResourceCPU] = cpuQty
 		}
@@ -649,7 +648,7 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 		if key.TensorParallelism > 0 {
 			envs = append(envs, corev1.EnvVar{
 				Name:  "TENSOR_PARALLELISM",
-				Value: strconv.Itoa(int(key.TensorParallelism)),
+				Value: strconv.Itoa(key.TensorParallelism),
 			})
 		}
 
@@ -683,11 +682,11 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 
 		workerGroups = append(workerGroups, rayv1.WorkerGroupSpec{
 			GroupName:   groupName,
-			Replicas:    utilpointer.Int32(int32(totalReplicas)),
-			MinReplicas: utilpointer.Int32(int32(totalReplicas)),
-			MaxReplicas: utilpointer.Int32(int32(totalReplicas)),
+			Replicas:    pointer.Int32(int32(totalReplicas)),
+			MinReplicas: pointer.Int32(int32(totalReplicas)),
+			MaxReplicas: pointer.Int32(int32(totalReplicas)),
 			RayStartParams: map[string]string{
-				"num-gpus": strconv.Itoa(int(key.GPUsPerReplica)),
+				"num-gpus": strconv.Itoa(key.GPUsPerReplica),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -707,4 +706,20 @@ func (b *Builder) GenerateWorkerGroups(ctx context.Context, k8sClient client.Cli
 	}
 
 	return workerGroups
+}
+
+func satisfies(model ModelSpec, info InstanceDetails) bool {
+	// Parse model requirements
+	modelCPUQty := resource.MustParse(fmt.Sprintf("%v", model.CPU))
+	modelMemQty := resource.MustParse(model.Memory)
+	requiredGPUs := model.GPUsPerReplica
+
+	// Parse instance capacity
+	instanceCPUQty := resource.MustParse(fmt.Sprintf("%f", info.VCPUs))
+	instanceMemQty := resource.MustParse(info.Memory)
+
+	// Check if the instance has enough CPU, memory, and GPUs
+	return instanceCPUQty.Cmp(modelCPUQty) >= 0 &&
+		instanceMemQty.Cmp(modelMemQty) >= 0 &&
+		info.GPUs >= requiredGPUs
 }

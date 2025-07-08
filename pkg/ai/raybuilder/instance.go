@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
@@ -43,9 +42,8 @@ func (b *Builder) ReconcileInstancesConfigMap(ctx context.Context, p *aiApi.AIPl
 			cm.Data = map[string]string{}
 		}
 		if _, exists := cm.Data["instance.yaml"]; !exists {
-			home := os.Getenv("HOME")                                         // Get the home directory from environment variable
-			home = "/Users/vivekr/Projects/splunk-ai-operator/config/configs" // For testing, use a fixed path FIXME TODO: remove this once we have a better way to handle multiple paths
-			content, err := os.ReadFile(path.Join(home, "instance.yaml"))
+			instance_file := os.Getenv("INSTANCE_FILE") // Get the instance file from environment variable
+			content, err := os.ReadFile(instance_file)  // Read the instance.yaml file
 			if err != nil {
 				return err
 			}

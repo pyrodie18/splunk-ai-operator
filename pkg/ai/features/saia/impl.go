@@ -1,13 +1,11 @@
 package saia
 
 import (
-
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 )
 
 func ConfigMap(namespace, name string) *corev1.ConfigMap {
@@ -92,9 +90,6 @@ func Service(namespace, name string) *corev1.Service {
 		},
 	}
 }
-
-
-
 
 func pointer(i int32) *int32 {
 	return &i

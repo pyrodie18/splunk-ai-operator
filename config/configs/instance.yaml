@@ -38,9 +38,9 @@ aws:
   fallback:
     gpuType: nvidia-t4
     acceleratorType: T4
-    numGPUs: 1
-    totalCPU: 4
-    totalMemory: "16Gi"
+    gpus: 1
+    vcpus: 4
+    memory: "16Gi"
 
 gcp:
   a2-highgpu-1g:
@@ -70,9 +70,9 @@ gcp:
   fallback:
     gpuType: nvidia-t4
     acceleratorType: T4
-    numGPUs: 1
-    totalCPU: 4
-    totalMemory: "16Gi"
+    gpus: 1
+    vcpus: 4
+    memory: "16Gi"
 
 azure:
   Standard_ND96asr_v4:
@@ -102,6 +102,6 @@ azure:
   fallback:
     gpuType: nvidia-t4
     acceleratorType: T4
-    numGPUs: 1
-    totalCPU: 4
-    totalMemory: "16Gi"
+    gpus: 1
+    vcpus: 4
+    memory: "16Gi"

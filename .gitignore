@@ -7,6 +7,7 @@
 *.dylib
 bin
 testbin/*
+examplecodebase/*
 Dockerfile.cross
 
 # Test binary, build with `go test -c`

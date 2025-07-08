@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	"gopkg.in/yaml.v2"
@@ -506,9 +505,8 @@ func (b *Builder) ReconcileApplicationsConfigMap(ctx context.Context, p *aiApi.A
 			cm.Data = map[string]string{}
 		}
 		if _, exists := cm.Data["applications.yaml"]; !exists {
-			home := os.Getenv("HOME")
-			home = "/Users/vivekr/Projects/splunk-ai-operator/config/configs"
-			content, err := os.ReadFile(path.Join(home, "applications.yaml"))
+			application_file := os.Getenv("APPLICATION_FILE")
+			content, err := os.ReadFile(application_file)
 			if err != nil {
 				return err
 			}
@@ -539,6 +537,9 @@ func (b *Builder) ReconcileApplicationsConfigMap(ctx context.Context, p *aiApi.A
 func PatchModelDefaults(apps *RayServiceSpec) {
 	for i := range apps.RayService.Applications {
 		app := &apps.RayService.Applications[i]
+		if app.Args == nil || app.Args.DeploymentConfigs == nil {
+			continue // skip if no args or deployment configs
+		}
 		for deployName, deployConfig := range app.Args.DeploymentConfigs {
 			for gpuType, cfg := range deployConfig.GPUTypeOptionsOverride {
 				if cfg.RayActorOptions.NumGPUs == 0 {
@@ -547,11 +548,16 @@ func PatchModelDefaults(apps *RayServiceSpec) {
 				if cfg.RayActorOptions.NumCPUs == 0 {
 					cfg.RayActorOptions.NumCPUs = 0.0 // default value
 				}
-				if cfg.AutoscalingConfig.MinReplicas == 0 {
-					cfg.AutoscalingConfig.MinReplicas = 1
+				if cfg.AutoscalingConfig == nil {
+					cfg.AutoscalingConfig = &AutoscalingConfig{}
 				}
-				if cfg.AutoscalingConfig.MaxReplicas == 0 {
-					cfg.AutoscalingConfig.MaxReplicas = 1
+				if cfg.AutoscalingConfig.MinReplicas == nil {
+					cfg.AutoscalingConfig.MinReplicas = new(int)
+					*cfg.AutoscalingConfig.MinReplicas = 0
+				}
+				if cfg.AutoscalingConfig.MaxReplicas == nil {
+					cfg.AutoscalingConfig.MaxReplicas = new(int)
+					*cfg.AutoscalingConfig.MaxReplicas = 0
 				}
 				app.Args.DeploymentConfigs[deployName].GPUTypeOptionsOverride[gpuType] = cfg
 			}
@@ -567,7 +573,13 @@ func BuildModelSpecsFromApplicationsYAML(data string) ([]ModelSpec, error) {
 
 	var specs []ModelSpec
 	for _, app := range spec.RayService.Applications {
+		if app.Args == nil {
+			continue // skip if no args
+		}
 		for _, config := range app.Args.DeploymentConfigs {
+			if config.Options == nil || config.Options.RayActorOptions == nil {
+				continue
+			}
 			numGPUs := config.Options.RayActorOptions.NumGPUs
 			numCPUs := config.Options.RayActorOptions.NumCPUs
 
@@ -576,14 +588,21 @@ func BuildModelSpecsFromApplicationsYAML(data string) ([]ModelSpec, error) {
 				continue
 			}
 
+			if config.Options.AutoscalingConfig == nil {
+				config.Options.AutoscalingConfig = &AutoscalingConfig{}
+			}
 			replicas := config.Options.AutoscalingConfig.MinReplicas
-			if replicas == 0 {
-				replicas = 0 // default
+			if replicas == nil {
+				replicas = new(int)
+				*replicas = 0 // default
 			}
 
 			tp := 1.0
-			if numGPUs > 0 {
+			if numGPUs > 0.0 {
 				tp = numGPUs
+			}
+			if config.Options.RayActorOptions == nil {
+				config.Options.RayActorOptions = &RayActorOptions{}
 			}
 			memory := config.Options.RayActorOptions.Memory
 			if memory == "" {
@@ -594,7 +613,7 @@ func BuildModelSpecsFromApplicationsYAML(data string) ([]ModelSpec, error) {
 				Name:              app.Name,
 				GPUsPerReplica:    numGPUs,
 				TensorParallelism: tp,
-				Replicas:          replicas,
+				Replicas:          *replicas,
 				CPU:               numCPUs,
 				Memory:            memory,
 			}

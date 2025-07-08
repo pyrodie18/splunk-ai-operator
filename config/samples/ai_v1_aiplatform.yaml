@@ -19,14 +19,21 @@ spec:
       pvcName: weaviate-pvc             # Optional: if you want to use a pre-created PVC
       size: 50Gi                        # Optional: used if pvcName is not provided
       storageClassName: gp3             # Optional: used for dynamic PVC provisioning
-  #cpuScheduler:
-  #  nodeSelector:
-  #    workload: cpu
-  #  tolerations:
-  #    - key: "cpu"
-  #      operator: "Equal"
-  #      value: "true"
-  #      effect: "NoSchedule"
+  cpuScheduler:
+    affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: node.kubernetes.io/instance-type
+                      operator: In
+                      values:
+                        - g6.24xlarge
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
   gpuScheduler:
     tolerations:
     - key: nvidia.com/gpu

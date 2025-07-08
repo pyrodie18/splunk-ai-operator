@@ -50,10 +50,9 @@ type AIPlatformSpec struct {
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// options are "saia", "seca"
-	Features []FeatureSpec `json:"features,omitempty"`
-	//HeadGroupSpec          HeadGroupSpec   `json:"headGroupSpec,omitempty"`
-	//WorkerGroupSpec        WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
-	//DefaultAcceleratorType string          `json:"defaultAcceleratorType"`
+	Features        []FeatureSpec   `json:"features,omitempty"`
+	HeadGroupSpec   HeadGroupSpec   `json:"headGroupSpec,omitempty"`
+	WorkerGroupSpec WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
 	// Which sidecars to inject
 	Sidecars SidecarConfig `json:"sidecars,omitempty"`
 

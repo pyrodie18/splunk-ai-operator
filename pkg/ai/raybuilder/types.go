@@ -12,6 +12,7 @@ type ServeConfig struct {
 	GRPCOptions   GRPCOptions   `json:"grpc_options"`
 	LoggingConfig LoggingConfig `json:"logging_config"`
 	Applications  []Application `json:"applications"`
+	RoutePrefix   string        `json:"route_prefix,omitempty"`
 }
 
 type HTTPOptions struct {
@@ -32,43 +33,6 @@ type LoggingConfig struct {
 	LogsDir         string `json:"logs_dir,omitempty"`
 	Encoding        string `json:"encoding,omitempty"`
 	EnableAccessLog bool   `json:"enable_access_log,omitempty"`
-}
-
-// Application mirrors one rayService application
-type Application struct {
-	Name        string      `yaml:"name"`
-	ImportPath  string      `yaml:"import_path,omitempty"` // Optional, used for Python imports
-	RoutePrefix string      `yaml:"route_prefix,omitempty"`
-	RuntimeEnv  *RuntimeEnv `yaml:"runtime_env,omitempty"`
-	Args        struct {
-		DeploymentConfigs map[string]struct {
-			GPUTypeOptionsOverride map[string]struct {
-				AutoscalingConfig struct {
-					MinReplicas int `yaml:"min_replicas"`
-					MaxReplicas int `yaml:"max_replicas"`
-				} `yaml:"autoscaling_config"`
-				RayActorOptions struct {
-					NumGPUs float64 `yaml:"num_gpus"` // Can be fractional like 0.01
-					NumCPUs float64 `yaml:"num_cpus"` // Optional
-				} `yaml:"ray_actor_options"`
-			} `yaml:"gpu_type_options_override"`
-		} `yaml:"deployment_configs"`
-		ModelDefinition struct {
-			ModelID                    string `yaml:"model_id"`
-			GPUTypeModelConfigOverride map[string]struct {
-				EngineArgs struct {
-					TensorParallelSize int `yaml:"tensor_parallel_size"`
-				} `yaml:"engine_args"`
-			} `yaml:"gpu_type_model_config_override"`
-		} `yaml:"model_definition"`
-	} `yaml:"args"`
-}
-
-// RuntimeEnv mirrors the runtime_env field in rayService
-type RuntimeEnv struct {
-	WorkingDir string            `json:"working_dir,omitempty"`
-	EnvVars    map[string]string `json:"env_vars,omitempty"`
-	Pip        []string          `json:"pip,omitempty"`
 }
 
 // Config is just a thin wrapper around rayService.applications
@@ -109,55 +73,109 @@ type InstanceDetails struct {
 
 type WorkerGroupKey struct {
 	GPUType           string
-	GPUsPerReplica    float64
-	TensorParallelism float64
-	CPU               float64
+	GPUsPerReplica    int
+	TensorParallelism int
+	CPU               int
 	Memory            string
 }
 
 type InstanceInfo struct {
-	GPUType string `json:"gpuType"`
-	GPUs    int    `json:"gpus"`
-	Memory  int    `json:"memory"`
-	VCPUs   int    `json:"vcpus"`
+	GPUType string  `json:"gpuType"`
+	GPUs    float64 `json:"gpus"`
+	Memory  string  `json:"memory"`
+	VCPUs   float64 `json:"vcpus"`
 }
 
 type RayServiceSpec struct {
-	RayService ApplicationsYaml `yaml:"rayService"`
+	RayService RayService `yaml:"rayService"`
 }
 
-type ApplicationsYaml struct {
-	Applications []ApplicationEntry `yaml:"applications"`
+type RayService struct {
+	Applications []Application `yaml:"applications"`
 }
 
-type ApplicationEntry struct {
-	Name string `yaml:"name"`
-	Args struct {
-		DeploymentConfigs map[string]DeploymentConfig `yaml:"deployment_configs"`
-	} `yaml:"args"`
+type Application struct {
+	Name          string         `yaml:"name"`
+	Args          *Args          `yaml:"args,omitempty"`
+	RuntimeEnv    *RuntimeEnv    `yaml:"runtime_env,omitempty"`
+	LLMDeployment *LLMDeployment `yaml:"LLMDeployment,omitempty"`
+	WorkingDir    string         `yaml:"working_dir,omitempty"`
+	ImportPath    string         `yaml:"import_path,omitempty"`
+	RoutePrefix   string         `yaml:"route_prefix,omitempty"`
+}
+
+type Args struct {
+	DeploymentType             string                      `yaml:"deployment_type,omitempty"`
+	CustomDeploymentImportPath string                      `yaml:"custom_deployment_import_path,omitempty"`
+	DeploymentConfigs          map[string]DeploymentConfig `yaml:"deployment_configs,omitempty"`
+	ModelDefinition            *ModelDefinition            `yaml:"model_definition,omitempty"`
+	TokenizerDefinition        *TokenizerDefinition        `yaml:"tokenizer_definition,omitempty"`
 }
 
 type DeploymentConfig struct {
-	GPUTypeOptionsOverride map[string]struct {
-		AutoscalingConfig struct {
-			MinReplicas int `yaml:"min_replicas"`
-			MaxReplicas int `yaml:"max_replicas"`
-		} `yaml:"autoscaling_config"`
-		RayActorOptions struct {
-			NumGPUs float64 `yaml:"num_gpus"`
-			NumCPUs float64 `yaml:"num_cpus"`
-			Memory  string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
-		} `yaml:"ray_actor_options"`
-	} `yaml:"gpu_type_options_override"`
-	Options struct {
-		AutoscalingConfig struct {
-			MinReplicas int `yaml:"min_replicas"`
-			MaxReplicas int `yaml:"max_replicas"`
-		} `yaml:"autoscaling_config"`
-		RayActorOptions struct {
-			NumGPUs float64 `yaml:"num_gpus"`
-			NumCPUs float64 `yaml:"num_cpus"`
-			Memory  string  `yaml:"memory,omitempty"` // Optional, e.g., "8Gi"
-		} `yaml:"ray_actor_options"`
-	} `yaml:"options"`
+	Options                *DeploymentOptions           `yaml:"options,omitempty"`
+	GPUTypeOptionsOverride map[string]DeploymentOptions `yaml:"gpu_type_options_override,omitempty"`
+	EnvOptionsOverride     map[string]DeploymentOptions `yaml:"env_options_override,omitempty"`
+}
+
+type DeploymentOptions struct {
+	AutoscalingConfig  *AutoscalingConfig `yaml:"autoscaling_config,omitempty"`
+	RayActorOptions    *RayActorOptions   `yaml:"ray_actor_options,omitempty"`
+	MaxOngoingRequests *int               `yaml:"max_ongoing_requests,omitempty"`
+	Memory             string             `yaml:"memory,omitempty"`
+}
+
+type AutoscalingConfig struct {
+	MaxReplicas           *int `yaml:"max_replicas,omitempty"`
+	MinReplicas           *int `yaml:"min_replicas,omitempty"`
+	TargetOngoingRequests *int `yaml:"target_ongoing_requests,omitempty"`
+}
+
+type RayActorOptions struct {
+	NumGPUs float64 `yaml:"num_gpus,omitempty"`
+	NumCPUs float64 `yaml:"num_cpus,omitempty"`
+	Memory  string  `yaml:"memory,omitempty"`
+}
+
+type ModelDefinition struct {
+	ModelID                    string                            `yaml:"model_id,omitempty"`
+	ModelType                  string                            `yaml:"model_type,omitempty"`
+	CustomModelImportPath      string                            `yaml:"custom_model_import_path,omitempty"`
+	ModelLoader                *ModelLoader                      `yaml:"model_loader,omitempty"`
+	GPUTypeModelConfigOverride map[string]GPUModelConfigOverride `yaml:"gpu_type_model_config_override,omitempty"`
+}
+
+type GPUModelConfigOverride struct {
+	EngineArgs *EngineArgs `yaml:"engine_args,omitempty"`
+}
+
+type EngineArgs struct {
+	DType                string  `yaml:"dtype,omitempty"`
+	MaxModelLen          int     `yaml:"max_model_len,omitempty"`
+	TensorParallelSize   int     `yaml:"tensor_parallel_size,omitempty"`
+	GPUMemoryUtilization float64 `yaml:"gpu_memory_utilization,omitempty"`
+}
+
+type ModelLoader struct {
+	RemoteArtifact *RemoteArtifact `yaml:"remote_artifact,omitempty"`
+}
+
+type RemoteArtifact struct {
+	KeyPrefix     string   `yaml:"key_prefix,omitempty"`
+	ArtifactsList []string `yaml:"artifacts_list,omitempty"`
+}
+
+type TokenizerDefinition struct {
+	ModelID     string       `yaml:"model_id,omitempty"`
+	ModelLoader *ModelLoader `yaml:"model_loader,omitempty"`
+}
+
+type RuntimeEnv struct {
+	Pip        []string          `yaml:"pip,omitempty"`
+	EnvVars    map[string]string `yaml:"env_vars,omitempty"`
+	WorkingDir string            `yaml:"working_dir,omitempty"`
+}
+
+type LLMDeployment struct {
+	GPUTypeOptionsOverride map[string]DeploymentOptions `yaml:"gpu_type_options_override,omitempty"`
 }

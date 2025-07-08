@@ -34,7 +34,14 @@ RUN mkdir -p /certs && \
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY --from=builder /workspace/manager .
-USER 65532:65532
 
+COPY --from=builder /workspace/manager .
+COPY config/configs/instance.yaml instance.yaml
+COPY config/configs/application.yaml application.yaml
+COPY --from=builder /certs/tls.crt /certs/tls.crt
+COPY --from=builder /certs/tls.key /certs/tls.key
+
+USER 65532:65532
+ENV INSTANCE_FILE=/instance.yaml
+ENV APPLICATION_FILE=/application.yaml   
 ENTRYPOINT ["/manager"]
