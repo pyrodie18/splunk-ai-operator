@@ -52,7 +52,7 @@ metadata:
     app.kubernetes.io/instance: example
     app.kubernetes.io/version: 0.1.0
 spec:
-  volume:
+  objectStorage:
     path: "s3://bucketname/<path prefix>"
     region: "us-west-2"
     secretRef: s3-secret
@@ -61,6 +61,30 @@ spec:
     - name: "saia"
       serviceAccountName: "saia-sa"
       version: "0.1.0"
+  headGroupSpec:
+    serviceAccountName: "head-group-sa"
+    imageRegistry: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head"
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+  workerGroupSpec:
+    serviceAccountName: "worker-sa"
+    imageRegistry: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu"
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    gpuConfigs:
+      tier: ""
+      minReplicas: 0
+      maxReplicas: 0
+      gpusPerPod: 0
+      resources:
+        requests:
+          memory: "12Gi"
+          cpu: "24"
+        limits:
+          memory: "12Gi"
+          cpu: "24"  
   sidecars:
     envoy: true
     fluentBit: true
@@ -88,23 +112,27 @@ spec:
       pvcName: "pvc-vector-db"
       size: "100Gi"
       storageClassName: "gp2"
-  gpuScheduling:
+  gpuScheduler:
     nodeSelector: {}
     affinity: {}
     tolerations: []
-  cpuScheduling:
+  cpuScheduler:
     nodeSelector: {}
     affinity: {}
     tolerations: []
+  ingress:
+    enabled: false
 ```
 
 The `AIPlatform` resource provides the following `Spec` configuration parameters:
 
 | Key        | Type    | Description                                       |
 | ---------- | ------- | ------------------------------------------------- |
-| volume   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models. See [Service Artifacts Storage](ServiceArtifactsStorage.md) |
+| storageObject   | object | Information for the related s3 bucket that holds the AIPlatform artifacts, tasks, and models. See [Service Artifacts Storage](ServiceArtifactsStorage.md) |
 | serviceAccountName   | string | The name of the [Service Account](https://kubernetes.io/docs/concepts/security/service-accounts/) for the project |
 | features   | array | List of features to be installed by the AI Platform |
+| headGroupSpec   | object | Information for the Ray head group configuration |
+| workerGroupSpec   | array | Information for the Ray worker group configuration |
 | sidecars   | object | Boolean values for which sidecars to deploy |
 | certificatRef   | string | cert-manager Certificate for mTLS |
 | clusterDomain   | string | DNS suffix for in-cluster services |
@@ -112,8 +140,9 @@ The `AIPlatform` resource provides the following `Spec` configuration parameters
 | defaultAcceleratorType   | string | Default accelerator type |
 | splunkConfiguration   | object | Splunk Configuration instance reference |
 | storage   | object | Storage configuration for the vectorDB |
-| gpuScheduling   | object | Scheduling configuration for GPU nodes |
-| cpuScheduling   | object | Scheduling configuration for CPU nodes |
+| gpuScheduler   | object | Scheduling configuration for GPU nodes |
+| cpuScheduler   | object | Scheduling configuration for CPU nodes |
+| ingress   | object | Configuration for ingress to be created if enabled |
 
 ## AI Service Spec Parameters
 
