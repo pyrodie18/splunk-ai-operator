@@ -11,7 +11,7 @@ fullnameOverride: ""
 namespaceOverride: ""
 
 # Storage volume
-volume:
+objectStorage:
   # Remote volume URI in the format s3://bucketname/<path prefix>
   path: ""
   # Optional override endpoint (only really needed for S3-compatible like MinIO)
@@ -21,16 +21,49 @@ volume:
   # Secret object name
   secretRef: ""
 
-# Name of service account to use for the AIPlatform CR
+# Name of the service account to use for the AIPlatform
+# used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
 serviceAccountName: ""
 
-# List of defined features to enable in the AI platform (e.g., saia) and version
+# List of defined features to enable in the AI platform and version
+# Options include: saia, seca
 features:
   - name: ""
     # Name of service account to use for the AI feature CR
     serviceAccountName: ""
     # Version of the feature
     version: ""
+
+headGroupSpec:
+  # Service account name for the Ray head group
+  serviceAccountName: ""
+  # Image registries for Ray
+  imageRegistry: ""
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+workerGroupSpec:
+  # Service account name for the Ray worker group
+  serviceAccountName: ""
+  # Image registries for Ray Worker group
+  imageRegistry: ""
+  # Defines one worker-tier with scheduling and accelerator settings.
+  gpuConfigs:
+    - tier: ""
+      minReplicas: 0
+      maxReplicas: 0
+      gpusPerPod: 0
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 2000Mi
+        requests:
+          cpu: 1000m
+          memory: 2000Mi
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
 
 sidecars:
   # Enables the Envoy sidecar
@@ -83,7 +116,7 @@ storage:
     # Optional StorageClassName to use for dynamic PVC provisioning
     storageClassName: ""  # e.g., "gp2", "standard", "azurefile"
 
-gpuScheduling:
+gpuScheduler:
   # controls GPU node placement for Ray workloads
   nodeSelector: {}
   # affinity for GPU/CPU nodes
@@ -91,7 +124,7 @@ gpuScheduling:
   # required if GPU nodes are tainted
   tolerations: []
 
-cpuScheduling:
+cpuScheduler:
   # controls CPU node placement for CPU workloads
   nodeSelector: {}
   # affinity for CPU nodes
@@ -111,8 +144,7 @@ ingress:
     - host: chart-example.local
       paths:
         - path: /
-          pathType: ImplementationSpecific
-          port: 80
+          pathType: Prefix
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:

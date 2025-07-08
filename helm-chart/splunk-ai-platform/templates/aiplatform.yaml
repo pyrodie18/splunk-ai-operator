@@ -8,13 +8,13 @@ metadata:
   labels:
     {{- include "splunk-ai-platform.labels" . | nindent 4 }}
 spec:
-  volume:
-    path: {{ .Values.volume.path | quote }}
-    {{- if .Values.volume.endpoint }}
-    endpoint: {{ .Values.volume.endpoint | quote }}
+  objectStorage:
+    path: {{ .Values.objectStorage.path | quote }}
+    {{- if .Values.objectStorage.endpoint }}
+    endpoint: {{ .Values.objectStorage.endpoint | quote }}
     {{- end }}
-    region: {{ .Values.volume.region | quote }}
-    secretRef: {{ .Values.volume.secretRef | quote }}
+    region: {{ .Values.objectStorage.region | quote }}
+    secretRef: {{ .Values.objectStorage.secretRef | quote }}
   {{- if .Values.serviceAccountName}}
   serviceAccountName: {{ .Values.serviceAccountName | quote }}
   {{- end }}
@@ -24,6 +24,26 @@ spec:
       serviceAccountName: {{ .serviceAccountName | quote }}
       version: {{ .version | quote }}
     {{- end }}
+  headGroupSpec:
+    serviceAccountName: {{ .Values.headGroupSpec.serviceAccountName | quote }}
+    nodeSelector: {{ toYaml .Values.headGroupSpec.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.headGroupSpec.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.headGroupSpec.tolerations | nindent 4 }}
+    imageRegistry: {{ .Values.headGroupSpec.imageRegistry | quote }}
+  workerGroupSpec:
+    serviceAccountName: {{ .Values.workerGroupSpec.serviceAccountName | quote }}
+    imageRegistry: {{ .Values.workerGroupSpec.imageRegistry | quote }}
+    gpuConfigs:
+      {{- range .Values.workerGroupSpec.gpuConfigs }}
+      - tier: {{ .tier | quote }}
+        minReplicas: {{ .minReplicas }}
+        maxReplicas: {{ .maxReplicas }}
+        gpusPerPod: {{ .gpusPerPod }}
+{{- toYaml .resources | nindent 12 }}
+      {{- end }}
+    nodeSelector: {{ toYaml .Values.workerGroupSpec.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.workerGroupSpec.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.workerGroupSpec.tolerations | nindent 4 }}
   sidecars:
     envoy: {{ .Values.sidecars.envoy }}
     fluentBit: {{ .Values.sidecars.fluentBit }}
@@ -43,12 +63,12 @@ spec:
       pvcName: {{ .Values.storage.vectorDB.pvcName | quote }}
       size: {{ .Values.storage.vectorDB.size | quote }}
       storageClassName: {{ .Values.storage.vectorDB.storageClassName | quote }}
-  gpuScheduling:
-    nodeSelector: {{ toYaml .Values.gpuScheduling.nodeSelector | nindent 4 }}
-    affinity: {{ toYaml .Values.gpuScheduling.affinity | nindent 4 }}
-    tolerations: {{ toYaml .Values.gpuScheduling.tolerations | nindent 4 }}
-  cpuScheduling:
-    nodeSelector: {{ toYaml .Values.cpuScheduling.nodeSelector | nindent 4 }}
-    affinity: {{ toYaml .Values.cpuScheduling.affinity | nindent 4 }}
-    tolerations: {{ toYaml .Values.cpuScheduling.tolerations | nindent 4 }}
+  gpuScheduler:
+    nodeSelector: {{ toYaml .Values.gpuScheduler.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.gpuScheduler.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.gpuScheduler.tolerations | nindent 4 }}
+  cpuScheduler:
+    nodeSelector: {{ toYaml .Values.cpuScheduler.nodeSelector | nindent 4 }}
+    affinity: {{ toYaml .Values.cpuScheduler.affinity | nindent 4 }}
+    tolerations: {{ toYaml .Values.cpuScheduler.tolerations | nindent 4 }}
 {{- end -}}
