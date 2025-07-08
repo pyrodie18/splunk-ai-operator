@@ -39,6 +39,7 @@ spec:
         minReplicas: {{ .minReplicas }}
         maxReplicas: {{ .maxReplicas }}
         gpusPerPod: {{ .gpusPerPod }}
+        resources:
 {{- toYaml .resources | nindent 12 }}
       {{- end }}
     nodeSelector: {{ toYaml .Values.workerGroupSpec.nodeSelector | nindent 4 }}
