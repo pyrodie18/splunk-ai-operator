@@ -7,7 +7,6 @@ on:
       - main
       - develop
       - CSPL-3725
-      - fix_workflows
 permissions:
   actions: read
   contents: read
