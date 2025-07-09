@@ -37,11 +37,11 @@ WORKDIR /
 
 COPY --from=builder /workspace/manager .
 COPY config/configs/instance.yaml instance.yaml
-COPY config/configs/application.yaml application.yaml
+COPY config/configs/applications.yaml applications.yaml
 COPY --from=builder /certs/tls.crt /certs/tls.crt
 COPY --from=builder /certs/tls.key /certs/tls.key
 
 USER 65532:65532
 ENV INSTANCE_FILE=/instance.yaml
-ENV APPLICATION_FILE=/application.yaml   
+ENV APPLICATION_FILE=/applications.yaml   
 ENTRYPOINT ["/manager"]
