@@ -81,6 +81,7 @@ certificateRef: ""
 clusterDomain: "cluster.local"
 
 # List of image registries to use for Ray
+# TODO: is this needed? There are related image environment variables in the splunk ai operator chart/deployment
 images:
   # Image for SAIA
   saiaImage: "splunkai/saia:latest"
