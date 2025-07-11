@@ -5,13 +5,12 @@ Expand the name of the chart.
 {{- default .Chart.Name .Values.nameOverride -}}
 {{- end -}}
 
+{{/* 
+Create standard operator fullname for uniform installation across Helm and manifest
+*/}}
 {{- define "splunk-ai-operator.fullname" -}}
-{{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- printf "%s-%s" (include "splunk-ai-operator.name" .) .Release.Name | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-{{- end -}}
+{{- default "splunk-ai-operator" .Values.nameOverride }}
+{{- end }}
 
 {{/*
 Create the name of the service account to use for splunk operator
