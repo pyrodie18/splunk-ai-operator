@@ -2,14 +2,12 @@ package raybuilder
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"path"
 
-	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
-	"gopkg.in/yaml.v2"
+	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -36,7 +34,6 @@ const DefaultApplicationsYaml = `applications:
             s3_artifact:
               s3_key_prefix: model_artifacts/uae-large
           model_type: sentence_transformer
-              
 `
 
 const TestDefaultApplicationsYaml = `applications:
@@ -494,149 +491,25 @@ const TestDefaultApplicationsYaml = `applications:
           SECRETS_FILE_PATH: /home/ray/secrets.json`
 
 // --- 5️⃣ ReconcileApplicationsConfigMap: bootstrap user‐editable apps fragment ---
-func (b *Builder) ReconcileApplicationsConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
+func (b *Builder) ReconcileApplicationsConfigMap(ctx context.Context, p *enterpriseApi.AIPlatform) error {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
 		Name:      p.Name + "-applications",
 		Namespace: p.Namespace,
 	}}
-
 	_, err := controllerutil.CreateOrUpdate(ctx, b.Client, cm, func() error {
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
 		if _, exists := cm.Data["applications.yaml"]; !exists {
-			application_file := os.Getenv("APPLICATION_FILE")
-			content, err := os.ReadFile(application_file)
+			home := os.Getenv("HOME")
+			content, err := os.ReadFile(path.Join(home, "applications.yaml"))
 			if err != nil {
 				return err
 			}
-
-			// Parse applications.yaml
-			var apps RayServiceSpec
-			if err := yaml.Unmarshal(content, &apps); err != nil {
-				return fmt.Errorf("failed to parse applications.yaml: %w", err)
-			}
-
-			// Patch with default values
-			PatchModelDefaults(&apps)
-
-			// Marshal back to YAML
-			patchedYaml, err := yaml.Marshal(&apps)
-			if err != nil {
-				return fmt.Errorf("failed to marshal patched applications.yaml: %w", err)
-			}
-
-			cm.Data["applications.yaml"] = string(patchedYaml)
+			cm.Data["applications.yaml"] = string(content)
+			//cm.Data["applications.yaml"] = DefaultApplicationsYaml
 		}
-
 		return controllerutil.SetOwnerReference(p, cm, b.Scheme)
 	})
 	return err
-}
-
-func PatchModelDefaults(apps *RayServiceSpec) {
-	for i := range apps.RayService.Applications {
-		app := &apps.RayService.Applications[i]
-		if app.Args == nil || app.Args.DeploymentConfigs == nil {
-			continue // skip if no args or deployment configs
-		}
-		for deployName, deployConfig := range app.Args.DeploymentConfigs {
-			for gpuType, cfg := range deployConfig.GPUTypeOptionsOverride {
-				if cfg.RayActorOptions.NumGPUs == 0 {
-					cfg.RayActorOptions.NumGPUs = 0.0 // default value
-				}
-				if cfg.RayActorOptions.NumCPUs == 0 {
-					cfg.RayActorOptions.NumCPUs = 0.0 // default value
-				}
-				if cfg.AutoscalingConfig == nil {
-					cfg.AutoscalingConfig = &AutoscalingConfig{}
-				}
-				if cfg.AutoscalingConfig.MinReplicas == nil {
-					cfg.AutoscalingConfig.MinReplicas = new(int)
-					*cfg.AutoscalingConfig.MinReplicas = 0
-				}
-				if cfg.AutoscalingConfig.MaxReplicas == nil {
-					cfg.AutoscalingConfig.MaxReplicas = new(int)
-					*cfg.AutoscalingConfig.MaxReplicas = 0
-				}
-				app.Args.DeploymentConfigs[deployName].GPUTypeOptionsOverride[gpuType] = cfg
-			}
-		}
-	}
-}
-
-func BuildModelSpecsFromApplicationsYAML(data string) ([]ModelSpec, error) {
-	var spec RayServiceSpec
-	if err := yaml.Unmarshal([]byte(data), &spec); err != nil {
-		return nil, err
-	}
-
-	var specs []ModelSpec
-	for _, app := range spec.RayService.Applications {
-		if app.Args == nil {
-			continue // skip if no args
-		}
-		for _, config := range app.Args.DeploymentConfigs {
-			if config.Options == nil || config.Options.RayActorOptions == nil {
-				continue
-			}
-			numGPUs := config.Options.RayActorOptions.NumGPUs
-			numCPUs := config.Options.RayActorOptions.NumCPUs
-
-			// Skip only if both CPU and GPU are zero
-			if numGPUs == 0 && numCPUs == 0 {
-				continue
-			}
-
-			if config.Options.AutoscalingConfig == nil {
-				config.Options.AutoscalingConfig = &AutoscalingConfig{}
-			}
-			replicas := config.Options.AutoscalingConfig.MinReplicas
-			if replicas == nil {
-				replicas = new(int)
-				*replicas = 0 // default
-			}
-
-			tp := 1.0
-			if numGPUs > 0.0 {
-				tp = numGPUs
-			}
-			if config.Options.RayActorOptions == nil {
-				config.Options.RayActorOptions = &RayActorOptions{}
-			}
-			memory := config.Options.RayActorOptions.Memory
-			if memory == "" {
-				memory = "8Gi" // default memory if not specified TODO FIXME: make this configurable
-			}
-
-			modelSpec := ModelSpec{
-				Name:              app.Name,
-				GPUsPerReplica:    numGPUs,
-				TensorParallelism: tp,
-				Replicas:          *replicas,
-				CPU:               numCPUs,
-				Memory:            memory,
-			}
-
-			if numCPUs > 0 {
-				modelSpec.CPU = numCPUs
-			}
-
-			specs = append(specs, modelSpec)
-		}
-	}
-	return specs, nil
-}
-
-func ReadApplicationsYAMLFromConfigMap(ctx context.Context, cl client.Client, name, namespace string) (string, error) {
-	cm := &corev1.ConfigMap{}
-	err := cl.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, cm)
-	if err != nil {
-		return "", err
-	}
-	val, ok := cm.Data["applications.yaml"]
-	if !ok {
-		return "", fmt.Errorf("applications.yaml not found in ConfigMap %s/%s", namespace, name)
-	}
-	return val, nil
 }

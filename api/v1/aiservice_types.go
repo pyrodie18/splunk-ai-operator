@@ -27,19 +27,29 @@ import (
 
 // AIServiceSpec defines the desired state of AIService
 type AIServiceSpec struct {
+	// Features defines the features to be enabled for the AIService
 	Feature FeatureSpec `json:"features,omitempty"`
-	// SplunkConfiguration instance reference
-	Version             string                 `json:"version,omitempty"`
-	TaskVolume          ObjectStorageSpec      `json:"taskVolume,omitempty"`
-	SplunkConfiguration SplunkConfiguration    `json:"splunkConfiguration,omitempty"`
-	VectorDbUrl         string                 `json:"vectorDbUrl"`
-	AIPlatformUrl       string                 `json:"aiPlatformUrl,omitempty"`
-	AIPlatformRef       corev1.ObjectReference `json:"aiPlatformRef"`
-	Replicas            int32                  `json:"replicas,omitempty"`
-	ServiceAccountName  string                 `json:"serviceAccountName,omitempty"`
+	// Version specifies the version of the AIService
+	Version string `json:"version,omitempty"`
+	// TaskVolume specifies the volume to be used for tasks
+	TaskVolume ObjectStorageSpec `json:"taskVolume,omitempty"`
+	// SplunkConfiguration specifies the Splunk configuration for the AIService
+	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
+	// VectorDbUrl specifies the URL for the vector database
+	VectorDbUrl string `json:"vectorDbUrl"`
+	// AIPlatformUrl specifies the URL for the AI Platform
+	AIPlatformUrl string `json:"aiPlatformUrl,omitempty"`
+	// AIPlatformRef is a reference to the AIPlatform resource
+	AIPlatformRef corev1.ObjectReference `json:"aiPlatformRef"`
+	// Replicas specifies the number of replicas for the AIService
+	Replicas int32 `json:"replicas,omitempty"`
+	// ServiceAccountName specifies the service account to be used by the AIService
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	//Port specifies the default port for the service
-	Port        int32               `json:"port,omitempty" default:"80"`
-	Env         map[string]string   `json:"env,omitempty"`
+	Port int32 `json:"port,omitempty" default:"80"`
+	// Env specifies environment variables for the AIService
+	Env map[string]string `json:"env,omitempty"`
+	// Tolerations specifies the tolerations for the AIService pods
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// node affinity configuration
 	Affinity corev1.Affinity `json:"affinity,omitempty"`

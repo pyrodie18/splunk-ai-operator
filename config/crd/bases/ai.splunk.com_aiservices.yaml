@@ -961,8 +961,7 @@ spec:
                     type: object
                 type: object
               aiPlatformRef:
-                description: ObjectReference contains enough information to let you
-                  inspect or modify the referred object.
+                description: AIPlatformRef is a reference to the AIPlatform resource
                 properties:
                   apiVersion:
                     description: API version of the referent.
@@ -1005,22 +1004,28 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               aiPlatformUrl:
+                description: AIPlatformUrl specifies the URL for the AI Platform
                 type: string
               env:
                 additionalProperties:
                   type: string
+                description: Env specifies environment variables for the AIService
                 type: object
               features:
-                description: FeatureSpec defines the features to enable in the AIPlatform
+                description: Features defines the features to be enabled for the AIService
                 properties:
                   name:
+                    description: Name of the feature, e.g. "saia" or "seca"
                     enum:
                     - saia
                     - seca
                     type: string
                   serviceAccountName:
+                    description: ServiceAccountName is the name of the service account
+                      to use for the feature
                     type: string
                   version:
+                    description: Version of the feature, e.g. "1.0.0"
                     type: string
                 type: object
               metrics:
@@ -1077,6 +1082,7 @@ spec:
                 format: int32
                 type: integer
               replicas:
+                description: Replicas specifies the number of replicas for the AIService
                 format: int32
                 type: integer
               resources:
@@ -1139,6 +1145,8 @@ spec:
                     type: object
                 type: object
               serviceAccountName:
+                description: ServiceAccountName specifies the service account to be
+                  used by the AIService
                 type: string
               serviceTemplate:
                 description: ServiceTemplate is a template used to create Kubernetes
@@ -1653,6 +1661,8 @@ spec:
                     type: object
                 type: object
               splunkConfiguration:
+                description: SplunkConfiguration specifies the Splunk configuration
+                  for the AIService
                 properties:
                   crName:
                     description: Name of the SplunkConfiguration instance
@@ -1685,6 +1695,7 @@ spec:
                     type: string
                 type: object
               taskVolume:
+                description: TaskVolume specifies the volume to be used for tasks
                 properties:
                   endpoint:
                     description: optional override endpoint (only really needed for
@@ -1706,6 +1717,8 @@ spec:
                 - region
                 type: object
               tolerations:
+                description: Tolerations specifies the tolerations for the AIService
+                  pods
                 items:
                   description: |-
                     The pod this Toleration is attached to tolerates any taint that matches
@@ -1744,9 +1757,10 @@ spec:
                   type: object
                 type: array
               vectorDbUrl:
+                description: VectorDbUrl specifies the URL for the vector database
                 type: string
               version:
-                description: SplunkConfiguration instance reference
+                description: Version specifies the version of the AIService
                 type: string
             required:
             - aiPlatformRef
