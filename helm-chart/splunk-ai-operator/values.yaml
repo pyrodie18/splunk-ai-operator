@@ -19,6 +19,7 @@ podLabels: {}
 
 # List namespaces to be watched by Splunk AI Operator e.x "namespace1,namespace2", must have cluster-wide access
 # Default watches the entire cluster
+# TODO: should we have an extra clusterWideAccess flag? If so, all of the rbac templates need to be updated
 watchNamespace: ""
 # Splunk image
 splunkEnterpriseImage: "splunk/splunk:9.4.1"
