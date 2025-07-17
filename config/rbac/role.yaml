@@ -8,13 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
+  - nodes
   - pods
   - secrets
   - serviceaccounts

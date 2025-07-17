@@ -8,5 +8,5 @@ roleRef:
   name: {{ include "splunk-ai-operator.fullname" . }}-metrics-auth-role
 subjects:
 - kind: ServiceAccount
-  name: {{ include "splunk-ai-operator.fullname" . }}-controller-manager
+  name: {{ include "splunk-ai-operator.serviceAccountName" . }}
   namespace: {{ include "splunk-ai-operator.namespace" . }}
