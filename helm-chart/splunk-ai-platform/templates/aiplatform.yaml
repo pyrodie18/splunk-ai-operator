@@ -26,13 +26,13 @@ spec:
   headGroupSpec:
     serviceAccountName: {{ .Values.headGroupSpec.serviceAccountName | quote }}
 {{- if .Values.headGroupSpec.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.headGroupSpec.nodeSelector | nindent 4 }}
+    nodeSelector: {{ toYaml .Values.headGroupSpec.nodeSelector | nindent 6 }}
 {{- end }}
 {{- if .Values.headGroupSpec.affinity }}
-    affinity: {{ toYaml .Values.headGroupSpec.affinity | nindent 4 }}
+    affinity: {{ toYaml .Values.headGroupSpec.affinity | nindent 6 }}
 {{- end }}
 {{- if .Values.headGroupSpec.tolerations }}
-    tolerations: {{ toYaml .Values.headGroupSpec.tolerations | nindent 4 }}
+    tolerations: {{ toYaml .Values.headGroupSpec.tolerations | nindent 6 }}
 {{- end }}
     imageRegistry: {{ .Values.headGroupSpec.imageRegistry | quote }}
   workerGroupSpec:
@@ -49,13 +49,13 @@ spec:
 {{- toYaml .resources | nindent 10 }}
 {{- end }}
 {{- if .Values.workerGroupSpec.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.workerGroupSpec.nodeSelector | nindent 4 }}
+    nodeSelector: {{ toYaml .Values.workerGroupSpec.nodeSelector | nindent 6 }}
 {{- end }}
 {{- if .Values.workerGroupSpec.affinity }}
-    affinity: {{ toYaml .Values.workerGroupSpec.affinity | nindent 4 }}
+    affinity: {{ toYaml .Values.workerGroupSpec.affinity | nindent 6 }}
 {{- end }}
 {{- if .Values.workerGroupSpec.tolerations }}
-    tolerations: {{ toYaml .Values.workerGroupSpec.tolerations | nindent 4 }}
+    tolerations: {{ toYaml .Values.workerGroupSpec.tolerations | nindent 6 }}
 {{- end }}
 {{- end }}
   sidecars:
@@ -80,24 +80,24 @@ spec:
 {{- if .Values.gpuScheduler }}
   gpuScheduler:
 {{- if .Values.gpuScheduler.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.gpuScheduler.nodeSelector | nindent 4 }}
+    nodeSelector: {{ toYaml .Values.gpuScheduler.nodeSelector | nindent 6 }}
 {{- end }}
 {{- if .Values.gpuScheduler.affinity }}
-    affinity: {{ toYaml .Values.gpuScheduler.affinity | nindent 4 }}
+    affinity: {{ toYaml .Values.gpuScheduler.affinity | nindent 6 }}
 {{- end }}
 {{- if .Values.gpuScheduler.tolerations }}
-    tolerations: {{ toYaml .Values.gpuScheduler.tolerations | nindent 4 }}
+    tolerations: {{ toYaml .Values.gpuScheduler.tolerations | nindent 6 }}
 {{- end }}
 {{- end }}
 {{- if .Values.cpuScheduler }}
   cpuScheduler:
 {{- if .Values.cpuScheduler.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.cpuScheduler.nodeSelector | nindent 4 }}
+    nodeSelector: {{ toYaml .Values.cpuScheduler.nodeSelector | nindent 6 }}
 {{- end }}
 {{- if .Values.cpuScheduler.affinity }}
-    affinity: {{ toYaml .Values.cpuScheduler.affinity | nindent 4 }}
+    affinity: {{ toYaml .Values.cpuScheduler.affinity | nindent 6 }}
 {{- end }}
 {{- if .Values.cpuScheduler.tolerations }}
-    tolerations: {{ toYaml .Values.cpuScheduler.tolerations | nindent 4 }}
+    tolerations: {{ toYaml .Values.cpuScheduler.tolerations | nindent 6 }}
 {{- end }}
 {{- end }}
