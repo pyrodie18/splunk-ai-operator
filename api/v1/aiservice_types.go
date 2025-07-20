@@ -61,6 +61,9 @@ type AIServiceSpec struct {
 	MTLS MTLSConfig `json:"mtls,omitempty"`
 	// ServiceTemplate is a template used to create Kubernetes services
 	ServiceTemplate corev1.Service `json:"serviceTemplate"`
+	// Cluster domain (default: cluster.local)
+	// +kubebuilder:default=cluster.local
+	ClusterDomain string `json:"clusterDomain,omitempty"`
 }
 
 type MetricsConfig struct {

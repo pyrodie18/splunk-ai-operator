@@ -163,8 +163,8 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 				Port:    8080,
 				Path:    "/metrics",
 			},
-			MTLS: platform.Spec.MTLS,
-			// other fields as needed like MTLS, Metrics, etc.
+			MTLS: platform.Spec.MTLS, 
 		},
 	}
 }
+

@@ -177,19 +177,18 @@ type SchedulingSpec struct {
 
 type SplunkConfiguration struct {
 	// Name of the SplunkConfiguration instance
-	// +kubebuilder:validation:Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:MinLength=1
-	CRName string `json:"crName,omitempty"`
-	// Namespace of the SplunkConfiguration instance
-	// +kubebuilder:validation:Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:MinLength=1
-	CRNamespace string `json:"crNamespace,omitempty"`
+
+	//CRNamespace string `json:"crNamespace,omitempty"`
+	SplunkCustomResourceRef corev1.ObjectReference `json:"splunkCustomResourceRef,omitempty"`
 	// Splunk secret reference
 	SecretRef corev1.SecretReference `json:"secretRef,omitempty"`
 	Endpoint  string                 `json:"endpoint,omitempty"`
 	Token     string                 `json:"token,omitempty"`
+	//SecretSource:  Whether token comes from Kubernetes Secret or Vault Agent
+    SecretSource SecretSourceType `json:"secretSource,omitempty"`
+
+    //VaultFilePath Path where Vault Agent injects the Splunk HEC token
+    VaultFilePath string `json:"vaultFilePath,omitempty"`
 }
 
 // ReplicasSpec sets min/max worker replicas

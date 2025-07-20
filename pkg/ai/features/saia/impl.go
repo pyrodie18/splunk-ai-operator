@@ -29,6 +29,7 @@ import (
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	common "github.com/splunk/splunk-ai-operator/pkg/ai/features/common"
+	"github.com/splunk/splunk-ai-operator/pkg/splunkutils"
 )
 
 type SaiaReconciler struct {
@@ -151,7 +152,7 @@ func (r *SaiaReconciler) validateAIService(
 
     // Validate Vector Database readiness
     if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
-        return fmt.Errorf("Vector database not ready: %w", err)
+        return fmt.Errorf("vector database not ready: %w", err)
     }
 
 
@@ -175,7 +176,24 @@ func (r *SaiaReconciler) validateAIService(
 	if ai.Spec.Replicas == 0 {
 		ai.Spec.Replicas = 1
 	}
-	return nil
+
+	var resolver splunkutils.SplunkSecretResolver
+
+    switch ai.Spec.SplunkConfiguration.SecretSource {
+    case aiv1.SecretSourceVault:
+        resolver = &splunkutils.VaultFileResolver{}  // Read from /vault/secrets/splunk
+    default:
+        resolver = &splunkutils.KubernetesSecretResolver{Client: r.Client} // Default
+    }
+
+    return splunkutils.ValidateAndEnrichSplunkConfig(
+        ctx,
+        r.Client,
+        ai.Namespace,
+        ai.Spec.ClusterDomain,
+        &ai.Spec.SplunkConfiguration,
+        resolver,
+    )
 }
 
 func (r *SaiaReconciler) getAIPlatform(ctx context.Context, ref corev1.ObjectReference ) (*aiv1.AIPlatform, error) {
