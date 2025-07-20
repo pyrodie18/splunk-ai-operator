@@ -11,7 +11,10 @@ spec:
     region: us-west-2
   serviceAccountName: ray-head-sa
 
-  # // features
+  serviceTemplate:
+    spec:
+      type: ClusterIP
+  
   features:
     - name: saia
       version: "1.1.0"
@@ -27,12 +30,12 @@ spec:
       size: 50Gi                        # Optional: used if pvcName is not provided
       storageClassName: gp3             # Optional: used for dynamic PVC provisioning
 
-  #GpuInstanceType:  g6.24xlarge
+  #GpuInstanceType:  g6.12xlarge
   workerGroupSpec:  
     serviceAccountName: ray-worker-sa
     imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
     gpuConfigs:
-      - tier: g6.24xlarge-0-gpu
+      - tier: g6.12xlarge-0-gpu
         minReplicas: 0
         maxReplicas: 10
         gpusPerPod: 1
@@ -48,7 +51,7 @@ spec:
             ephemeral-storage: "10Gi"
             nvidia.com/gpu: "1"
 
-      - tier: g6.24xlarge-1-gpu
+      - tier: g6.12xlarge-1-gpu
         minReplicas: 0
         maxReplicas: 10
         gpusPerPod: 2
@@ -64,7 +67,7 @@ spec:
             ephemeral-storage: "50Gi"
             nvidia.com/gpu: "2"
 
-      - tier: g6.24xlarge-2-gpu
+      - tier: g6.12xlarge-2-gpu
         minReplicas: 0
         maxReplicas: 10
         gpusPerPod: 2
@@ -80,7 +83,7 @@ spec:
             ephemeral-storage: "100Gi"
             nvidia.com/gpu: "2"
 
-      - tier: g6.24xlarge-4-gpu
+      - tier: g6.12xlarge-4-gpu
         minReplicas: 0
         maxReplicas: 10
         gpusPerPod: 4
@@ -106,7 +109,7 @@ spec:
                     - key: node.kubernetes.io/instance-type
                       operator: In
                       values:
-                        - g6.24xlarge
+                        - g6.12xlarge
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
@@ -125,7 +128,7 @@ spec:
             - key: node.kubernetes.io/instance-type
               operator: In
               values:
-              - g6.24xlarge
+              - g6.12xlarge
 
   ingress:
     className: nginx
@@ -140,8 +143,8 @@ spec:
         secretName: ai-platform-tls
 
   splunkConfiguration:
-    endpoint: https://splunk.mycorp.com
+    endpoint: splunk-standalone-standalone-service
     secretRef:
-      name: splunk-token
+      name: splunk-standalone-standalone-secret-v1
       namespace: test
   certificateRef: saia-cert

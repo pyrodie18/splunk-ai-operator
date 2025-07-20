@@ -85,7 +85,7 @@ type AIPlatformSpec struct {
 	// MTLS defines the mTLS configuration for the AIPlatform
 	MTLS MTLSConfig `json:"mtls,omitempty"`
 	//  ServiceTemplate is a template used to create Kubernetes services
-	ServiceTemplate corev1.Service `json:"serviceTemplate"`
+	ServiceTemplate corev1.Service `json:"serviceTemplate,omitempty"`
 }
 type Images struct {
 	SAIAImage string `json:"saiaImage,omitempty"`

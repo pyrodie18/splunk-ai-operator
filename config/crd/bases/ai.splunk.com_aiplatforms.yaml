@@ -2828,7 +2828,6 @@ spec:
                 type: object
             required:
             - objectStorage
-            - serviceTemplate
             type: object
           status:
             description: AIPlatformStatus defines observed state

@@ -7,13 +7,15 @@ import (
 	"github.com/splunk/splunk-ai-operator/pkg/ai/features/common"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/tools/record"
 )
 
 type SecaFactory struct{}
 
-func (f *SecaFactory) New(ctx context.Context, c client.Client, scheme *runtime.Scheme, ai *aiv1.AIService) (common.FeatureHandler, error) {
+func (f *SecaFactory) New(ctx context.Context, c client.Client, scheme *runtime.Scheme, ai *aiv1.AIService, recorder record.EventRecorder) (common.FeatureHandler, error) {
 	return &SecaReconciler{
 		Client: c,
 		Scheme: scheme,
+		Recorder: recorder,
 	}, nil
 }

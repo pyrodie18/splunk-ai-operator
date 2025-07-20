@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -27,24 +28,26 @@ import (
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	common "github.com/splunk/splunk-ai-operator/pkg/ai/features/common"
 )
 
 type SaiaReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // Reconcile runs reconciliation stages for the CR.
 func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIService) error {
 	log := log.FromContext(ctx)
-	ai := &aiv1.AIService{}
 
 	var conditions []metav1.Condition
 	defer func() {
-		ai.Status.Conditions = conditions
-		ai.Status.ObservedGeneration = ai.Generation
-		_ = r.Status().Update(ctx, ai)
+		aiservice.Status.Conditions = conditions
+		aiservice.Status.ObservedGeneration = aiservice.Generation
+		_ = r.Status().Update(ctx, aiservice)
 	}()
+
 
 	stages := []struct {
 		name string
@@ -61,7 +64,7 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 	}
 
 	for _, stage := range stages {
-		err := stage.fn(ctx, ai)
+		err := stage.fn(ctx, aiservice)
 
 		cond := metav1.Condition{
 			Type:               stage.name + "Ready",
@@ -102,6 +105,7 @@ func (r *SaiaReconciler) validateAIService(
 	ai *aiv1.AIService,
 ) error {
 	if os.Getenv("RELATED_IMAGE_POST_INSTALL_HOOK") == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "RELATED_IMAGE_POST_INSTALL_HOOK must be set")
 		return fmt.Errorf("RELATED_IMAGE_POST_INSTALL_HOOK must be set")
 	}
 	// Populate URLs from AIPlatformRef if provided
@@ -112,21 +116,45 @@ func (r *SaiaReconciler) validateAIService(
 			client.ObjectKey{Namespace: ai.Namespace, Name: ai.Spec.AIPlatformRef.Name},
 			plat,
 		); err != nil {
+			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "fetching AIPlatform failed")
 			return fmt.Errorf("fetching AIPlatform: %w", err)
 		}
-		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local")
-		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local")
+		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
+		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
 	}
 	if ai.Spec.AIPlatformRef.Name == "" && ai.Spec.AIPlatformUrl == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")	
 		return fmt.Errorf(
 			"either AIPlatformRef.Name or AIPlatformUrl must be set",
 		)
 	}
 	if ai.Spec.AIPlatformUrl == "" && ai.Spec.VectorDbUrl == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformUrl or VectorDbUrl must be set")
 		return fmt.Errorf(
 			"either AIPlatformUrl or VectorDbUrl must be set",
 		)
 	}
+
+	// Fetch AIPlatform using AIPlatformRef
+    aiPlatform, err := r.getAIPlatform(ctx, ai.Spec.AIPlatformRef)
+    if err != nil {
+        return fmt.Errorf("failed to fetch AIPlatform: %w", err)
+    }
+
+    // Extract RayService endpoint from AIPlatform status
+    rayServiceEndpoint := aiPlatform.Status.RayServiceName
+
+    // Validate AIPlatform readiness
+    if err := r.validateAIPlatformReady(ctx, aiPlatform, rayServiceEndpoint); err != nil {
+        return fmt.Errorf("AIPlatform not ready: %w", err)
+    }
+
+    // Validate Vector Database readiness
+    if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
+        return fmt.Errorf("Vector database not ready: %w", err)
+    }
+
+
 	// Default resources
 	if ai.Spec.Resources.Requests == nil {
 		ai.Spec.Resources.Requests = corev1.ResourceList{
@@ -141,12 +169,59 @@ func (r *SaiaReconciler) validateAIService(
 		}
 	}
 	if ai.Spec.TaskVolume.Path == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "task volume path must be set")
 		return fmt.Errorf("task volume path must be set")
 	}
 	if ai.Spec.Replicas == 0 {
 		ai.Spec.Replicas = 1
 	}
 	return nil
+}
+
+func (r *SaiaReconciler) getAIPlatform(ctx context.Context, ref corev1.ObjectReference ) (*aiv1.AIPlatform, error) {
+    var aiPlatform aiv1.AIPlatform
+    key := types.NamespacedName{
+        Name:      ref.Name,
+        Namespace: ref.Namespace,
+    }
+    if err := r.Client.Get(ctx, key, &aiPlatform); err != nil {
+        return nil, err
+    }
+    return &aiPlatform, nil
+}
+
+func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform *aiv1.AIPlatform, rayServiceEndpoint string) error {
+    // Check if AIPlatform is in Ready state
+    if !common.IsConditionTrue(aiPlatform.Status.Conditions, "Ready") {
+        return fmt.Errorf("AIPlatform is not in Ready state")
+    }
+
+    // Check RayService endpoint is reachable
+    if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
+        return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err)
+    }
+
+    return nil
+}
+
+func (r *SaiaReconciler) validateVectorDatabaseReady(ctx context.Context, aiPlatform *aiv1.AIPlatform) error {
+    // Check VectorDatabase condition
+    if !common.IsConditionTrue(aiPlatform.Status.Conditions, "WeaviateDatabaseReady") {
+        return fmt.Errorf("vector database is not ready")
+    }
+
+    // Extract the VectorDB service endpoint from status or spec
+    vectorDBEndpoint := aiPlatform.Status.VectorDbServiceName
+    if vectorDBEndpoint == "" {
+        return fmt.Errorf("no VectorDbServiceName found in AIPlatform status")
+    }
+
+    // Check if VectorDB service endpoint is accessible
+    if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
+        return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
+    }
+
+    return nil
 }
 
 // reconcileServiceAccount creates or reuses a ServiceAccount.
@@ -167,11 +242,13 @@ func (r *SaiaReconciler) reconcileServiceAccount(
 			},
 		}
 		if err := controllerutil.SetControllerReference(ai, sa, r.Scheme); err != nil {
+			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on SA failed")
 			return fmt.Errorf("ownerref on SA: %w", err)
 		}
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
 			return nil
 		}); err != nil {
+			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update SA failed")
 			return fmt.Errorf("create/update SA: %w", err)
 		}
 	}
@@ -202,6 +279,7 @@ func (r *SaiaReconciler) reconcileCertificate(
 		},
 	}
 	if err := controllerutil.SetControllerReference(ai, cert, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Certificate failed")
 		return fmt.Errorf("ownerref on Certificate: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
@@ -215,6 +293,7 @@ func (r *SaiaReconciler) reconcileCertificate(
 			return nil
 		}
 	}
+	r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "Certificate is not Ready")
 	return fmt.Errorf("waiting for Certificate %q to become Ready", cert.Name)
 }
 
@@ -237,6 +316,7 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 		if apierrors.IsNotFound(err) {
 			ai.Status.SchemaJobId = ""
 		} else if err != nil {
+			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "fetching Job failed")
 			return fmt.Errorf("fetching Job: %w", err)
 		} else {
 			for _, c := range job.Status.Conditions {
@@ -244,6 +324,7 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 					return nil
 				}
 				if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
+					r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("Job %q failed", job.Name))
 					return fmt.Errorf("job %q failed", job.Name)
 				}
 			}
@@ -277,9 +358,11 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 		},
 	}
 	if err := controllerutil.SetControllerReference(ai, job, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Job failed")
 		return fmt.Errorf("ownerref on Job: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, job, func() error { return nil }); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Job failed")
 		return fmt.Errorf("create/update Job: %w", err)
 	}
 	ai.Status.SchemaJobId = job.Name
@@ -442,9 +525,11 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	r.AddFluentBitSidecar(&deployment.Spec.Template.Spec, ai)
 
 	if err := controllerutil.SetControllerReference(ai, deployment, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Deployment failed")
 		return fmt.Errorf("ownerref on Deployment: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error { return nil }); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Deployment failed")
 		return fmt.Errorf("create/update Deployment: %w", err)
 	}
 	return nil
@@ -507,9 +592,11 @@ func (r *SaiaReconciler) reconcileSAIAService(
 	}
 
 	if err := controllerutil.SetControllerReference(ai, svc, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Service failed")
 		return fmt.Errorf("ownerref on Service: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error { return nil }); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Service failed")
 		return fmt.Errorf("create/update Service: %w", err)
 	}
 	return nil
@@ -550,18 +637,22 @@ func (r *SaiaReconciler) reconcileFluentBitConfig(ctx context.Context, p *aiv1.A
 		Namespace: p.Namespace,
 	}
 	if err := r.Get(ctx, secretKey, secret); err != nil {
+		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("failed to retrieve secret %q: %v", secretKey.Name, err))
+		// Log the error and return a formatted error
 		return fmt.Errorf("failed to retrieve secret %q: %w", secretKey.Name, err)
 	}
 
 	// Extract the HEC token from the secret
 	hecToken, exists := secret.Data["hec_token"]
 	if !exists {
+		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("hec_token not found in secret %q", secretKey.Name))
 		return fmt.Errorf("hec_token not found in secret %q", secretKey.Name)
 	}
 
 	// Retrieve the endpoint from SplunkConfiguration
 	endpoint := p.Spec.SplunkConfiguration.Endpoint
 	if endpoint == "" {
+		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", "endpoint is not specified in SplunkConfiguration")
 		return fmt.Errorf("endpoint is not specified in SplunkConfiguration")
 	}
 
@@ -582,6 +673,7 @@ func (r *SaiaReconciler) reconcileFluentBitConfig(ctx context.Context, p *aiv1.A
 	found := &corev1.ConfigMap{}
 	err = r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: p.Namespace}, found)
 	if err != nil {
+		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("failed to retrieve ConfigMap %q: %v", cmName, err))
 		return fmt.Errorf("failed to validate ConfigMap %q: %w", cmName, err)
 	}
 	return nil

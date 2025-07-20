@@ -49,6 +49,8 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 		latest.Status = p.Status
 		latest.Status.Conditions = conditions
 		latest.Status.ObservedGeneration = p.Generation
+		latest.Status.RayServiceName = p.Status.RayServiceName
+		latest.Status.VectorDbServiceName = p.Status.VectorDbServiceName
 		_ = r.Status().Update(ctx, latest)
 	}()
 	raybuilder := raybuilder.New(r.p, r.Client, r.Scheme, r.Recorder)
@@ -69,7 +71,7 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 		// collect status of each stage
 		{"RayServiceStatus", raybuilder.ReconcileRayServiceStatus},
 		{"WeaviateDatabaseStatus", r.ReconcileWeaviateDatabaseStatus},
-		//{"AIService", saia.ReconcileAIServicesStatus},
+		{"AIService", r.ReconcileFeatures},
 	}
 
 	for _, stage := range stages {
@@ -107,7 +109,7 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 	return reconcile.Result{}, nil
 }
 
-func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform aiApi.AIPlatform) error {
+func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform *aiApi.AIPlatform) error {
 
 	for _, feature := range platform.Spec.Features {
 		serviceName := fmt.Sprintf("%s-%s", platform.Name, feature.Name)
@@ -116,7 +118,7 @@ func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform a
 
 		if errors.IsNotFound(err) {
 			newService := r.buildAIService(ctx, platform, feature, serviceName)
-			if err := controllerutil.SetControllerReference(&platform, newService, r.Scheme); err != nil {
+			if err := controllerutil.SetControllerReference(platform, newService, r.Scheme); err != nil {
 				return err
 			}
 			if err := r.Create(ctx, newService); err != nil {
@@ -130,7 +132,7 @@ func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform a
 	return nil
 }
 
-func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform aiApi.AIPlatform, feature aiApi.FeatureSpec, name string) *aiApi.AIService {
+func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiApi.AIPlatform, feature aiApi.FeatureSpec, name string) *aiApi.AIService {
 	vectorDbUrl := platform.Status.VectorDbServiceName
 
 	return &aiApi.AIService{
