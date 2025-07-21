@@ -1,9 +1,11 @@
 package features
 
 import (
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"context"
+
+	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
 )
 
 type FeatureHandler interface {
-	BuildResources(namespace, name string) []client.Object
+	Reconcile(ctx context.Context, aiservice *aiv1.AIService) error
 }

@@ -39,6 +39,7 @@ import (
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
 	"github.com/splunk/splunk-ai-operator/internal/controller"
+	"github.com/splunk/splunk-ai-operator/pkg/config"
 	// +kubebuilder:scaffold:imports
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -69,6 +70,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var modeFlag string
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -86,6 +89,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&modeFlag, "mode", "normal", "operator mode: normal|debug|simulate")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -183,6 +188,17 @@ func main() {
 		})
 	}
 
+	// Translate modeFlag into OperatorMode type
+	opMode := parseMode(modeFlag)
+
+	// Construct OperatorConfig with optional debug endpoints
+	opConfig := &config.OperatorConfig{
+		Mode:                  opMode,
+		DebugRayEndpoint:      "http://localhost:8265",
+		DebugWeaviateEndpoint: "http://localhost:8080",
+		DebugSaiaEndpoint:     "http://localhost:9000",
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -208,15 +224,19 @@ func main() {
 	}
 
 	if err = (&controller.AIPlatformReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("AIPlatformReconciler"),
+		Config:   opConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AIPlatform")
 		os.Exit(1)
 	}
 	if err = (&controller.AIServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("AIServiceReconciler"),
+		Config:   opConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AIService")
 		os.Exit(1)
@@ -252,5 +272,18 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+// parseMode converts the --mode CLI flag into a strongly typed OperatorMode.
+// Defaults to ModeNormal if an unknown value is passed.
+func parseMode(flagVal string) config.OperatorMode {
+	switch flagVal {
+	case "debug":
+		return config.ModeDebug
+	case "simulate":
+		return config.ModeSimulate
+	default:
+		return config.ModeNormal
 	}
 }

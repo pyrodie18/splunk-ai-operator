@@ -13,28 +13,28 @@ rayService:
         gpu_type_options_override:
           A100:
             autoscaling_config:
-              max_replicas: 1
-              min_replicas: 1
+              max_replicas: 0
+              min_replicas: 0
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           A10G:
             autoscaling_config:
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           L40S:
             autoscaling_config:
               max_replicas: 2
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 2
-              memory: "8Gi" 
+              memory: 8589934592
           T4:
             ray_actor_options:
               num_gpus: 8
-              memory: "8Gi" 
+              memory: 8589934592
       runtime_env:
         pip:
           - azure-storage-blob
@@ -62,28 +62,28 @@ rayService:
         gpu_type_options_override:
           A100:
             autoscaling_config:
-              max_replicas: 1
-              min_replicas: 1
+              max_replicas: 0
+              min_replicas: 0
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           A10G:
             autoscaling_config:
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           L40S:
             autoscaling_config:
               max_replicas: 2
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 2
-              memory: "8Gi" 
+              memory: 8589934592
           T4:
             ray_actor_options:
               num_gpus: 8
-              memory: "8Gi" 
+              memory: 8589934592
 
     - name: e5_language_classifier
       args:
@@ -101,28 +101,28 @@ rayService:
         gpu_type_options_override:
           A100:
             autoscaling_config:
-              max_replicas: 1
-              min_replicas: 1
+              max_replicas: 0
+              min_replicas: 0
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           A10G:
             autoscaling_config:
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           L40S:
             autoscaling_config:
               max_replicas: 2
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 2
-              memory: "8Gi" 
+              memory: 8589934592
           T4:
             ray_actor_options:
               num_gpus: 8
-              memory: "8Gi" 
+              memory: 8589934592
 
     - name: mbart_translator
       args:
@@ -141,24 +141,24 @@ rayService:
         gpu_type_options_override:
           A100:
             autoscaling_config:
-              max_replicas: 1
-              min_replicas: 1
+              max_replicas: 0
+              min_replicas: 0
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           A10G:
             autoscaling_config:
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 4
-              memory: "8Gi" 
+              memory: 8589934592
           L40S:
             autoscaling_config:
               max_replicas: 2
-              min_replicas: 1
+              min_replicas: '0'
             ray_actor_options:
               num_gpus: 2
-              memory: "8Gi" 
+              memory: 8589934592
           T4:
             ray_actor_options:
               num_gpus: 8
@@ -175,19 +175,19 @@ rayService:
               A10G:
                 ray_actor_options:
                   num_gpus: 2
-                  memory: "8Gi" 
+                  memory: 8589934592
               L40S:
                 ray_actor_options:
                   num_gpus: 1
-                  memory: "8Gi" 
+                  memory: 8589934592
               T4:
                 ray_actor_options:
                   num_gpus: 4
-                  memory: "8Gi" 
+                  memory: 8589934592
             options:
               autoscaling_config:
                 min_replicas: 2
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: vllm_text_gen_model_deployment
         model_definition:
           gpu_type_model_config_override:
@@ -235,16 +235,16 @@ rayService:
             gpu_type_options_override:
               A10G:
                 ray_actor_options:
-                  memory: "8Gi" 
+                  memory: 8589934592
                   num_gpus: 4
               L40S:
                 ray_actor_options:
                   num_gpus: 2
-                  memory: "8Gi" 
+                  memory: 8589934592
               T4:
                 ray_actor_options:
                   num_gpus: 8
-                  memory: "8Gi" 
+                  memory: 8589934592
             options:
               autoscaling_config:
                 min_replicas: 1
@@ -295,7 +295,7 @@ rayService:
             options:
               ray_actor_options:
                 num_cpus: 4
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: custom_deployment
       runtime_env:
         pip:
@@ -324,7 +324,7 @@ rayService:
             options:
               ray_actor_options:
                 num_gpus: 0.01
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: encoder_deployment
         model_definition:
           model_id: prompt_injection_cross_encoder
@@ -361,7 +361,7 @@ rayService:
                 target_ongoing_requests: 3
               ray_actor_options:
                 num_gpus: 0.05
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: encoder_deployment
         model_definition:
           model_id: uae_large
@@ -402,7 +402,7 @@ rayService:
             options:
               ray_actor_options:
                 num_gpus: 0.01
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: custom_deployment
         runtime_env:
           pip: 
@@ -420,7 +420,7 @@ rayService:
                 target_ongoing_requests: 3
               ray_actor_options:
                 num_gpus: 0.01
-                memory: "8Gi" 
+                memory: 8589934592
         deployment_type: encoder_deployment
         model_definition:
           model_id: all_minilm_l6_v2
