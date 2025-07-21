@@ -175,6 +175,11 @@ func (r *SaiaReconciler) validateAIService(
 		ai.Spec.Replicas = 1
 	}
 
+	if ai.Spec.SplunkConfiguration.Endpoint == "" && ai.Spec.SplunkConfiguration.SplunkCustomResourceRef.Name == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "SplunkConfigMissing", "Splunk configuration is missing assuming no logging")
+		return nil
+	}
+
 	var resolver splunkutils.SplunkSecretResolver
 
 	switch ai.Spec.SplunkConfiguration.SecretSource {

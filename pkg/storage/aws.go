@@ -20,11 +20,12 @@ import (
 	//"github.com/splunk/splunk-ai-operator/pkg/ai/types"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
 // s3Client implements StorageClient for AWS S3.
 type s3Client struct {
-	cli    *s3.S3
+	cli    s3iface.S3API 
 	bucket string
 	prefix string
 }
