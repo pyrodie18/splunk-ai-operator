@@ -58,7 +58,7 @@ type AIPlatformSpec struct {
 	// WorkerGroupSpec defines the Ray worker group configuration
 	WorkerGroupSpec *WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
 	// Which sidecars to inject
-	Sidecars SidecarConfig `json:"sidecars,omitempty"`
+	Sidecars SidecarSpec `json:"sidecars,omitempty"`
 
 	// cert-manager Certificate for mTLS
 	CertificateRef string `json:"certificateRef,omitempty"`
@@ -71,8 +71,8 @@ type AIPlatformSpec struct {
 	// DefaultAcceleratorType is the default GPU type to use for Ray worker groups
 	DefaultAcceleratorType string `json:"defaultAcceleratorType,omitempty"` // e.g. "nvidia-tesla-t4"
 
-	// SplunkConfiguration instance reference
-	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
+	// SplunkConfigurationSpec instance reference
+	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
 
 	//Weaviate       WeaviateSpec     `json:"weaviate,omitempty"`
 	Storage StorageSpec `json:"storage,omitempty"`
@@ -175,7 +175,7 @@ type SchedulingSpec struct {
 	Affinity     *corev1.Affinity    `json:"affinity,omitempty"`
 }
 
-type SplunkConfiguration struct {
+type SplunkConfigurationSpec struct {
 	// Name of the SplunkConfiguration instance
 
 	//CRNamespace string `json:"crNamespace,omitempty"`
@@ -185,10 +185,10 @@ type SplunkConfiguration struct {
 	Endpoint  string                 `json:"endpoint,omitempty"`
 	Token     string                 `json:"token,omitempty"`
 	//SecretSource:  Whether token comes from Kubernetes Secret or Vault Agent
-    SecretSource SecretSourceType `json:"secretSource,omitempty"`
+	SecretSource SecretSourceType `json:"secretSource,omitempty"`
 
-    //VaultFilePath Path where Vault Agent injects the Splunk HEC token
-    VaultFilePath string `json:"vaultFilePath,omitempty"`
+	//VaultFilePath Path where Vault Agent injects the Splunk HEC token
+	VaultFilePath string `json:"vaultFilePath,omitempty"`
 }
 
 // ReplicasSpec sets min/max worker replicas
@@ -204,8 +204,8 @@ type MachineClass struct {
 	EphimeralStorage     string                      `json:"ephemeral-storage,omitempty"` // e.g. "100Gi"
 }
 
-// SidecarConfig toggles injection of sidecars
-type SidecarConfig struct {
+// SidecarSpec toggles injection of sidecars
+type SidecarSpec struct {
 	// +kubebuilder:default=true
 	Envoy bool `json:"envoy,omitempty"`
 	// +kubebuilder:default=true

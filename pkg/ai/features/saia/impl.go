@@ -27,14 +27,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	common "github.com/splunk/splunk-ai-operator/pkg/ai/features/common"
 	"github.com/splunk/splunk-ai-operator/pkg/splunkutils"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type SaiaReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
 
@@ -48,7 +48,6 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 		aiservice.Status.ObservedGeneration = aiservice.Generation
 		_ = r.Status().Update(ctx, aiservice)
 	}()
-
 
 	stages := []struct {
 		name string
@@ -121,10 +120,10 @@ func (r *SaiaReconciler) validateAIService(
 			return fmt.Errorf("fetching AIPlatform: %w", err)
 		}
 		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
-		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
+		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local")   // FIXME domain name
 	}
 	if ai.Spec.AIPlatformRef.Name == "" && ai.Spec.AIPlatformUrl == "" {
-		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")	
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")
 		return fmt.Errorf(
 			"either AIPlatformRef.Name or AIPlatformUrl must be set",
 		)
@@ -137,24 +136,23 @@ func (r *SaiaReconciler) validateAIService(
 	}
 
 	// Fetch AIPlatform using AIPlatformRef
-    aiPlatform, err := r.getAIPlatform(ctx, ai.Spec.AIPlatformRef)
-    if err != nil {
-        return fmt.Errorf("failed to fetch AIPlatform: %w", err)
-    }
+	aiPlatform, err := r.getAIPlatform(ctx, ai.Spec.AIPlatformRef)
+	if err != nil {
+		return fmt.Errorf("failed to fetch AIPlatform: %w", err)
+	}
 
-    // Extract RayService endpoint from AIPlatform status
-    rayServiceEndpoint := aiPlatform.Status.RayServiceName
+	// Extract RayService endpoint from AIPlatform status
+	rayServiceEndpoint := aiPlatform.Status.RayServiceName
 
-    // Validate AIPlatform readiness
-    if err := r.validateAIPlatformReady(ctx, aiPlatform, rayServiceEndpoint); err != nil {
-        return fmt.Errorf("AIPlatform not ready: %w", err)
-    }
+	// Validate AIPlatform readiness
+	if err := r.validateAIPlatformReady(ctx, aiPlatform, rayServiceEndpoint); err != nil {
+		return fmt.Errorf("AIPlatform not ready: %w", err)
+	}
 
-    // Validate Vector Database readiness
-    if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
-        return fmt.Errorf("vector database not ready: %w", err)
-    }
-
+	// Validate Vector Database readiness
+	if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
+		return fmt.Errorf("vector database not ready: %w", err)
+	}
 
 	// Default resources
 	if ai.Spec.Resources.Requests == nil {
@@ -179,67 +177,67 @@ func (r *SaiaReconciler) validateAIService(
 
 	var resolver splunkutils.SplunkSecretResolver
 
-    switch ai.Spec.SplunkConfiguration.SecretSource {
-    case aiv1.SecretSourceVault:
-        resolver = &splunkutils.VaultFileResolver{}  // Read from /vault/secrets/splunk
-    default:
-        resolver = &splunkutils.KubernetesSecretResolver{Client: r.Client} // Default
-    }
+	switch ai.Spec.SplunkConfiguration.SecretSource {
+	case aiv1.SecretSourceVault:
+		resolver = &splunkutils.VaultFileResolver{} // Read from /vault/secrets/splunk
+	default:
+		resolver = &splunkutils.KubernetesSecretResolver{Client: r.Client} // Default
+	}
 
-    return splunkutils.ValidateAndEnrichSplunkConfig(
-        ctx,
-        r.Client,
-        ai.Namespace,
-        ai.Spec.ClusterDomain,
-        &ai.Spec.SplunkConfiguration,
-        resolver,
-    )
+	return splunkutils.ValidateAndEnrichSplunkConfig(
+		ctx,
+		r.Client,
+		ai.Namespace,
+		ai.Spec.ClusterDomain,
+		&ai.Spec.SplunkConfiguration,
+		resolver,
+	)
 }
 
-func (r *SaiaReconciler) getAIPlatform(ctx context.Context, ref corev1.ObjectReference ) (*aiv1.AIPlatform, error) {
-    var aiPlatform aiv1.AIPlatform
-    key := types.NamespacedName{
-        Name:      ref.Name,
-        Namespace: ref.Namespace,
-    }
-    if err := r.Client.Get(ctx, key, &aiPlatform); err != nil {
-        return nil, err
-    }
-    return &aiPlatform, nil
+func (r *SaiaReconciler) getAIPlatform(ctx context.Context, ref corev1.ObjectReference) (*aiv1.AIPlatform, error) {
+	var aiPlatform aiv1.AIPlatform
+	key := types.NamespacedName{
+		Name:      ref.Name,
+		Namespace: ref.Namespace,
+	}
+	if err := r.Client.Get(ctx, key, &aiPlatform); err != nil {
+		return nil, err
+	}
+	return &aiPlatform, nil
 }
 
 func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform *aiv1.AIPlatform, rayServiceEndpoint string) error {
-    // Check if AIPlatform is in Ready state
-    if !common.IsConditionTrue(aiPlatform.Status.Conditions, "Ready") {
-        return fmt.Errorf("AIPlatform is not in Ready state")
-    }
+	// Check if AIPlatform is in Ready state
+	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "Ready") {
+		return fmt.Errorf("AIPlatform is not in Ready state")
+	}
 
-    // Check RayService endpoint is reachable
-    if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
-        return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err)
-    }
+	// Check RayService endpoint is reachable
+	if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
+		return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err)
+	}
 
-    return nil
+	return nil
 }
 
 func (r *SaiaReconciler) validateVectorDatabaseReady(ctx context.Context, aiPlatform *aiv1.AIPlatform) error {
-    // Check VectorDatabase condition
-    if !common.IsConditionTrue(aiPlatform.Status.Conditions, "WeaviateDatabaseReady") {
-        return fmt.Errorf("vector database is not ready")
-    }
+	// Check VectorDatabase condition
+	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "WeaviateDatabaseReady") {
+		return fmt.Errorf("vector database is not ready")
+	}
 
-    // Extract the VectorDB service endpoint from status or spec
-    vectorDBEndpoint := aiPlatform.Status.VectorDbServiceName
-    if vectorDBEndpoint == "" {
-        return fmt.Errorf("no VectorDbServiceName found in AIPlatform status")
-    }
+	// Extract the VectorDB service endpoint from status or spec
+	vectorDBEndpoint := aiPlatform.Status.VectorDbServiceName
+	if vectorDBEndpoint == "" {
+		return fmt.Errorf("no VectorDbServiceName found in AIPlatform status")
+	}
 
-    // Check if VectorDB service endpoint is accessible
-    if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
-        return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
-    }
+	// Check if VectorDB service endpoint is accessible
+	if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
+		return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
+	}
 
-    return nil
+	return nil
 }
 
 // reconcileServiceAccount creates or reuses a ServiceAccount.

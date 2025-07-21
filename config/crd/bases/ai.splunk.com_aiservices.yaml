@@ -1665,7 +1665,7 @@ spec:
                     type: object
                 type: object
               splunkConfiguration:
-                description: SplunkConfiguration specifies the Splunk configuration
+                description: SplunkConfigurationSpec specifies the Splunk configuration
                   for the AIService
                 properties:
                   endpoint:

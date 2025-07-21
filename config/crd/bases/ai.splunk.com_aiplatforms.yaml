@@ -2675,7 +2675,7 @@ spec:
                     type: boolean
                 type: object
               splunkConfiguration:
-                description: SplunkConfiguration instance reference
+                description: SplunkConfigurationSpec instance reference
                 properties:
                   endpoint:
                     type: string

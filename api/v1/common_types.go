@@ -8,6 +8,6 @@ const (
 type SecretSourceType string
 
 const (
-    SecretSourceKubernetes SecretSourceType = "kubernetes"
-    SecretSourceVault      SecretSourceType = "vault"
+	SecretSourceKubernetes SecretSourceType = "kubernetes"
+	SecretSourceVault      SecretSourceType = "vault"
 )

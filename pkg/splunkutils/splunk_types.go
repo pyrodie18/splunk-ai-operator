@@ -1,7 +1,5 @@
 package splunkutils
 
-
-
 // InstanceType is used to represent the type of Splunk instance (search head, indexer, etc).
 type InstanceType string
 

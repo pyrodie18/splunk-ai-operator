@@ -34,7 +34,7 @@ func TestBuildAIService_PopulatesExpectedFields(t *testing.T) {
 		},
 		Spec: aiApi.AIPlatformSpec{
 			ObjectStorage: aiApi.ObjectStorageSpec{Path: "/data"},
-			SplunkConfiguration: aiApi.SplunkConfiguration{
+			SplunkConfiguration: aiApi.SplunkConfigurationSpec{
 				Endpoint: "splunk-endpoint",
 			},
 			MTLS: aiApi.MTLSConfig{Enabled: true, Termination: "operator"},

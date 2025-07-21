@@ -33,8 +33,8 @@ type AIServiceSpec struct {
 	Version string `json:"version,omitempty"`
 	// TaskVolume specifies the volume to be used for tasks
 	TaskVolume ObjectStorageSpec `json:"taskVolume,omitempty"`
-	// SplunkConfiguration specifies the Splunk configuration for the AIService
-	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
+	// SplunkConfigurationSpec specifies the Splunk configuration for the AIService
+	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
 	// VectorDbUrl specifies the URL for the vector database
 	VectorDbUrl string `json:"vectorDbUrl"`
 	// AIPlatformUrl specifies the URL for the AI Platform

@@ -14,8 +14,8 @@ type SaiaFactory struct{}
 
 func (f *SaiaFactory) New(ctx context.Context, c client.Client, scheme *runtime.Scheme, ai *aiv1.AIService, recorder record.EventRecorder) (common.FeatureHandler, error) {
 	return &SaiaReconciler{
-		Client: c,
-		Scheme: scheme,
+		Client:   c,
+		Scheme:   scheme,
 		Recorder: recorder,
 	}, nil
 }

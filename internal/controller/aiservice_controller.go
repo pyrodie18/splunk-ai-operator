@@ -41,7 +41,7 @@ import (
 // AIServiceReconciler reconciles a AIService object
 type AIServiceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 	Config   *config.OperatorConfig // injected runtime config
 }

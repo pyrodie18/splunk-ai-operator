@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	SplunkMgmtPort = 8089
+	SplunkMgmtPort       = 8089
 	defaultClusterDomain = "cluster.local"
 )
 
@@ -31,10 +31,10 @@ func buildFQDN(svc, ns, clusterDomain string) string {
 }
 
 // ResolveSplunkEndpoint resolves a Splunk endpoint from SplunkConfiguration.
-// 1. If Endpoint is explicitly set, return it
-// 2. Otherwise, use SplunkCustomResourceRef (Standalone / IndexerCluster)
-//    → derive the service FQDN: splunk-<id>-<type>-service.<ns>.svc.<clusterDomain>:8089
-func ResolveSplunkEndpoint(ctx context.Context, c client.Client, namespace string, cfg aiApi.SplunkConfiguration, clusterDomain string) (string, error) {
+//  1. If Endpoint is explicitly set, return it
+//  2. Otherwise, use SplunkCustomResourceRef (Standalone / IndexerCluster)
+//     → derive the service FQDN: splunk-<id>-<type>-service.<ns>.svc.<clusterDomain>:8089
+var ResolveSplunkEndpoint = func(ctx context.Context, c client.Client, namespace string, cfg aiApi.SplunkConfigurationSpec, clusterDomain string) (string, error) {
 	// ✅ Case 1: Direct endpoint provided
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil

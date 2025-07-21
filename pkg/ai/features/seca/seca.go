@@ -21,7 +21,7 @@ import (
 
 type SecaReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
 

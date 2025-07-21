@@ -70,7 +70,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
-	 var modeFlag string
+	var modeFlag string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -188,16 +188,16 @@ func main() {
 		})
 	}
 
-    // Translate modeFlag into OperatorMode type
-    opMode := parseMode(modeFlag)
+	// Translate modeFlag into OperatorMode type
+	opMode := parseMode(modeFlag)
 
-    // Construct OperatorConfig with optional debug endpoints
-    opConfig := &config.OperatorConfig{
-        Mode: opMode,
-        DebugRayEndpoint:      "http://localhost:8265",
-        DebugWeaviateEndpoint: "http://localhost:8080",
-        DebugSaiaEndpoint:     "http://localhost:9000",
-    }
+	// Construct OperatorConfig with optional debug endpoints
+	opConfig := &config.OperatorConfig{
+		Mode:                  opMode,
+		DebugRayEndpoint:      "http://localhost:8265",
+		DebugWeaviateEndpoint: "http://localhost:8080",
+		DebugSaiaEndpoint:     "http://localhost:9000",
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -224,19 +224,19 @@ func main() {
 	}
 
 	if err = (&controller.AIPlatformReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("AIPlatformReconciler"),
-		Config: opConfig,
+		Config:   opConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AIPlatform")
 		os.Exit(1)
 	}
 	if err = (&controller.AIServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("AIServiceReconciler"),
-		Config: opConfig,
+		Config:   opConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AIService")
 		os.Exit(1)
@@ -278,12 +278,12 @@ func main() {
 // parseMode converts the --mode CLI flag into a strongly typed OperatorMode.
 // Defaults to ModeNormal if an unknown value is passed.
 func parseMode(flagVal string) config.OperatorMode {
-    switch flagVal {
-    case "debug":
-        return config.ModeDebug
-    case "simulate":
-        return config.ModeSimulate
-    default:
-        return config.ModeNormal
-    }
+	switch flagVal {
+	case "debug":
+		return config.ModeDebug
+	case "simulate":
+		return config.ModeSimulate
+	default:
+		return config.ModeNormal
+	}
 }
