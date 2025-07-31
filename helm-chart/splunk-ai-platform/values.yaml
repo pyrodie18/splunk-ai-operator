@@ -1,6 +1,32 @@
+---
 # Default values for splunk-ai-platform.
 # This is a YAML-formatted file.
 # Users can override these (e.g. via --values) to configure both the CR and the Ingress.
+
+# Deploy Splunk AI Operator chart
+# Disable if the Splunk Operator is already deployed
+splunk-ai-operator:
+  enabled: true
+
+# Deploy KubeRay Operator chart
+# Disable if the KubeRay Operator is already deployed
+kuberay-operator:
+  enabled: true
+
+# Deploy Cert Manager chart
+# Disable if the Cert Manager is already deployed
+cert-manager:
+  enabled: true
+
+# Deploy Prometheus chart
+# Disable if the Prometheus is already deployed
+prometheus:
+  enabled: true
+
+# Deploy OpenTelemetry Collector chart
+# Disable if the OpenTelemetry Collector is already deployed
+opentelemetry-collector:
+  enabled: true
 
 # Metadata overrides:
 # Override the Splunk AI Platform helm chart name
@@ -53,22 +79,6 @@ workerGroupSpec:
   serviceAccountName: ""
   # Image registry to use for Ray worker groups
   imageRegistry: ""
-  # Defines the GPU worker tiers
-  gpuConfigs:
-    - tier: ""
-      minReplicas: 0
-      maxReplicas: 0
-      gpusPerPod: 0
-      resources:
-        limits:
-          cpu: 1000m
-          memory: 2000Mi
-        requests:
-          cpu: 1000m
-          memory: 2000Mi
-  # nodeSelector: {}
-  # affinity: {}
-  # tolerations: []
 
 # Toggles injection of sidecars
 sidecars:
@@ -132,23 +142,8 @@ storage:
     # Optional StorageClassName to use for dynamic PVC provisioning
     storageClassName: ""  # e.g., "gp2", "standard", "azurefile"
 
-# Scheduling configuration for GPU-based Ray worker groups
-gpuScheduler:
-  # Controls GPU node placement for Ray workloads
-  nodeSelector: {}
-  # Affinity for GPU/CPU nodes
-  affinity: {}
-  # Required if GPU nodes are tainted
-  tolerations: []
-
-# Scheduling configuration for CPU-based Ray worker groups
-cpuScheduler:
-  # Controls CPU node placement for CPU workloads
-  nodeSelector: {}
-  # Affinity for CPU nodes
-  affinity: {}
-  # Required if CPU nodes are tainted
-  tolerations: []
+# GPU instance type
+instanceType: ""
 
 # Ingress settings (fully optional)
 ingress:

@@ -43,27 +43,68 @@ spec:
   workerGroupSpec:
     serviceAccountName: {{ .Values.workerGroupSpec.serviceAccountName | quote }}
     imageRegistry: {{ .Values.workerGroupSpec.imageRegistry | quote }}
-{{- if .Values.workerGroupSpec.gpuConfigs }}
+{{- if .Values.instanceType }}
     gpuConfigs:
-{{- range .Values.workerGroupSpec.gpuConfigs }}
-      - tier: {{ .tier | quote }}
-        minReplicas: {{ .minReplicas }}
-        maxReplicas: {{ .maxReplicas }}
-        gpusPerPod: {{ .gpusPerPod }}
+      - tier: {{ .Values.instanceType }}-0-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 1
         resources:
-{{- toYaml .resources | nindent 10 }}
-{{- end }}
-{{- /*
-{{- if .Values.workerGroupSpec.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.workerGroupSpec.nodeSelector | nindent 6 }}
-{{- end }}
-{{- if .Values.workerGroupSpec.affinity }}
-    affinity: {{ toYaml .Values.workerGroupSpec.affinity | nindent 6 }}
-{{- end }}
-{{- if .Values.workerGroupSpec.tolerations }}
-    tolerations: {{ toYaml .Values.workerGroupSpec.tolerations | nindent 6 }}
-{{- end }}
-*/}}
+          requests:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+      - tier: {{ .Values.instanceType }}-1-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+      - tier: {{ .Values.instanceType }}-2-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "2"
+      - tier: {{ .Values.instanceType }}-4-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 4
+        resources:
+          requests:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
+          limits:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
 {{- end }}
   sidecars:
     envoy: {{ .Values.sidecars.envoy }}
@@ -84,29 +125,36 @@ spec:
       pvcName: {{ .Values.storage.vectorDB.pvcName | quote }}
       size: {{ .Values.storage.vectorDB.size | quote }}
       storageClassName: {{ .Values.storage.vectorDB.storageClassName | quote }}
-{{- if .Values.gpuScheduler }}
+{{- if .Values.instanceType }}
   gpuScheduler:
-{{- if .Values.gpuScheduler.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.gpuScheduler.nodeSelector | nindent 6 }}
-{{- end }}
-{{- if .Values.gpuScheduler.affinity }}
-    affinity: {{ toYaml .Values.gpuScheduler.affinity | nindent 6 }}
-{{- end }}
-{{- if .Values.gpuScheduler.tolerations }}
-    tolerations: {{ toYaml .Values.gpuScheduler.tolerations | nindent 6 }}
-{{- end }}
-{{- end }}
-{{- if .Values.cpuScheduler }}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node.kubernetes.io/instance-type
+                  operator: In
+                  values:
+                    - {{ .Values.instanceType }}
   cpuScheduler:
-{{- if .Values.cpuScheduler.nodeSelector }}
-    nodeSelector: {{ toYaml .Values.cpuScheduler.nodeSelector | nindent 6 }}
-{{- end }}
-{{- if .Values.cpuScheduler.affinity }}
-    affinity: {{ toYaml .Values.cpuScheduler.affinity | nindent 6 }}
-{{- end }}
-{{- if .Values.cpuScheduler.tolerations }}
-    tolerations: {{ toYaml .Values.cpuScheduler.tolerations | nindent 6 }}
-{{- end }}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            preference:
+              matchExpressions:
+                - key: node.kubernetes.io/instance-type
+                  operator: In
+                  values:
+                    - {{ .Values.instanceType }}
 {{- end }}
 {{- if .Values.mtls }}
   mtls:

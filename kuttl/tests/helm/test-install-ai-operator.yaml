@@ -1,0 +1,17 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestStep
+commands:
+  - command: |
+      helm install splunk-ai-operator ../../../../helm-chart/splunk-ai-operator --namespace splunk-ai-operator-system --create-namespace
+---
+apiVersion: kuttl.dev/v1beta1
+kind: TestAssert
+resources:
+  - group: apps
+    version: v1
+    kind: Deployment
+    name: splunk-ai-operator
+    namespace: splunk-ai-operator
+    assert:
+      status:
+        availableReplicas: 1

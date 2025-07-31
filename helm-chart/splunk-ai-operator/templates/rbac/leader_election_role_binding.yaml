@@ -4,6 +4,7 @@ metadata:
   labels:
 {{- include "splunk-ai-operator.labels" . | nindent 4 }}
   name: {{ include "splunk-ai-operator.fullname" . }}-leader-election-rolebinding
+  namespace: {{ include "splunk-ai-operator.namespace" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
