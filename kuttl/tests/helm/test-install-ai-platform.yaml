@@ -2,7 +2,7 @@ apiVersion: kuttl.dev/v1beta1
 kind: TestStep
 commands:
   - command: |
-      helm install splunk-ai-platform ../../../../helm-chart/splunk-ai-platform --namespace splunk-ai-platform --create-namespace
+      helm install splunk-ai-platform ../../../../helm-chart/splunk-ai-platform -f ../values/aiplatform-values.yaml
 ---
 apiVersion: kuttl.dev/v1beta1
 kind: TestAssert

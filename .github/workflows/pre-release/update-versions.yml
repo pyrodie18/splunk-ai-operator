@@ -1,0 +1,51 @@
+name: Update Versions
+on:
+  workflow_call:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      # Need the write permission because this job commits changes to some folders like dist
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Deep Fetch
+        run: |
+          git fetch --prune --unshallow
+      - name: Create ChangeLog since last release
+        run: |
+          git log $(git describe --tags --abbrev=0)..HEAD --oneline >> docs/ChangeLog-NEW.md
+      - name: Dotenv Action
+        uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
+        id: dotenv
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
+      - name: Update Helm Version
+        if: github.event.inputs.old_operator_version != github.event.inputs.new_operator_version
+        uses: jacobtomlinson/gha-find-replace@v3
+        with:
+          find: "${{ github.event.inputs.old_operator_version }}"
+          replace: "${{ github.event.inputs.new_operator_version }}"
+          include: "helm-chart/**.yaml"
+      - name: Update Operator Version in DOCS
+        if: github.event.inputs.old_operator_version != github.event.inputs.new_operator_version
+        uses: jacobtomlinson/gha-find-replace@v3
+        with:
+          find: "${{ github.event.inputs.old_operator_version }}"
+          replace: "${{ github.event.inputs.new_operator_version }}"
+          include: "**.md"
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3.10.1
+        with:
+          branch: "release/${{ github.event.inputs.new_operator_version }}"
+          title: "Splunk AI Operator ${{ github.event.inputs.new_operator_version }} release"
+          reviewers: "${{ steps.dotenv.outputs.REVIEWERS }}"
+          body: |
+            ### Automated Pull Request for Splunk AI Operator Release ${{ github.event.inputs.new_operator_version }}
+            * Changes added to docs/ChangeLog-NEW.md. Please filter and update ChangeLog.md
+            * Delete ChangeLog-New.md

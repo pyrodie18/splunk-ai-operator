@@ -1,0 +1,55 @@
+---
+kuberay-operator:
+  enabled: true
+cert-manager:
+  enabled: false
+prometheus:
+  enabled: false
+opentelemetry-collector:
+  enabled: false
+objectStorage:
+  path: "s3://ai-platform-dev-vivekr"
+  region: "us-west-2"
+  secretRef: "s3-secret"
+serviceAccountName: ray-head-sa
+features:
+  - name: saia
+    version: "1.1.0"
+    serviceAccountName: saia-service-account
+  - name: seca
+    version: "1.0.0"
+    serviceAccountName: saia-secure-account
+storage:
+  vectorDB:
+    pvcName: weaviate-pvc             # Optional: if you want to use a pre-created PVC
+    size: 50Gi                        # Optional: used if pvcName is not provided
+    storageClassName: gp3             # Optional: used for dynamic PVC provisioning
+workerGroupSpec:
+  serviceAccountName: ray-worker-sa
+  imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
+instanceType: "g6.12xlarge"
+ingress:
+  className: nginx
+  hosts:
+    - host: ai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - ai.example.com
+      secretName: ai-platform-tls
+splunkConfiguration:
+  endpoint: splunk-cm-cluster-manager-0
+  secretRef:
+    name: splunk-token
+    namespace: test
+certificateRef: saia-cert
+serviceTemplate:
+  spec:
+    type: ClusterIP
+splunk-ai-operator:
+  image:
+    repository: 667741767953.dkr.ecr.us-west-2.amazonaws.com/splunk/splunk-ai-operator:0f412623ccbd1aee3a6c24146787a7616307bd15
+  installCRDs: true
+  namespaceOverride: "splunk-ai-operator-system"

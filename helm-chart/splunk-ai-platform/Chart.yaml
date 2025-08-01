@@ -3,7 +3,7 @@ apiVersion: v2
 name: splunk-ai-platform
 description: A Helm chart for deploying Splunk AIPlatform custom resources
 type: application
-version: 0.1.0
+version: "0.1.0"
 appVersion: "v4.0.0"
 icon: https://example.com/icon.png
 keywords:
