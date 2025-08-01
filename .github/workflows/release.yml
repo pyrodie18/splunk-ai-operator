@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   package-helm:
-    uses: ./.github/workflows/release/package-helm.yml
+    uses: ./.github/workflows/release-package-helm.yml
     with:
       old_operator_version: ${{ github.event.inputs.old_operator_version }}
       new_operator_version: ${{ github.event.inputs.new_operator_version }}

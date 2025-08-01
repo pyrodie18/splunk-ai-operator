@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   update-versions:
-    uses: ./.github/workflows/pre-release/update-versions.yml
+    uses: ./.github/workflows/prerelease-update-versions.yml
     with:
       old_operator_version: ${{ github.event.inputs.old_operator_version }}
       new_operator_version: ${{ github.event.inputs.new_operator_version }}
