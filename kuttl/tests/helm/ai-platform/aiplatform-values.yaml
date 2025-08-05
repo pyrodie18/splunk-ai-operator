@@ -1,6 +1,4 @@
 ---
-kuberay-operator:
-  enabled: true
 cert-manager:
   enabled: false
 prometheus:
@@ -27,7 +25,7 @@ storage:
 workerGroupSpec:
   serviceAccountName: ray-worker-sa
   imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
-instanceType: "g6.12xlarge"
+instanceType: "g6.24xlarge"
 ingress:
   className: nginx
   hosts:
@@ -40,16 +38,30 @@ ingress:
         - ai.example.com
       secretName: ai-platform-tls
 splunkConfiguration:
-  endpoint: splunk-cm-cluster-manager-0
-  secretRef:
-    name: splunk-token
-    namespace: test
+  splunkCustomResourceRef:
+    kind: "Standalone"
+    namespace: "default"
+    name: "splunk-standalone-stdln-0"
+    apiVersion: "enterprise.splunk.com/v4"
 certificateRef: saia-cert
 serviceTemplate:
   spec:
     type: ClusterIP
 splunk-ai-operator:
   image:
-    repository: 667741767953.dkr.ecr.us-west-2.amazonaws.com/splunk/splunk-ai-operator:0f412623ccbd1aee3a6c24146787a7616307bd15
+    repository: ${KUTTL_SPLUNK_AI_OPERATOR_IMAGE}
   installCRDs: true
-  namespaceOverride: "splunk-ai-operator-system"
+kuberay-operator:
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                  - "g6.24xlarge"

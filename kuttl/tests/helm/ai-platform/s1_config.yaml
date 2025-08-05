@@ -1,0 +1,26 @@
+---
+splunk-operator:
+  enabled: true
+  operator:
+    serviceAccountName: helm-service-account
+  splunkOperator:
+    clusterWideAccess: false
+    persistentVolumeClaim:
+      storageClassName: gp2
+    image:
+      repository: splunk/splunk-operator:latest
+  image:
+    repository: splunk/splunk:latest
+  tolerations:
+    - effect: NoSchedule
+      key: dedicated
+      operator: Equal
+      value: cp
+
+standalone:
+  enabled: true
+  tolerations:
+    - effect: NoSchedule
+      key: dedicated
+      operator: Equal
+      value: cp
