@@ -4,23 +4,17 @@ applications:
     route_prefix: /
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: entrypoint
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/entrypoint-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: UaeLarge
       deployment_configs:
@@ -59,23 +53,17 @@ applications:
     route_prefix: /uae_large
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: uae_large
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/uae_large-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: AllMinilmL6V2
       deployment_configs:
@@ -110,23 +98,17 @@ applications:
     route_prefix: /all_minilm_l6_v2
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: all_minilm_l6_v2
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/all_minilm_l6_v2-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: BiEncoder
       deployment_configs:
@@ -159,23 +141,17 @@ applications:
     route_prefix: /bi_encoder
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: bi_encoder
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/bi_encoder-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: MbartTranslator
       custom_deployment_import_path: mbart_translator:MbartTranslatorDeployment
@@ -197,23 +173,17 @@ applications:
     route_prefix: /mbart_translator
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: mbart_translator
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/mbart_translator-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: SpacyDi
       custom_deployment_import_path: spacy_di:SpacyDiDeployment
@@ -228,23 +198,17 @@ applications:
     route_prefix: /spacy_di
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: spacy_di
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/spacy_di-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: XlmRobertaLanguageClassifier
       deployment_configs:
@@ -284,23 +248,17 @@ applications:
     route_prefix: /xlm_roberta_language_classifier
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: xlm_roberta_language_classifier
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/xlm_roberta_language_classifier-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: PromptInjectionTfidf
       custom_deployment_import_path: prompt_injection_tfidf:PromptInjectionTfidfDeployment
@@ -310,23 +268,16 @@ applications:
     route_prefix: /prompt_injection_tfidf
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
-        APPLICATION_NAME: prompt_injection_tfidf
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/prompt_injection_tfidf-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: CrossEncoder
       deployment_configs:
@@ -358,23 +309,17 @@ applications:
     route_prefix: /cross_encoder
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: cross_encoder
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/cross_encoder-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: PiiClassifier
       custom_deployment_import_path: pii_classifier:PIIClassifierDeployment
@@ -400,23 +345,17 @@ applications:
     route_prefix: /pii_classifier
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: pii_classifier
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/pii_classifier-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: Llama31Instruct
       deployment_configs:
@@ -442,27 +381,8 @@ applications:
               ray_actor_options:
                 num_gpus: 4
                 runtime_env:
-                  env_vars:
-                    API_GATEWAY_HOST: "api.playground.scs.splunk.com"
-                    API_VERSION: "v1"
-                    APPLICATION_NAME: llama31_instruct
-                    ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-                    CLOUD_PROVIDER: "aws"
-                    ENABLE_AUTHN: "false"
-                    ENABLE_AUTHZ: "false"
-                    GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-                    IAC_HOST: "auth.playground.scs.splunk.com"
-                    OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-                    POP: "iad10"
-                    SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
-                    SERVICE_INTERNAL_NAME: "ai_platform_models"
-                    SERVICE_NAME: "ai_platform_models"
-                    SKIP_VERIFICATION: "true"
-                    USE_SYSTEM_PERMISSIONS: "true"
-                    VLLM_WORKER_MULTIPROC_METHOD: spawn
                   pip:
                     - triton==3.2.0
-                  working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/llama31_instruct-v0.3.24-24-g3ca9079.zip
           options:
             autoscaling_config:
               min_replicas: 1
@@ -502,22 +422,18 @@ applications:
     route_prefix: /llama31_instruct
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: llama31_instruct
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
         VLLM_WORKER_MULTIPROC_METHOD: spawn
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/llama31_instruct-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: E5LanguageClassifier
       deployment_configs:
@@ -557,23 +473,17 @@ applications:
     route_prefix: /e5_language_classifier
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: e5_language_classifier
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/e5_language_classifier-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: Llama3170bInstructAwq
       deployment_configs:
@@ -606,27 +516,8 @@ applications:
               ray_actor_options:
                 num_gpus: 8
                 runtime_env:
-                  env_vars:
-                    API_GATEWAY_HOST: "api.playground.scs.splunk.com"
-                    API_VERSION: "v1"
-                    APPLICATION_NAME: llama31_70b_instruct_awq
-                    ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-                    CLOUD_PROVIDER: "aws"
-                    ENABLE_AUTHN: "false"
-                    ENABLE_AUTHZ: "false"
-                    GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-                    IAC_HOST: "auth.playground.scs.splunk.com"
-                    OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-                    POP: "iad10"
-                    SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
-                    SERVICE_INTERNAL_NAME: "ai_platform_models"
-                    SERVICE_NAME: "ai_platform_models"
-                    SKIP_VERIFICATION: "true"
-                    USE_SYSTEM_PERMISSIONS: "true"
-                    VLLM_WORKER_MULTIPROC_METHOD: spawn
                   pip:
                     - triton==3.2.0
-                  working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/llama31_70b_instruct_awq-v0.3.24-24-g3ca9079.zip
           options:
             autoscaling_config:
               min_replicas: 1
@@ -673,24 +564,18 @@ applications:
     route_prefix: /llama31_70b_instruct_awq
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: llama31_70b_instruct_awq
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
         VLLM_WORKER_MULTIPROC_METHOD: spawn
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/llama31_70b_instruct_awq-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: PromptInjectionCrossEncoder
       deployment_configs:
@@ -717,23 +602,17 @@ applications:
     route_prefix: /prompt_injection_cross_encoder
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: prompt_injection_cross_encoder
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/prompt_injection_cross_encoder-v0.3.24-24-g3ca9079.zip
   - args:
       application_name: PromptInjectionClassifier
       deployment_type: classification_model_deployment
@@ -749,20 +628,14 @@ applications:
     route_prefix: /prompt_injection_classifier
     runtime_env:
       env_vars:
-        API_GATEWAY_HOST: "api.playground.scs.splunk.com"
         API_VERSION: "v1"
         APPLICATION_NAME: prompt_injection_classifier
-        ARTIFACTS_S3_BUCKET: "ai-platform-dev-iad10-test"
-        CLOUD_PROVIDER: "aws"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
         ENABLE_AUTHZ: "false"
-        GPG_PUBLICKEY_SECRETS_PATH: "/home/ray/secrets.json"
-        IAC_HOST: "auth.playground.scs.splunk.com"
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-        POP: "iad10"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models-dev-vscode"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
         SERVICE_INTERNAL_NAME: "ai_platform_models"
         SERVICE_NAME: "ai_platform_models"
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
-      working_dir: s3://ai-platform-dev-iad10-test/ray-services/ai-platform/applications/prompt_injection_classifier-v0.3.24-24-g3ca9079.zip

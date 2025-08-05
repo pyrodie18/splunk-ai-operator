@@ -4,10 +4,14 @@ File: controllers/raybuilder/builder.go
 package raybuilder
 
 import (
+	"bytes"
 	"context"
+	"embed"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
+	"text/template"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
@@ -29,12 +33,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+//go:embed applications.yaml
+var embeddedApplicationsYAML embed.FS
+
 // Builder encapsulates RayService generation logic.
 type Builder struct {
 	ai *enterpriseApi.AIPlatform
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+}
+
+type ApplicationParams struct {
+	ArtifactBucketName string `yaml:"ARTIFACTS_S3_BUCKET"`
+	CloudProvider      string `yaml:"CLOUD_PROVIDER"`
 }
 
 // New returns a new Builder for the given AIPlatform instance.
@@ -52,10 +64,47 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 	logger := log.FromContext(ctx) // Define logger
 	rs := b.Build()
 
-	// Fetch the ServeConfigMap
-	serveConfigMap := &corev1.ConfigMap{}
-	serveConfigMapKey := types.NamespacedName{Namespace: p.Namespace, Name: p.Name + "-serveconfig"}
-	if err := b.Client.Get(ctx, serveConfigMapKey, serveConfigMap); err != nil {
+	// Load applications.yaml and parameterize ARTIFACTS_S3_BUCKET
+	u, err := url.Parse(p.Spec.ObjectStorage.Path)
+	if err != nil {
+		fmt.Println("Error parsing URL:", err)
+		return err
+	}
+
+	// Set CloudProvider based on URL scheme
+	var cloudProvider string
+	switch u.Scheme {
+	case "s3":
+		cloudProvider = "aws"
+	case "gs":
+		cloudProvider = "gcp"
+	default:
+		cloudProvider = "azure" // TODO: FIX THIS, need to support minio
+	}
+
+	param := ApplicationParams{
+		ArtifactBucketName: u.Host,
+		CloudProvider:      cloudProvider,
+	}
+
+	// Use embedded applications.yaml content
+	templateData, err := embeddedApplicationsYAML.ReadFile("applications.yaml")
+	if err != nil {
+		logger.Error(err, "Failed to read embedded applications.yaml")
+		return err
+	}
+
+	// Create a new template and parse the embedded YAML as a template
+	tmpl, err := template.New("applications").Parse(string(templateData))
+	if err != nil {
+		logger.Error(err, "Failed to parse template")
+		return err
+	}
+
+	// Execute the template with the provided parameters
+	var serveConfig bytes.Buffer
+	if err := tmpl.Execute(&serveConfig, param); err != nil {
+		logger.Error(err, "Failed to execute template")
 		return err
 	}
 
@@ -66,7 +115,7 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 			Namespace: p.Namespace,
 		},
 	}
-	err := b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
+	err = b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
 	if errors.IsNotFound(err) {
 		rayService = &rayv1.RayService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -78,13 +127,8 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 		}
 	}
 
-	// Add ServeConfigMap to RayService annotations FIXME
-	if serveConfig, exists := serveConfigMap.Data["serveconfig.yaml"]; exists {
-		rs.Spec.ServeConfigV2 = serveConfig
-	} else {
-		logger.Error(fmt.Errorf("serveconfig.yaml not found"), "ServeConfigMap is missing serveconfig.yaml key")
-		return fmt.Errorf("serveconfig.yaml not found in ConfigMap %s", serveConfigMapKey.Name)
-	}
+	// Set the parameterized serve config
+	rs.Spec.ServeConfigV2 = serveConfig.String()
 
 	rayService.Spec = rs.Spec
 	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}

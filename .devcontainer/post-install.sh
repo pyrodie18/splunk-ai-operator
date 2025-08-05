@@ -21,3 +21,10 @@ kubebuilder version
 docker --version
 go version
 kubectl version --client
+
+wget -O /usr/local/bin/okta-artifactory-login https://repo.splunkdev.net/artifactory/generic/okta-cli/0.7.20250127-212405.2e86b53/linux/okta-artifactory-login
+chmod +x /usr/local/bin/okta-artifactory-login
+wget -O /usr/local/bin/okta-kube-token https://repo.splunkdev.net/artifactory/generic/okta-cli/0.7.20250127-212405.2e86b53/linux/okta-kube-token
+chmod +x /usr/local/bin/okta-kube-token
+wget -O /usr/local/bin/okta-aws-login https://repo.splunkdev.net/artifactory/generic/okta-cli/0.7.20250127-212405.2e86b53/linux/okta-aws-login
+chmod +x /usr/local/bin/okta-aws-login
