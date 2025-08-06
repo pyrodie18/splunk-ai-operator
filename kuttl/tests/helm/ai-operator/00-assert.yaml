@@ -1,5 +1,5 @@
 ---
-# assert for splunk operator deployment to be ready
+# assert for splunk ai operator deployment to be ready
 apiVersion: apps/v1
 kind: Deployment
 metadata:

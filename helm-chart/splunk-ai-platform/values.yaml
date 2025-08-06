@@ -109,7 +109,7 @@ images:
   rayWorkerGroupImage: "rayproject/ray-worker:latest"
 
 # Default GPU type to use for Ray worker groups
-defaultAcceleratorType: "nvidia-tesla-t4"
+defaultAcceleratorType: ""
 
 # SplunkConfigurationSpec instance reference
 splunkConfiguration:
