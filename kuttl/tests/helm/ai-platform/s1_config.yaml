@@ -10,7 +10,7 @@ splunk-operator:
     image:
       repository: splunk/splunk-operator:latest
   image:
-    repository: splunk/splunk:latest
+    repository: splunk/splunk:9.4.4
   tolerations:
     - effect: NoSchedule
       key: dedicated

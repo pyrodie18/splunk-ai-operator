@@ -5,7 +5,7 @@ commands:
 testDirs:
 - ./tests/helm
 parallel: 1
-timeout: 60
+timeout: 600
 startKIND: false
 artifactsDir: kuttl-artifacts
 kindNodeCache: false

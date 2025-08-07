@@ -25,7 +25,7 @@ storage:
 workerGroupSpec:
   serviceAccountName: ray-worker-sa
   imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
-defaultAcceleratorType: "nvidia-l4"
+defaultAcceleratorType: "L40S"
 instanceType: "g6.24xlarge"
 ingress:
   className: nginx
