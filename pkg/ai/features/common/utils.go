@@ -31,7 +31,7 @@ var CheckRayHeadService = func(ctx context.Context, rayHeadURL string) error {
 	}
 
 	// Ray's default health endpoint
-	healthURL := fmt.Sprintf("%s/api/health", strings.TrimSuffix(rayHeadURL, "/"))
+	healthURL := fmt.Sprintf("%s:8265", strings.TrimSuffix(rayHeadURL, "/"))
 
 	//healthURL = "http://localhost:8999" // Default Ray head service endpoint //FIXME: should be configurable
 

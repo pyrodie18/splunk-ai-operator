@@ -282,14 +282,14 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 	head.Template.ObjectMeta.Labels = labels
 
 	var workers []rayv1.WorkerGroupSpec
-	for i, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
+	for _, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
 		annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
 		wg := rayv1.WorkerGroupSpec{
 			GroupName:   cfg.Tier,
 			MinReplicas: &cfg.MinReplicas,
 			MaxReplicas: &cfg.MaxReplicas,
 			RayStartParams: map[string]string{
-				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":%d}"`, b.ai.Spec.DefaultAcceleratorType, i, cfg.GPUsPerPod),
+				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":1}"`, b.ai.Spec.DefaultAcceleratorType, cfg.GPUsPerPod),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
