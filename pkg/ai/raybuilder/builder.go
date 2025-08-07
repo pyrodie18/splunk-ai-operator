@@ -324,8 +324,8 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 				"--",
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
-				{Name: "CLUSTER_NAME", Value: os.Getenv("CLUSTER_NAME")},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "CLUSTER_NAME", Value: "ai-platform-models"}, // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -417,13 +417,13 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 				rayCommand,
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
 				{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
 				{Name: "SERVICE_NAME", Value: b.ai.Name},
 				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
 				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
 				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
-				{Name: "GPU_TYPE", Value: "L40S"},                                                 // FIXME
+				{Name: "GPU_TYPE", Value:  b.ai.Spec.DefaultAcceleratorType},                                                 // FIXME
 				{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
 			},
 			Lifecycle: &corev1.Lifecycle{
@@ -456,9 +456,9 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 	}
 
 	// apply scheduling
-	//spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
-	//spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
-	//spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
 
 	found := false
 	for _, vol := range spec.Volumes {

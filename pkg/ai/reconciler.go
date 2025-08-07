@@ -61,9 +61,9 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 		fn   func(context.Context, *aiApi.AIPlatform) error
 	}{
 		{"Validate", r.validate},
-		{"ApplicationsConfigMap", raybuilder.ReconcileApplicationsConfigMap},
+		//{"ApplicationsConfigMap", raybuilder.ReconcileApplicationsConfigMap},
 		//{"InstancesConfigMap", raybuilder.ReconcileInstancesConfigMap},
-		{"ServeConfigMap", raybuilder.ReconcileServeConfigMap},
+		//{"ServeConfigMap", raybuilder.ReconcileServeConfigMap},
 		{"Sidecars", sidecarBuilder.Reconcile},
 		{"rayAutoscalerRBAC", raybuilder.ReconcileRayAutoscalerRBAC},
 		{"RayService", raybuilder.ReconcileRayService},
