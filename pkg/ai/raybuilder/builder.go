@@ -4,10 +4,14 @@ File: controllers/raybuilder/builder.go
 package raybuilder
 
 import (
+	"bytes"
 	"context"
+	"embed"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
+	"text/template"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
@@ -29,12 +33,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+//go:embed applications.yaml
+var embeddedApplicationsYAML embed.FS
+
 // Builder encapsulates RayService generation logic.
 type Builder struct {
 	ai *enterpriseApi.AIPlatform
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+}
+
+type ApplicationParams struct {
+	ArtifactBucketName string `yaml:"ARTIFACTS_S3_BUCKET"`
+	CloudProvider      string `yaml:"CLOUD_PROVIDER"`
 }
 
 // New returns a new Builder for the given AIPlatform instance.
@@ -52,10 +64,47 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 	logger := log.FromContext(ctx) // Define logger
 	rs := b.Build()
 
-	// Fetch the ServeConfigMap
-	serveConfigMap := &corev1.ConfigMap{}
-	serveConfigMapKey := types.NamespacedName{Namespace: p.Namespace, Name: p.Name + "-serveconfig"}
-	if err := b.Client.Get(ctx, serveConfigMapKey, serveConfigMap); err != nil {
+	// Load applications.yaml and parameterize ARTIFACTS_S3_BUCKET
+	u, err := url.Parse(p.Spec.ObjectStorage.Path)
+	if err != nil {
+		fmt.Println("Error parsing URL:", err)
+		return err
+	}
+
+	// Set CloudProvider based on URL scheme
+	var cloudProvider string
+	switch u.Scheme {
+	case "s3":
+		cloudProvider = "aws"
+	case "gs":
+		cloudProvider = "gcp"
+	default:
+		cloudProvider = "azure" // TODO: FIX THIS, need to support minio
+	}
+
+	param := ApplicationParams{
+		ArtifactBucketName: u.Host,
+		CloudProvider:      cloudProvider,
+	}
+
+	// Use embedded applications.yaml content
+	templateData, err := embeddedApplicationsYAML.ReadFile("applications.yaml")
+	if err != nil {
+		logger.Error(err, "Failed to read embedded applications.yaml")
+		return err
+	}
+
+	// Create a new template and parse the embedded YAML as a template
+	tmpl, err := template.New("applications").Parse(string(templateData))
+	if err != nil {
+		logger.Error(err, "Failed to parse template")
+		return err
+	}
+
+	// Execute the template with the provided parameters
+	var serveConfig bytes.Buffer
+	if err := tmpl.Execute(&serveConfig, param); err != nil {
+		logger.Error(err, "Failed to execute template")
 		return err
 	}
 
@@ -66,7 +115,7 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 			Namespace: p.Namespace,
 		},
 	}
-	err := b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
+	err = b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
 	if errors.IsNotFound(err) {
 		rayService = &rayv1.RayService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -78,13 +127,8 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 		}
 	}
 
-	// Add ServeConfigMap to RayService annotations FIXME
-	if serveConfig, exists := serveConfigMap.Data["serveconfig.yaml"]; exists {
-		rs.Spec.ServeConfigV2 = serveConfig
-	} else {
-		logger.Error(fmt.Errorf("serveconfig.yaml not found"), "ServeConfigMap is missing serveconfig.yaml key")
-		return fmt.Errorf("serveconfig.yaml not found in ConfigMap %s", serveConfigMapKey.Name)
-	}
+	// Set the parameterized serve config
+	rs.Spec.ServeConfigV2 = serveConfig.String()
 
 	rayService.Spec = rs.Spec
 	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}
@@ -238,14 +282,14 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 	head.Template.ObjectMeta.Labels = labels
 
 	var workers []rayv1.WorkerGroupSpec
-	for i, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
+	for _, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
 		annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
 		wg := rayv1.WorkerGroupSpec{
 			GroupName:   cfg.Tier,
 			MinReplicas: &cfg.MinReplicas,
 			MaxReplicas: &cfg.MaxReplicas,
 			RayStartParams: map[string]string{
-				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":%d}"`, b.ai.Spec.DefaultAcceleratorType, i, cfg.GPUsPerPod),
+				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":1}"`, b.ai.Spec.DefaultAcceleratorType, cfg.GPUsPerPod),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -280,8 +324,8 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 				"--",
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
-				{Name: "CLUSTER_NAME", Value: os.Getenv("CLUSTER_NAME")},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "CLUSTER_NAME", Value: "ai-platform-models"}, // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -373,14 +417,13 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 				rayCommand,
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
 				{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
 				{Name: "SERVICE_NAME", Value: b.ai.Name},
 				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
 				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
 				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
-				{Name: "GPU_TYPE", Value: "L40S"},                                                 // FIXME
-				{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
+				{Name: "GPU_TYPE", Value:  b.ai.Spec.DefaultAcceleratorType},                                                 // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -412,9 +455,9 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 	}
 
 	// apply scheduling
-	//spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
-	//spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
-	//spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
 
 	found := false
 	for _, vol := range spec.Volumes {
