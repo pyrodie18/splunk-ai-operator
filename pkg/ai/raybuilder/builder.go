@@ -424,7 +424,6 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
 				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
 				{Name: "GPU_TYPE", Value:  b.ai.Spec.DefaultAcceleratorType},                                                 // FIXME
-				{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
