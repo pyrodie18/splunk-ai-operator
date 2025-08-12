@@ -61,7 +61,7 @@ var CheckRayHeadService = func(ctx context.Context, rayHeadURL string) error {
 
 var CheckWeaviateService = func(ctx context.Context, weaviateURL string) error {
 	// Weaviate readiness endpoint
-	readyURL := fmt.Sprintf("%s/v1/.well-known/ready", strings.TrimSuffix(weaviateURL, "/")) // FIXME port is not configured
+	readyURL := fmt.Sprintf("http://%s/v1/.well-known/ready", strings.TrimSuffix(weaviateURL, "/")) // FIXME port is not configured
 	//readyURL = "http://localhost:8999/v1/.well-known/ready" // Default Weaviate service endpoint //FIXME: should be configurable
 
 	client := http.Client{Timeout: 5 * time.Second}
