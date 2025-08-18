@@ -185,31 +185,6 @@ applications:
         SKIP_VERIFICATION: "true"
         USE_SYSTEM_PERMISSIONS: "true"
   - args:
-      application_name: SpacyDi
-      custom_deployment_import_path: spacy_di:SpacyDiDeployment
-      deployment_configs:
-        SpacyDiDeployment:
-          options:
-            ray_actor_options:
-              num_gpus: 0.01
-      deployment_type: custom_deployment
-    name: SpacyDi
-    import_path: splunkai_models_apps.main:create_serve_app
-    route_prefix: /spacy_di
-    runtime_env:
-      env_vars:
-        API_VERSION: "v1"
-        APPLICATION_NAME: spacy_di
-        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
-        CLOUD_PROVIDER: "{{.CloudProvider}}"
-        ENABLE_AUTHN: "false"
-        ENABLE_AUTHZ: "false"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models"
-        SERVICE_INTERNAL_NAME: "ai_platform_models"
-        SERVICE_NAME: "ai_platform_models"
-        SKIP_VERIFICATION: "true"
-        USE_SYSTEM_PERMISSIONS: "true"
-  - args:
       application_name: XlmRobertaLanguageClassifier
       deployment_configs:
         ClassificationModelDeployment:
@@ -312,42 +287,6 @@ applications:
       env_vars:
         API_VERSION: "v1"
         APPLICATION_NAME: cross_encoder
-        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
-        CLOUD_PROVIDER: "{{.CloudProvider}}"
-        ENABLE_AUTHN: "false"
-        ENABLE_AUTHZ: "false"
-        SERVICE_EXTERNAL_NAME: "ai-platform-models"
-        SERVICE_INTERNAL_NAME: "ai_platform_models"
-        SERVICE_NAME: "ai_platform_models"
-        SKIP_VERIFICATION: "true"
-        USE_SYSTEM_PERMISSIONS: "true"
-  - args:
-      application_name: PiiClassifier
-      custom_deployment_import_path: pii_classifier:PIIClassifierDeployment
-      deployment_configs:
-        PIIClassifierDeployment:
-          gpu_type_options_override:
-            H100:
-              ray_actor_options:
-                num_gpus: 0.015
-            L40S:
-              ray_actor_options:
-                num_gpus: 0.025
-          options:
-            autoscaling_config:
-              max_replicas: 15
-              min_replicas: 1
-              target_ongoing_requests: 5
-            ray_actor_options:
-              num_gpus: 0.05
-      deployment_type: custom_deployment
-    name: PiiClassifier
-    import_path: splunkai_models_apps.main:create_serve_app
-    route_prefix: /pii_classifier
-    runtime_env:
-      env_vars:
-        API_VERSION: "v1"
-        APPLICATION_NAME: pii_classifier
         ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
         CLOUD_PROVIDER: "{{.CloudProvider}}"
         ENABLE_AUTHN: "false"
@@ -510,7 +449,7 @@ applications:
             L40S:
               autoscaling_config:
                 max_replicas: "2"
-                min_replicas: "2"
+                min_replicas: "1"
               ray_actor_options:
                 num_gpus: 2
             T4:
