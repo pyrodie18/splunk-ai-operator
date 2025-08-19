@@ -29,11 +29,11 @@ dependencies:
     version: "1.18.0"
     repository: "https://charts.jetstack.io"
     condition: cert-manager.enabled
-  - name: prometheus
-    version: "27.20.0"
+  - name: kube-prometheus-stack
+    version: "72.4.0"
     repository: "https://prometheus-community.github.io/helm-charts"
     condition: prometheus.enabled
-  - name: opentelemetry-collector
-    version: "0.126.0"
+  - name: opentelemetry-operator
+    version: "0.88.6"
     repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
-    condition: opentelemetry-collector.enabled
+    condition: opentelemetry-operator.enabled

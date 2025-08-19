@@ -18,14 +18,14 @@ kuberay-operator:
 cert-manager:
   enabled: true
 
-# Deploy Prometheus chart
-# Disable if the Prometheus is already deployed
+# Deploy Kube Prometheus Stack chart
+# Disable if the Kube Prometheus Stack is already deployed
 prometheus:
   enabled: true
 
-# Deploy OpenTelemetry Collector chart
-# Disable if the OpenTelemetry Collector is already deployed
-opentelemetry-collector:
+# Deploy OpenTelemetry Operator chart
+# Disable if the OpenTelemetry Operator is already deployed
+opentelemetry-operator:
   enabled: true
 
 # Metadata overrides:
@@ -122,8 +122,9 @@ splunkConfiguration:
     # apiVersion: "enterprise.splunk.com/v4"
   # Splunk secret reference
   secretRef:
-    name: "splunk-secret"
-    namespace: "default"
+    {}
+    # name: "splunk-secret"
+    # namespace: "default"
   endpoint: "https://splunk.default.svc.cluster.local:8089"
   # Optional, if not using secretRef
   token: ""

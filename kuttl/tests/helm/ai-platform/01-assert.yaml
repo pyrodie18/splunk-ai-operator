@@ -1,18 +1,53 @@
 ---
-# assert for splunk operator deployment to be ready
+# assert for splunk ai operator deployment to be ready
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: splunk-operator-controller-manager
+  name: splunk-ai-operator-controller-manager
 status:
   readyReplicas: 1
   availableReplicas: 1
 
----
-# check for standalone to be in ready state
-apiVersion: enterprise.splunk.com/v4
-kind: Standalone
-metadata:
-  name: stdln
-status:
-  phase: Ready
+# TODO: make sure CRs come up correctly, verify which CRs should be asserted
+
+# ---
+# # assert for RayCluster to be in ready state
+# apiVersion: ray.io/v1
+# kind: RayCluster
+# metadata:
+#   name: splunk-ai-platform-test-platform-1
+# status:
+#   state: ready
+
+# ---
+# # assert for RayService to be in ready state
+# apiVersion: ray.io/v1
+# kind: RayService
+# metadata:
+#   name: splunk-ai-platform
+# status:
+#   serviceStatus: Running
+
+# ---
+# # assert for ai platform custom resource to be ready
+# apiVersion: ai.splunk.com/v1
+# kind: AIPlatform
+# name: splunk-ai-platform
+# status:
+#   phase: Ready
+
+# ---
+# # assert for ai service saia custom resource to be ready
+# apiVersion: ai.splunk.com/v1
+# kind: AIService
+# name: splunk-ai-platform-saia
+# status:
+#   phase: Ready
+
+# ---
+# # assert for ai service seca custom resource to be ready
+# apiVersion: ai.splunk.com/v1
+# kind: AIService
+# name: splunk-ai-platform-seca
+# status:
+#   phase: Ready

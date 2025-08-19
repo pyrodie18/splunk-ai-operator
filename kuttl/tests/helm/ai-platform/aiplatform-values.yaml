@@ -3,13 +3,12 @@ cert-manager:
   enabled: false
 prometheus:
   enabled: false
-opentelemetry-collector:
+opentelemetry-operator:
   enabled: false
 objectStorage:
   path: "s3://ai-platform-dev-vivekr"
   region: "us-west-2"
   secretRef: "s3-secret"
-serviceAccountName: ray-head-sa
 features:
   - name: saia
     version: "1.1.0"
@@ -23,7 +22,6 @@ storage:
     size: 50Gi                        # Optional: used if pvcName is not provided
     storageClassName: gp3             # Optional: used for dynamic PVC provisioning
 workerGroupSpec:
-  serviceAccountName: ray-worker-sa
   imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
 defaultAcceleratorType: "L40S"
 instanceType: "g6.24xlarge"
@@ -41,17 +39,15 @@ ingress:
 splunkConfiguration:
   splunkCustomResourceRef:
     kind: "Standalone"
-    namespace: "default"
     name: "splunk-standalone-stdln-0"
     apiVersion: "enterprise.splunk.com/v4"
+  endpoint: "splunk-stdln-standalone-service"
+  secretRef:
+    name: "splunk-stdln-standalone-secret-v1"
 certificateRef: saia-cert
 serviceTemplate:
   spec:
     type: ClusterIP
-splunk-ai-operator:
-  image:
-    repository: ${KUTTL_SPLUNK_AI_OPERATOR_IMAGE}
-  installCRDs: true
 kuberay-operator:
   tolerations:
     - key: nvidia.com/gpu

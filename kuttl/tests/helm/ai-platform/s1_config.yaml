@@ -1,16 +1,14 @@
 ---
 splunk-operator:
   enabled: true
-  operator:
-    serviceAccountName: helm-service-account
   splunkOperator:
     clusterWideAccess: false
     persistentVolumeClaim:
       storageClassName: gp2
     image:
-      repository: splunk/splunk-operator:latest
+      repository: splunk/splunk-operator:2.8.1
   image:
-    repository: splunk/splunk:9.4.4
+    repository: splunk/splunk:9.4.3
   tolerations:
     - effect: NoSchedule
       key: dedicated

@@ -1,9 +1,0 @@
----
-apiVersion: kuttl.dev/v1beta1
-kind: TestStep
-commands:
-  - command: helm install splunk-ai-platform {HELM_REPO_PATH}/splunk-ai-platform -f aiplatform-values.yaml
-    namespaced: true
-after:
-  - command: helm uninstall splunk-ai-platform
-    namespaced: true
