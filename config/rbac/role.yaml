@@ -8,7 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
-  - nodes
+  - endpoints
   - pods
   - secrets
   - serviceaccounts

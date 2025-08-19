@@ -69,7 +69,7 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 		{"RayService", raybuilder.ReconcileRayService},
 		{"WeaviateDatabase", r.ReconcileWeaviateDatabase},
 		// collect status of each stage
-		{"RayServiceStatus", raybuilder.ReconcileRayServiceStatus},
+		{"RayServiceStatus", raybuilder.ApplyNormalizedConditions},
 		{"WeaviateDatabaseStatus", r.ReconcileWeaviateDatabaseStatus},
 		{"AIService", r.ReconcileFeatures},
 	}

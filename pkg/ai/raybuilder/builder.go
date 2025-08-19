@@ -12,9 +12,12 @@ import (
 	"os"
 	"strings"
 	"text/template"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/internal/telemetry"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/raybuilder/raystatus"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/sidecars"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -205,44 +208,108 @@ func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *enterpriseA
 	return nil
 }
 
-func (b *Builder) ReconcileRayServiceStatus(
-	ctx context.Context,
-	p *enterpriseApi.AIPlatform,
-) error {
-	// 1️⃣ fetch the up-to-date RayService
-	rs := &rayv1.RayService{}
-	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
-	if err := b.Client.Get(ctx, key, rs); err != nil {
+// ApplyNormalizedConditions collects Ray signals and rolls them up into AIPlatform conditions.
+// Signature matches your state-machine call sites.
+func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	snap, err := raystatus.CollectRaySnapshot(ctx, b.Client, p.Namespace, p.Name)
+	if err != nil {
+		now := metav1.NewTime(time.Now())
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "RayServiceReady",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayServiceFetchError",
+			Message:            err.Error(),
+			LastTransitionTime: now,
+		})
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayUnhealthy",
+			Message:            "Failed to collect Ray snapshot: " + err.Error(),
+			LastTransitionTime: now,
+		})
+		// optional telemetry for errors
+		telemetry.ObserveReconcileError(ctx, "ray_snapshot")
 		return err
 	}
 
-	// 2️⃣ mirror its status into your CR
-	p.Status.RayServiceStatus = rs.Status.ServiceStatus
-
-	// Add Ray head service name to status
-	p.Status.RayServiceName = fmt.Sprintf("%s-head-svc", p.Name)
-
-	// 3️⃣ set a Condition based on whatever flag you like—e.g. the top-level Ready
-	ready := metav1.ConditionFalse
-	reason := "RayServiceStatus"
-	msg := "ray service is not yet ready"
-	if rs.Status.ServiceStatus == rayv1.Running {
-		ready = metav1.ConditionTrue
-		reason = "RayServiceReady"
-		msg = "ray service is running"
+	if snap.HeadServiceName != "" {
+		p.Status.RayServiceName = snap.HeadServiceName
+	}
+	// keep a textual status, reflect Running when rsReady:
+	rsReady := snap.ServiceReady || snap.ServiceStatusRunning
+	if rsReady {
+		p.Status.RayServiceStatus = "Running"
+	} else {
+		p.Status.RayServiceStatus = "Pending"
 	}
 
-	cond := metav1.Condition{
-		Type:               "RayServiceReady",
-		Status:             ready,
-		Reason:             reason,
-		Message:            msg,
-		LastTransitionTime: metav1.Now(),
+	now := metav1.NewTime(time.Now())
+	set := func(t, reason, msg string, ok bool) {
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               t,
+			Status:             boolToCond(ok),
+			Reason:             reason,
+			Message:            msg,
+			LastTransitionTime: now,
+		})
 	}
-	meta.SetStatusCondition(&p.Status.Conditions, cond)
+
+	// RayService readiness (prefer Conditions; fallback to ServiceStatus)
+	set("RayServiceReady",
+		map[bool]string{true: "Ready", false: "NotReady"}[rsReady],
+		fmt.Sprintf("UpgradeInProgress=%t", snap.UpgradeInProgress),
+		rsReady,
+	)
+
+	// Upgrade status
+	set("RayServiceUpgradeInProgress",
+		map[bool]string{true: "Upgrading", false: "Idle"}[snap.UpgradeInProgress],
+		"Zero-downtime upgrade status as reported by KubeRay",
+		snap.UpgradeInProgress,
+	)
+
+	// Endpoint discovery (map[string]string on RayClusterStatus.Endpoints)
+	hasEndpoints := len(snap.EndpointMap) > 0
+	set("RayEndpointsDiscovered",
+		map[bool]string{true: "Found", false: "Missing"}[hasEndpoints],
+		fmt.Sprintf("keys=%v", keysOf(snap.EndpointMap)),
+		hasEndpoints,
+	)
+
+	// Cluster readiness: head ready AND all workers ready (tune if you want thresholds)
+	clusterReady := snap.HeadPodReady && snap.DesiredWorkerReplicas == snap.AvailableWorkerReplicas
+	set("RayClusterReady",
+		map[bool]string{true: "AllPodsReady", false: "PodsNotReady"}[clusterReady],
+		fmt.Sprintf("workers %d/%d headReady=%t", snap.AvailableWorkerReplicas, snap.DesiredWorkerReplicas, snap.HeadPodReady),
+		clusterReady,
+	)
+
+	// Serve route (is the k8s Service backed by endpoints?)
+	set("RayServeRouteReady",
+		map[bool]string{true: "EndpointsAvailable", false: "NoEndpoints"}[snap.ServeServiceHasBackend],
+		fmt.Sprintf("service=%s backed=%t", snap.ServeServiceName, snap.ServeServiceHasBackend),
+		snap.ServeServiceHasBackend,
+	)
+
+	// Top-level Ready rollup
+	platformReady := rsReady && clusterReady && snap.ServeServiceHasBackend
+	set("Ready",
+		map[bool]string{true: "AllHealthy", false: "Degraded"}[platformReady],
+		"Composite of RayServiceReady ∧ RayClusterReady ∧ RayServeRouteReady",
+		platformReady,
+	)
+
+	telemetry.SetCondition(ctx, "RayServiceReady", string(boolToCond(rsReady)))
+	telemetry.SetCondition(ctx, "RayClusterReady", string(boolToCond(clusterReady)))
+	telemetry.SetCondition(ctx, "RayServeRouteReady", string(boolToCond(snap.ServeServiceHasBackend)))
+	telemetry.SetDesiredReplicas(ctx, snap.DesiredWorkerReplicas)
+	telemetry.SetReadyReplicas(ctx, snap.AvailableWorkerReplicas)
 
 	return nil
 }
+
+
 
 // Build constructs a RayService resource based on the AI CR.
 func (b *Builder) Build() *rayv1.RayService {
@@ -423,7 +490,7 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
 				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
 				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
-				{Name: "GPU_TYPE", Value:  b.ai.Spec.DefaultAcceleratorType},                                                 // FIXME
+				{Name: "GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},                       // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -563,4 +630,22 @@ func buildHeadAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform) (map[st
 // boolPtr returns a pointer to the given boolean value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func keysOf(m map[string]string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func boolToCond(b bool) metav1.ConditionStatus {
+	if b {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
 }

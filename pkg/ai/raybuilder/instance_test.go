@@ -9,11 +9,11 @@ import (
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	k8sscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestReadInstanceMapFromConfigMap_Success(t *testing.T) {
@@ -71,6 +71,7 @@ func TestReadInstanceMapFromConfigMap_BadYaml(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 }
+
 type fakeBuilder struct {
 	Client client.Client
 	Scheme *runtime.Scheme

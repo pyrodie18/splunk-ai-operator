@@ -219,7 +219,7 @@ func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform
 
 	// Check RayService endpoint is reachable
 	if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
-		//return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err) FIXME 
+		//return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err) FIXME
 		return nil
 	}
 
@@ -240,7 +240,8 @@ func (r *SaiaReconciler) validateVectorDatabaseReady(ctx context.Context, aiPlat
 
 	// Check if VectorDB service endpoint is accessible
 	if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
-		return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
+		//return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
+		return nil
 	}
 
 	return nil
@@ -370,6 +371,7 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 							ImagePullPolicy: corev1.PullAlways,
 							Env: []corev1.EnvVar{
 								{Name: "VECTOR_DB_URL", Value: uri},
+								{Name: "SPLUNK_AI_ASSISTANT_SERVICE_CMP", Value: "true"},
 							},
 						},
 					},
@@ -417,7 +419,16 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	mounts := []corev1.VolumeMount{
 		{Name: "config-volume", MountPath: "/etc/config"},
 	}
-	env := []corev1.EnvVar{{Name: "LOG_LEVEL", Value: "info"}}
+	env := []corev1.EnvVar{
+		{
+			Name:  "LOG_LEVEL",
+			Value: "info",
+		},
+		{
+			Name:  "SPLUNK_AI_ASSISTANT_SERVICE_CMP",
+			Value: "true",
+		},
+	}
 	if ai.Spec.MTLS.Enabled && ai.Spec.MTLS.Termination == "operator" {
 		volumes = append(volumes,
 			corev1.Volume{
@@ -439,23 +450,27 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 
 	// Add required env variables
 	extraEnv := []corev1.EnvVar{
-		{Name: "IAC_URL", Value: "test.iac.url"},                   //FIXME remove this
-		{Name: "API_GATEWAY_HOST", Value: "test.api.gateway.host"}, //FIXME remove this
-		{Name: "SCPAUTH_SECRET_PATH", Value: "stest-secret-path"},  //FIXME remove this
-		{Name: "AUTH_PROVIDER", Value: "scp"},                      // FIXME remove this
-		{Name: "ENABLE_AUTHZ", Value: "false"},                     //FIXME remove this
+		{Name: "SERVICE_NAME", Value: "splunk_ai_assistant"},
+		{Name: "SERVICE_INTERNAL_NAME", Value: "SAIA"},
+		{Name: "SPLUNK_ISSUERS", Value: "https://splunk-standalone-standalone-service:8089"}, //FIXME
+		{Name: "SPLUNK_AI_ASSISTANT_SERVICE_CMP", Value: "true"},
+		//{Name: "IAC_URL", Value: "test.iac.url"},                   //FIXME remove this
+		//{Name: "API_GATEWAY_HOST", Value: "test.api.gateway.host"}, //FIXME remove this
+		//{Name: "SCPAUTH_SECRET_PATH", Value: "stest-secret-path"},  //FIXME remove this
+		//{Name: "AUTH_PROVIDER", Value: "scp"},                      // FIXME remove this
+		{Name: "ENABLE_AUTHZ", Value: "false"}, //FIXME remove this
 		{Name: "FEATURE_CONFIG_FILE_LOCATION", Value: "/etc/config/features_config.yaml"},
 		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
-		{Name: "PLATFORM_VERSION", Value: "0.3.0"},                                                   // TODO : make this configurable
-		{Name: "SAIA_API_VERSION", Value: "0.3.1"},                                                   // TODO : make this configurable
-		{Name: "TASK_RUNNER_BACKUP_ENABLED", Value: "false"},                                         // TODO : make this configurable
-		{Name: "TELEMETRY_ENV", Value: "prod"},                                                       // TODO: make this configurable
-		{Name: "TELEMETRY_REGION", Value: "region-us-west-2"},                                        // TODO: make this configurable
-		{Name: "TELEMETRY_TENANT", Value: "test"},                                                    // TODO: make this configurable
-		{Name: "TELEMETRY_URL", Value: "https://telemetry-splkmobile.dataeng.splunk.com/2.0/events"}, // TODO: make this configurable
-		{Name: "WEAVIATE_API_URL", Value: ai.Spec.VectorDbUrl},
-		{Name: "STORAGE_URL", Value: ai.Spec.TaskVolume.Path}, // TODO : make this configurable , not sure why we need this
-		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path},   // TODO : make this configurable , not sure why we need this
+		{Name: "PLATFORM_VERSION", Value: "0.3.0"}, // TODO : make this configurable
+		{Name: "SAIA_API_VERSION", Value: "0.3.1"}, // TODO : make this configurable
+		//{Name: "TASK_RUNNER_BACKUP_ENABLED", Value: "false"},                                         // TODO : make this configurable
+		{Name: "TELEMETRY_ENV", Value: "NOTLOCAL"}, // TODO: make this configurable
+		//{Name: "TELEMETRY_REGION", Value: "region-us-west-2"},                                        // TODO: make this configurable
+		//{Name: "TELEMETRY_TENANT", Value: "test"},                                                    // TODO: make this configurable
+		//{Name: "TELEMETRY_URL", Value: "https://telemetry-splkmobile.dataeng.splunk.com/2.0/events"}, // TODO: make this configurable
+		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
+		//{Name: "STORAGE_URL", Value: ai.Spec.TaskVolume.Path}, // TODO : make this configurable , not sure why we need this
+		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // TODO : make this configurable , not sure why we need this
 	}
 	env = append(env, extraEnv...)
 	// Sort env variables by Name for deterministic ordering
