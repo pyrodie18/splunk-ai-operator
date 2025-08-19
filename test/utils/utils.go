@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
@@ -54,7 +55,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "running: %s\n", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(output), fmt.Errorf("%s failed with error: (%v) %s", command, err, string(output))
+		return string(output), fmt.Errorf("homedir:%s, %s failed with error: (%v) %s", cmd.Dir, command, err, string(output))
 	}
 
 	return string(output), nil
@@ -195,10 +196,19 @@ func GetNonEmptyLines(output string) []string {
 func GetProjectDir() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return wd, err
+		return "", err
 	}
-	wd = strings.Replace(wd, "/test/e2e", "", -1)
-	return wd, nil
+	for {
+		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
+			return wd, nil
+		}
+		parent := filepath.Dir(wd)
+		if parent == wd { // reached filesystem root
+			break
+		}
+		wd = parent
+	}
+	return "", fmt.Errorf("could not find project root (no go.mod found)")
 }
 
 // UncommentCode searches for target in the file and remove the comment prefix

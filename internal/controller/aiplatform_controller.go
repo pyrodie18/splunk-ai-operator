@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
 	"github.com/splunk/splunk-ai-operator/internal/controller/common"
+	telemetry "github.com/splunk/splunk-ai-operator/internal/telemetry"
 	aiplatform "github.com/splunk/splunk-ai-operator/pkg/ai"
 	"github.com/splunk/splunk-ai-operator/pkg/config"
 	appsv1 "k8s.io/api/apps/v1"
@@ -53,6 +55,7 @@ import (
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="core",resources=configmaps,verbs=get;list;watch
@@ -69,17 +72,60 @@ type AIPlatformReconciler struct {
 }
 
 func (r *AIPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// ----- telemetry: scope + total timer -----
+	scope := telemetry.Scope{
+		Namespace: req.Namespace,
+		Name:      req.Name,
+		Kind:      "AIPlatform",
+		Feature:   "platform",
+	}
+	ctx = telemetry.WithScope(ctx, scope)
+	totalStart := time.Now()
+	defer func() {
+		telemetry.ObserveReconcileStage(ctx, "total", totalStart)
+	}()
+
+	// ----- fetch -----
+	fetchStart := time.Now()
 	p := &aiv1.AIPlatform{}
 	if err := r.Get(ctx, req.NamespacedName, p); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
+		// NotFound is a normal terminal path; don't count as error.
+		if client.IgnoreNotFound(err) != nil {
+			telemetry.ObserveReconcileError(ctx, "get")
+			telemetry.ObserveReconcileResult(ctx, "error")
+			return ctrl.Result{}, err
+		}
+		telemetry.ObserveReconcileResult(ctx, "success")
+		return ctrl.Result{}, nil
 	}
-	aiplatform := aiplatform.New(p, r.Client, r.Scheme, r.Recorder)
-	return aiplatform.Reconcile(ctx, p)
+	telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
+
+	// ----- delegate to pkg/ai -----
+	delegateStart := time.Now()
+	svc := aiplatform.New(p, r.Client, r.Scheme, r.Recorder)
+	res, err := svc.Reconcile(ctx, p)
+	telemetry.ObserveReconcileStage(ctx, "delegate", delegateStart)
+
+	// Record reconcile result (success | error | requeue)
+	switch {
+	case err != nil:
+		telemetry.ObserveReconcileError(ctx, "reconcile")
+		telemetry.ObserveReconcileResult(ctx, "error")
+	case res.Requeue || res.RequeueAfter > 0:
+		telemetry.ObserveReconcileResult(ctx, "requeue")
+	default:
+		telemetry.ObserveReconcileResult(ctx, "success")
+	}
+
+	return res, err
 }
 
 // --- 8️⃣ reconcileStatus: update CR status/conditions ---
 func (r *AIPlatformReconciler) reconcileStatus(ctx context.Context, p *aiv1.AIPlatform) error {
+	// reflect observedGeneration
 	p.Status.ObservedGeneration = p.Generation
+
 	cond := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
@@ -88,7 +134,22 @@ func (r *AIPlatformReconciler) reconcileStatus(ctx context.Context, p *aiv1.AIPl
 		LastTransitionTime: metav1.Now(),
 	}
 	p.Status.Conditions = []metav1.Condition{cond}
-	return r.Status().Update(ctx, p)
+
+	// ----- telemetry: gauges for generation & condition -----
+	telemetry.SetObservedGeneration(ctx, p.Status.ObservedGeneration)
+	telemetry.SetCondition(ctx, "Ready", string(cond.Status))
+
+	// ----- telemetry: API latency/counter for status update (optional but useful) -----
+	apiStart := time.Now()
+	err := r.Status().Update(ctx, p)
+	telemetry.ObserveAPILatency(ctx, "status", "k8s_status_update", apiStart)
+	if err != nil {
+		telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "error")
+		telemetry.ObserveReconcileError(ctx, "status_update")
+		return err
+	}
+	telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "ok")
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

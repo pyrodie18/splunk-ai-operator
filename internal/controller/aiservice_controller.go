@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -34,6 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
+	telemetry "github.com/splunk/splunk-ai-operator/internal/telemetry"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/features"
 	"github.com/splunk/splunk-ai-operator/pkg/config"
 )
@@ -60,6 +62,7 @@ type AIServiceReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="core",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -80,31 +83,80 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling AIService", "name", req.Name, "namespace", req.Namespace)
 
+	// ----- telemetry scope + total timer -----
+	scope := telemetry.Scope{
+		Namespace: req.Namespace,
+		Name:      req.Name,
+		Kind:      "AIService",
+		Feature:   "unknown", // will be replaced after fetch
+	}
+	ctx = telemetry.WithScope(ctx, scope)
+	totalStart := time.Now()
+	defer func() {
+		telemetry.ObserveReconcileStage(ctx, "total", totalStart)
+	}()
+
+	// ----- fetch -----
+	fetchStart := time.Now()
 	ai := &aiv1.AIService{}
 	if err := r.Get(ctx, req.NamespacedName, ai); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
+		// NotFound is normal terminal path
+		if client.IgnoreNotFound(err) != nil {
+			telemetry.ObserveReconcileError(ctx, "get")
+			telemetry.ObserveReconcileResult(ctx, "error")
+			return ctrl.Result{}, err
+		}
+		telemetry.ObserveReconcileResult(ctx, "success")
+		return ctrl.Result{}, nil
 	}
+	telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
 
-	// Lookup factory by feature name
-	factory, ok := features.FeatureFactories[ai.Spec.Feature.Name]
+	// enrich scope with real feature name
+	featureName := ai.Spec.Feature.Name
+	if featureName == "" {
+		featureName = "unknown"
+	}
+	ctx = telemetry.WithScope(ctx, telemetry.Scope{
+		Namespace: req.Namespace,
+		Name:      req.Name,
+		Kind:      "AIService",
+		Feature:   featureName,
+	})
+
+	// ----- feature factory lookup/init -----
+	factoryInit := time.Now()
+	factory, ok := features.FeatureFactories[featureName]
+	telemetry.ObserveReconcileStage(ctx, "factory_lookup", factoryInit)
 	if !ok {
-		log.Error(nil, "No factory registered for feature", "feature", ai.Spec.Feature.Name)
+		log.Error(nil, "No factory registered for feature", "feature", featureName)
+		telemetry.ObserveReconcileError(ctx, "factory_lookup")
+		telemetry.ObserveReconcileResult(ctx, "error")
 		return ctrl.Result{}, nil
 	}
 
-	// Instantiate feature-specific reconciler via factory
+	handlerInit := time.Now()
 	handler, err := factory.New(ctx, r.Client, r.Scheme, ai, r.Recorder)
+	telemetry.ObserveReconcileStage(ctx, "handler_init", handlerInit)
 	if err != nil {
-		log.Error(err, "failed to initialize feature handler", "feature", ai.Spec.Feature.Name)
+		log.Error(err, "failed to initialize feature handler", "feature", featureName)
+		telemetry.ObserveReconcileError(ctx, "handler_init")
+		telemetry.ObserveReconcileResult(ctx, "error")
 		return ctrl.Result{}, err
 	}
 
-	// Reconcile the feature
-	if err := handler.Reconcile(ctx, ai); err != nil {
-		log.Error(err, "feature reconciliation failed", "feature", ai.Spec.Feature.Name)
+	// ----- feature reconcile -----
+	featStart := time.Now()
+	err = handler.Reconcile(ctx, ai)
+	telemetry.ObserveReconcileStage(ctx, "feature_reconcile", featStart)
+	if err != nil {
+		log.Error(err, "feature reconciliation failed", "feature", featureName)
+		telemetry.ObserveReconcileError(ctx, "reconcile")
+		telemetry.ObserveReconcileResult(ctx, "error")
 		return ctrl.Result{}, err
 	}
 
+	telemetry.ObserveReconcileResult(ctx, "success")
 	return ctrl.Result{}, nil
 }
 
@@ -124,7 +176,9 @@ func (r *AIServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // --- 8️⃣ reconcileStatus: update CR status/conditions ---
 func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AIService) error {
+	// reflect observedGeneration
 	p.Status.ObservedGeneration = p.Generation
+
 	cond := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
@@ -133,5 +187,24 @@ func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AISer
 		LastTransitionTime: metav1.Now(),
 	}
 	p.Status.Conditions = []metav1.Condition{cond}
-	return r.Status().Update(ctx, p)
+
+	// telemetry: gauges for generation & condition
+	telemetry.SetObservedGeneration(ctx, p.Status.ObservedGeneration)
+	telemetry.SetCondition(ctx, "Ready", string(cond.Status))
+
+	// OPTIONAL: if your AIService has scale fields, set them here:
+	// telemetry.SetDesiredReplicas(ctx, p.Spec.Replicas)
+	// telemetry.SetReadyReplicas(ctx, p.Status.ReadyReplicas)
+
+	// telemetry: API latency/counter for status update
+	apiStart := time.Now()
+	err := r.Status().Update(ctx, p)
+	telemetry.ObserveAPILatency(ctx, "status", "k8s_status_update", apiStart)
+	if err != nil {
+		telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "error")
+		telemetry.ObserveReconcileError(ctx, "status_update")
+		return err
+	}
+	telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "ok")
+	return nil
 }
