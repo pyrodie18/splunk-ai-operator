@@ -116,9 +116,26 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	go test ./test/e2e/ -v -ginkgo.v
+.PHONY: e2e-all
+e2e-all:
+	IMG=$(IMG) go test ./test/e2e/... -v -ginkgo.v -ginkgo.progress
+
+e2e-manager:
+	IMG=$(IMG) go test ./test/e2e/specs -run Manager -v -ginkgo.v -ginkgo.progress
+
+e2e-ai:
+	OPERATOR_NAMESPACE?=splunk-ai-operator-system
+	WORKLOAD_NAMESPACE?=aiplatform-e2e
+	AIPLATFORM_SAMPLE?=config/samples/ai.splunk.com_v1alpha1_aiplatform.yaml
+	AISERVICE_SAMPLE?=config/samples/ai.splunk.com_v1alpha1_aiservice_saia.yaml
+	AIPLATFORM_NAME?=testtenant
+	AISERVICE_NAME?=saia
+	FORWARD_SERVICE?=saia-gateway
+	IMG=$(IMG) OPERATOR_NAMESPACE=$(OPERATOR_NAMESPACE) WORKLOAD_NAMESPACE=$(WORKLOAD_NAMESPACE) \
+	AIPLATFORM_SAMPLE=$(AIPLATFORM_SAMPLE) AISERVICE_SAMPLE=$(AISERVICE_SAMPLE) \
+	AIPLATFORM_NAME=$(AIPLATFORM_NAME) AISERVICE_NAME=$(AISERVICE_NAME) \
+	FORWARD_SERVICE=$(FORWARD_SERVICE) \
+	go test ./test/e2e/specs -run "AIPlatform.*" -v -ginkgo.v -ginkgo.progress
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
