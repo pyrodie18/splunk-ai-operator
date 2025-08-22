@@ -40,6 +40,8 @@ import (
 	"github.com/splunk/splunk-ai-operator/pkg/config"
 )
 
+const aiServiceFinalizer = "ai.splunk.com/aiservice-protect"
+
 // AIServiceReconciler reconciles a AIService object
 type AIServiceReconciler struct {
 	client.Client
@@ -83,36 +85,34 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling AIService", "name", req.Name, "namespace", req.Namespace)
 
-	// ----- telemetry scope + total timer -----
+	// telemetry scope
 	scope := telemetry.Scope{
 		Namespace: req.Namespace,
 		Name:      req.Name,
 		Kind:      "AIService",
-		Feature:   "unknown", // will be replaced after fetch
+		Feature:   "unknown",
 	}
 	ctx = telemetry.WithScope(ctx, scope)
 	totalStart := time.Now()
-	defer func() {
-		telemetry.ObserveReconcileStage(ctx, "total", totalStart)
-	}()
+	defer func() { telemetry.ObserveReconcileStage(ctx, "total", totalStart) }()
 
-	// ----- fetch -----
+	// fetch
 	fetchStart := time.Now()
 	ai := &aiv1.AIService{}
 	if err := r.Get(ctx, req.NamespacedName, ai); err != nil {
 		telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
-		// NotFound is normal terminal path
 		if client.IgnoreNotFound(err) != nil {
 			telemetry.ObserveReconcileError(ctx, "get")
 			telemetry.ObserveReconcileResult(ctx, "error")
 			return ctrl.Result{}, err
 		}
+		// deleted already
 		telemetry.ObserveReconcileResult(ctx, "success")
 		return ctrl.Result{}, nil
 	}
 	telemetry.ObserveReconcileStage(ctx, "fetch", fetchStart)
 
-	// enrich scope with real feature name
+	// update scope with feature name
 	featureName := ai.Spec.Feature.Name
 	if featureName == "" {
 		featureName = "unknown"
@@ -124,7 +124,42 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		Feature:   featureName,
 	})
 
-	// ----- feature factory lookup/init -----
+	// deletion handling with finalizer
+	if ai.DeletionTimestamp != nil {
+		// run feature specific finalization if needed
+		if containsString(ai.Finalizers, aiServiceFinalizer) {
+			if factory, ok := features.FeatureFactories[featureName]; ok {
+				if handler, err := factory.New(ctx, r.Client, r.Scheme, ai, r.Recorder); err == nil {
+					// TODO - define Finalize handlers
+					if f, ok := handler.(interface {
+						Finalize(context.Context, *aiv1.AIService) error
+					}); ok {
+						if err := f.Finalize(ctx, ai); err != nil {
+							telemetry.ObserveReconcileError(ctx, "finalize")
+							return ctrl.Result{}, err
+						}
+					}
+				}
+			}
+			// remove finalizer
+			ai.Finalizers = removeString(ai.Finalizers, aiServiceFinalizer)
+			if err := r.Update(ctx, ai); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		telemetry.ObserveReconcileResult(ctx, "success")
+		return ctrl.Result{}, nil
+	}
+
+	// ensure finalizer present
+	if !containsString(ai.Finalizers, aiServiceFinalizer) {
+		ai.Finalizers = append(ai.Finalizers, aiServiceFinalizer)
+		if err := r.Update(ctx, ai); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// feature handler init
 	factoryInit := time.Now()
 	factory, ok := features.FeatureFactories[featureName]
 	telemetry.ObserveReconcileStage(ctx, "factory_lookup", factoryInit)
@@ -132,7 +167,8 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.Error(nil, "No factory registered for feature", "feature", featureName)
 		telemetry.ObserveReconcileError(ctx, "factory_lookup")
 		telemetry.ObserveReconcileResult(ctx, "error")
-		return ctrl.Result{}, nil
+		// requeue to avoid hot looping if spec is wrong - small delay
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	handlerInit := time.Now()
@@ -145,14 +181,20 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// ----- feature reconcile -----
+	// feature reconcile
 	featStart := time.Now()
-	err = handler.Reconcile(ctx, ai)
-	telemetry.ObserveReconcileStage(ctx, "feature_reconcile", featStart)
-	if err != nil {
+	if err := handler.Reconcile(ctx, ai); err != nil {
+		telemetry.ObserveReconcileStage(ctx, "feature_reconcile", featStart)
 		log.Error(err, "feature reconciliation failed", "feature", featureName)
 		telemetry.ObserveReconcileError(ctx, "reconcile")
 		telemetry.ObserveReconcileResult(ctx, "error")
+		return ctrl.Result{}, err
+	}
+	telemetry.ObserveReconcileStage(ctx, "feature_reconcile", featStart)
+
+	// status update
+	if err := r.reconcileStatus(ctx, ai); err != nil {
+		telemetry.ObserveReconcileError(ctx, "status_update")
 		return ctrl.Result{}, err
 	}
 
@@ -192,7 +234,7 @@ func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AISer
 	telemetry.SetObservedGeneration(ctx, p.Status.ObservedGeneration)
 	telemetry.SetCondition(ctx, "Ready", string(cond.Status))
 
-	// OPTIONAL: if your AIService has scale fields, set them here:
+	// FIXME: add AIService scale fields, set them here:
 	// telemetry.SetDesiredReplicas(ctx, p.Spec.Replicas)
 	// telemetry.SetReadyReplicas(ctx, p.Status.ReadyReplicas)
 
@@ -207,4 +249,23 @@ func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AISer
 	}
 	telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "ok")
 	return nil
+}
+
+func containsString(slice []string, s string) bool {
+	for _, x := range slice {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	out := make([]string, 0, len(slice))
+	for _, x := range slice {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
 }

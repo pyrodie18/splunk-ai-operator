@@ -8,16 +8,18 @@ import (
 	"github.com/splunk/splunk-ai-operator/pkg/ai/raybuilder"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/sidecars"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	//"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	//"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+const ownerKey = ".metadata.controller"
 
 type AIPlatformReconciler struct {
 	p *aiApi.AIPlatform
@@ -109,26 +111,78 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 	return reconcile.Result{}, nil
 }
 
+// ReconcileFeatures ensures each feature's AIService exists and is up to date.
 func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform *aiApi.AIPlatform) error {
+	log := log.FromContext(ctx)
+
+	// Build the desired set of child service names
+	desired := make(map[string]struct{}, len(platform.Spec.Features))
 
 	for _, feature := range platform.Spec.Features {
 		serviceName := fmt.Sprintf("%s-%s", platform.Name, feature.Name)
-		var existing aiApi.AIService
-		err := r.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: platform.Namespace}, &existing)
+		desired[serviceName] = struct{}{}
 
-		if errors.IsNotFound(err) {
-			newService := r.buildAIService(ctx, platform, feature, serviceName)
-			if err := controllerutil.SetControllerReference(platform, newService, r.Scheme); err != nil {
+		// Prepare object with identity for CreateOrUpdate
+		var svc aiApi.AIService
+		svc.Name = serviceName
+		svc.Namespace = platform.Namespace
+
+		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, &svc, func() error {
+			// Ensure ownership
+			if err := controllerutil.SetControllerReference(platform, &svc, r.Scheme); err != nil {
 				return err
 			}
-			if err := r.Create(ctx, newService); err != nil {
-				return err
+
+			// Desired state from your builder
+			built := r.buildAIService(ctx, platform, feature, serviceName)
+
+			// Copy desired spec
+			svc.Spec = built.Spec
+
+			// Merge labels
+			if svc.Labels == nil {
+				svc.Labels = map[string]string{}
 			}
-			// You can log here if needed
-		} else if err != nil {
+			for k, v := range built.Labels {
+				svc.Labels[k] = v
+			}
+
+			// Merge annotations
+			if svc.Annotations == nil {
+				svc.Annotations = map[string]string{}
+			}
+			for k, v := range built.Annotations {
+				svc.Annotations[k] = v
+			}
+
+			return nil
+		})
+		if err != nil {
 			return err
 		}
 	}
+
+	// Prune services for features that no longer exist
+	var children aiApi.AIServiceList
+	if err := r.List(
+		ctx,
+		&children,
+		client.InNamespace(platform.Namespace),
+		client.MatchingFields{ownerKey: platform.Name}, // requires index on .metadata.controller
+	); err != nil {
+		return err
+	}
+
+	for i := range children.Items {
+		child := &children.Items[i]
+		if _, keep := desired[child.Name]; !keep {
+			if err := r.Delete(ctx, child); client.IgnoreNotFound(err) != nil {
+				return err
+			}
+			log.Info("deleted AIService for removed feature", "name", child.Name)
+		}
+	}
+
 	return nil
 }
 
@@ -154,7 +208,7 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 				Namespace:  platform.Namespace,
 			},
 			ServiceAccountName:  feature.ServiceAccountName,
-			TaskVolume:          platform.Spec.ObjectStorage,
+			TaskVolume:          platform.Spec.ObjectStorage, // FIXME
 			SplunkConfiguration: platform.Spec.SplunkConfiguration,
 			VectorDbUrl:         vectorDbUrl,
 			Replicas:            1,

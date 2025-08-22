@@ -59,7 +59,7 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *enterpriseApi.
 
 	// 3) Walk the original list and keep only the ones that exist
 	for _, a := range config.RayService.Applications {
-		// build the key your Exists method expects
+		// build the key our Exists method expects
 		// e.g. "appName-modelVersion.zip"
 		key := fmt.Sprintf("%s-%s.zip", a.Name, version)
 

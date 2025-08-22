@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/selection"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -27,9 +27,9 @@ type RaySnapshot struct {
 	ObservedGeneration   int64
 
 	// From cluster discovery
-	HeadPodReady             bool
-	DesiredWorkerReplicas    int32
-	AvailableWorkerReplicas  int32
+	HeadPodReady            bool
+	DesiredWorkerReplicas   int32
+	AvailableWorkerReplicas int32
 
 	// Serve routing
 	ServeServiceName       string
@@ -40,12 +40,12 @@ type RaySnapshot struct {
 	HeadPodName     string
 	HeadServiceIP   string
 
-		// Endpoints from RayClusterStatus.Endpoints (map[string]string)
-	EndpointMap        map[string]string
-	DashboardURL       string
-	ServeURL           string
-	DashboardPort      int32 // parsed from DashboardURL if present
-	ServePort          int32 // parsed from ServeURL if present
+	// Endpoints from RayClusterStatus.Endpoints (map[string]string)
+	EndpointMap   map[string]string
+	DashboardURL  string
+	ServeURL      string
+	DashboardPort int32 // parsed from DashboardURL if present
+	ServePort     int32 // parsed from ServeURL if present
 }
 
 // CollectRaySnapshot gathers status from RayService, RayCluster, and K8s Services/Endpoints.
@@ -116,7 +116,6 @@ func CollectRaySnapshot(ctx context.Context, c client.Client, ns, name string) (
 
 	return snap, nil
 }
-
 
 func checkHeadPodReady(ctx context.Context, c client.Client, ns, clusterName string) (bool, error) {
 	req1, _ := labels.NewRequirement("ray.io/cluster", selection.Equals, []string{clusterName})

@@ -55,6 +55,7 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 	}{
 		{"Validate", r.validateAIService},
 		{"ServiceAccount", r.reconcileServiceAccount},
+		{"SAIAConfigMap", r.reconcileSAIAConfigMap},
 		{"FluentBitConfig", r.reconcileFluentBitConfig},
 		{"Certificate", r.reconcileCertificate},
 		{"PostInstallHook", r.reconcilePostInstallHook},
@@ -278,6 +279,59 @@ func (r *SaiaReconciler) reconcileServiceAccount(
 	return nil
 }
 
+// reconcileSAIAConfigMap manages the SAIA config ConfigMap for SPLUNK_ISSUERS.
+func (r *SaiaReconciler) reconcileSAIAConfigMap(
+	ctx context.Context,
+	ai *aiv1.AIService,
+) error {
+	cmName := fmt.Sprintf("%s-saia-config", ai.Name)
+
+	// Defaults for static keys (override in user-managed CM if desired).
+	defaults := map[string]string{
+		// previously hardcoded
+		"SERVICE_NAME":                    "splunk_ai_assistant",
+		"SERVICE_INTERNAL_NAME":           "SAIA",
+		"SPLUNK_ISSUERS":                  "https://splunk-standalone-standalone-service:8089",
+		"SPLUNK_AI_ASSISTANT_SERVICE_CMP": "true",
+		"ENABLE_AUTHZ":                    "false", // FIXME remove when ready
+		"FEATURE_CONFIG_FILE_LOCATION":    "/etc/config/features_config.yaml",
+		"PLATFORM_VERSION":                "0.3.0",    // TODO make configurable
+		"SAIA_API_VERSION":                "0.3.1",    // TODO make configurable
+		"TELEMETRY_ENV":                   "NOTLOCAL", // TODO make configurable
+		"LOG_LEVEL":                       "info",
+	}
+
+	found := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: ai.Namespace}, found)
+	if apierrors.IsNotFound(err) {
+		// Create new with defaults
+		return r.createOrUpdateConfigMap(ctx, cmName, defaults, ai)
+	} else if err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec",
+			fmt.Sprintf("failed to retrieve ConfigMap %q: %v", cmName, err))
+		return fmt.Errorf("fetching SAIA ConfigMap %q: %w", cmName, err)
+	}
+
+	// Merge defaults for any missing keys, but don't override user-set values.
+	if found.Data == nil {
+		found.Data = map[string]string{}
+	}
+	needsUpdate := false
+	for k, v := range defaults {
+		if _, ok := found.Data[k]; !ok || found.Data[k] == "" {
+			found.Data[k] = v
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		if err := controllerutil.SetControllerReference(ai, found, r.Scheme); err != nil {
+			return fmt.Errorf("ownerref on ConfigMap: %w", err)
+		}
+		return r.Update(ctx, found)
+	}
+	return nil
+}
+
 // reconcileCertificate manages cert-manager Certificate for mTLS.
 func (r *SaiaReconciler) reconcileCertificate(
 	ctx context.Context,
@@ -398,7 +452,6 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
-	// Build volumes
 	optional := true
 	volumes := []corev1.Volume{
 		{
@@ -411,7 +464,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 			},
 		},
 	}
-	// Build ports and env
+
 	ports := []corev1.ContainerPort{
 		{Name: "http", ContainerPort: 8080},
 		{Name: "metrics", ContainerPort: 8088},
@@ -419,25 +472,25 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	mounts := []corev1.VolumeMount{
 		{Name: "config-volume", MountPath: "/etc/config"},
 	}
+
+	// Base env: keep ONLY dynamic values here.
 	env := []corev1.EnvVar{
-		{
-			Name:  "LOG_LEVEL",
-			Value: "info",
-		},
-		{
-			Name:  "SPLUNK_AI_ASSISTANT_SERVICE_CMP",
-			Value: "true",
-		},
+		// Dynamic or runtime-derived values:
+		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
+		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
+		//{Name: "SAIA_STORAGE", Value: "local"}, //FIXME TODO
+		{Name: "S3_BUCKET", Value: "ai-platform-bucket-us-east-1"}, // FIXME, TODO
+		//{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // FIXME , TODO
 	}
+
+	// mTLS handling (dynamic)
 	if ai.Spec.MTLS.Enabled && ai.Spec.MTLS.Termination == "operator" {
-		volumes = append(volumes,
-			corev1.Volume{
-				Name: "tls",
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: ai.Spec.MTLS.SecretName},
-				},
+		volumes = append(volumes, corev1.Volume{
+			Name: "tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: ai.Spec.MTLS.SecretName},
 			},
-		)
+		})
 		mounts = append(mounts, corev1.VolumeMount{Name: "tls", MountPath: "/etc/tls", ReadOnly: true})
 		env = append(env,
 			corev1.EnvVar{Name: "TLS_CERT_FILE", Value: "/etc/tls/tls.crt"},
@@ -448,35 +501,20 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		env = append(env, corev1.EnvVar{Name: "TLS_DISABLED", Value: "true"})
 	}
 
-	// Add required env variables
-	extraEnv := []corev1.EnvVar{
-		{Name: "SERVICE_NAME", Value: "splunk_ai_assistant"},
-		{Name: "SERVICE_INTERNAL_NAME", Value: "SAIA"},
-		{Name: "SPLUNK_ISSUERS", Value: "https://splunk-standalone-standalone-service:8089"}, //FIXME
-		{Name: "SPLUNK_AI_ASSISTANT_SERVICE_CMP", Value: "true"},
-		//{Name: "IAC_URL", Value: "test.iac.url"},                   //FIXME remove this
-		//{Name: "API_GATEWAY_HOST", Value: "test.api.gateway.host"}, //FIXME remove this
-		//{Name: "SCPAUTH_SECRET_PATH", Value: "stest-secret-path"},  //FIXME remove this
-		//{Name: "AUTH_PROVIDER", Value: "scp"},                      // FIXME remove this
-		{Name: "ENABLE_AUTHZ", Value: "false"}, //FIXME remove this
-		{Name: "FEATURE_CONFIG_FILE_LOCATION", Value: "/etc/config/features_config.yaml"},
-		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
-		{Name: "PLATFORM_VERSION", Value: "0.3.0"}, // TODO : make this configurable
-		{Name: "SAIA_API_VERSION", Value: "0.3.1"}, // TODO : make this configurable
-		//{Name: "TASK_RUNNER_BACKUP_ENABLED", Value: "false"},                                         // TODO : make this configurable
-		{Name: "TELEMETRY_ENV", Value: "NOTLOCAL"}, // TODO: make this configurable
-		//{Name: "TELEMETRY_REGION", Value: "region-us-west-2"},                                        // TODO: make this configurable
-		//{Name: "TELEMETRY_TENANT", Value: "test"},                                                    // TODO: make this configurable
-		//{Name: "TELEMETRY_URL", Value: "https://telemetry-splkmobile.dataeng.splunk.com/2.0/events"}, // TODO: make this configurable
-		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
-		//{Name: "STORAGE_URL", Value: ai.Spec.TaskVolume.Path}, // TODO : make this configurable , not sure why we need this
-		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // TODO : make this configurable , not sure why we need this
+	// Import ALL static keys from the SAIA ConfigMap as env vars.
+	envFrom := []corev1.EnvFromSource{
+		{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: fmt.Sprintf("%s-saia-config", ai.Name),
+				},
+				// Optional: set Optional: &truePtr if you prefer soft-fail
+			},
+		},
 	}
-	env = append(env, extraEnv...)
-	// Sort env variables by Name for deterministic ordering
-	sort.Slice(env, func(i, j int) bool {
-		return env[i].Name < env[j].Name
-	})
+
+	// Sort only the explicit envs (envFrom remains as-is)
+	sort.Slice(env, func(i, j int) bool { return env[i].Name < env[j].Name })
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -498,7 +536,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{"app": ai.Name, "component": ai.Name},
 					Annotations: map[string]string{
-						"prometheus.io/port":   "8088", //FIXME only enable when metrics are enabled
+						"prometheus.io/port":   "8088",
 						"prometheus.io/path":   "/metrics",
 						"prometheus.io/scheme": "http",
 					},
@@ -513,6 +551,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 						VolumeMounts:    mounts,
 						Resources:       ai.Spec.Resources,
 						Env:             env,
+						EnvFrom:         envFrom, // <— bring in ALL static config keys
 						LivenessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
@@ -543,22 +582,19 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 			},
 		},
 	}
-	// Merge ai.Labels into deployment.ObjectMeta.Labels
+
+	// Merge labels/annotations from AIService
 	for k, v := range ai.Labels {
 		deployment.ObjectMeta.Labels[k] = v
 	}
 	for k, v := range ai.Annotations {
-		if k == "kubectl.kubernetes.io/last-applied-configuration" {
+		if k == "kubectl.kubernetes.io/last-applied-configuration" || k == "kubectl.kubernetes.io/restartedAt" {
 			continue
-		} // Ignore last-applied-configuration annotation
-		if k == "kubectl.kubernetes.io/restartedAt" {
-			continue
-		} // Ignore restartedAt annotation
+		}
 		deployment.ObjectMeta.Annotations[k] = v
 	}
-	// FIXME need to find better way to add sidecars
-	// sidecars arguments need to be changed to take abstract class
-	//sidecars := sidecars.New(r.Client, r.Scheme, r.Recorder, ai)
+
+	// Add logging sidecar
 	r.AddFluentBitSidecar(&deployment.Spec.Template.Spec, ai)
 
 	if err := controllerutil.SetControllerReference(ai, deployment, r.Scheme); err != nil {

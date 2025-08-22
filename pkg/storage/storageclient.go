@@ -49,7 +49,7 @@ func NewStorageClient(
 		return NewAzureClient(k8sClient, namespace, u.Host, prefix, vs)
 	case "minio":
 		// everything after "//" is host (bucket) and path.  We treat u.Host as bucket,
-		// vs.Endpoint *must* be set to your MinIO URL for this case.
+		// vs.Endpoint *must* be set to our MinIO URL for this case.
 		return NewMinioClient(k8sClient, namespace, u.Host, prefix, vs)
 	case "fixture":
 		// fixture:// is a special scheme for testing purposes, using a fake client.

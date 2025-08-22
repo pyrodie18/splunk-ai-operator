@@ -29,15 +29,15 @@ func withRepoDir(cmd *exec.Cmd) error {
 
 // CreateNamespace creates a Kubernetes namespace.
 func CreateNamespace(ns string) error {
-    cmd := exec.Command("kubectl", "create", "ns", ns)
-    if err := withRepoDir(cmd); err != nil {
-        return err
-    }
-    out, err := utils.Run(cmd)
-    if err != nil && strings.Contains(out, "AlreadyExists") {
-        return nil // ignore if namespace already exists
-    }
-    return err
+	cmd := exec.Command("kubectl", "create", "ns", ns)
+	if err := withRepoDir(cmd); err != nil {
+		return err
+	}
+	out, err := utils.Run(cmd)
+	if err != nil && strings.Contains(out, "AlreadyExists") {
+		return nil // ignore if namespace already exists
+	}
+	return err
 }
 
 // LabelNamespace applies/overwrites a label on a namespace.
@@ -145,7 +145,7 @@ func ServiceHasEndpointPort(ns, svc, port string) (bool, error) {
 					Port *int `json:"port"`
 				} `json:"ports"`
 				Endpoints []struct {
-					Addresses []string `json:"addresses"`
+					Addresses  []string `json:"addresses"`
 					Conditions struct {
 						Ready *bool `json:"ready"`
 					} `json:"conditions"`
@@ -168,7 +168,6 @@ func ServiceHasEndpointPort(ns, svc, port string) (bool, error) {
 	}
 	return false, nil
 }
-
 
 // PortForwardService runs `kubectl port-forward` for a Service and returns a cancel func.
 // It waits until the forwarder reports readiness in its output.

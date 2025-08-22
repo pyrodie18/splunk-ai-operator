@@ -7,7 +7,6 @@ import (
 	"github.com/splunk/splunk-ai-operator/test/utils"
 )
 
-
 // Best-effort deletes below. No error if missing.
 
 func DeleteNamespace(ns string) {

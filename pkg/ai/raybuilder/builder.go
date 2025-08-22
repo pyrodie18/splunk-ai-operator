@@ -309,8 +309,6 @@ func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseAp
 	return nil
 }
 
-
-
 // Build constructs a RayService resource based on the AI CR.
 func (b *Builder) Build() *rayv1.RayService {
 	rs := &rayv1.RayService{
