@@ -252,7 +252,7 @@ func ScopeFrom(ctx context.Context) Scope {
 	if s, ok := FromContext(ctx); ok {
 		return s
 	}
-	return Scope{} // empty scope (no labels). You may prefer to no-op instead.
+	return Scope{} // empty scope (no labels). We may prefer to no-op instead.
 }
 
 func ObserveReconcileStage(ctx context.Context, stage string, start time.Time) {

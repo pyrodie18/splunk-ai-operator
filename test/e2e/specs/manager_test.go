@@ -17,8 +17,6 @@ import (
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
-
-
 	BeforeAll(func() {
 		By("creating manager namespace")
 		Expect(k8s.CreateNamespace(cfg.OperatorNS)).To(Succeed())
@@ -39,7 +37,7 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd := exec.Command("make", "install")
 		if root, err := pathutil.RepoRoot(); err == nil {
 			cmd.Dir = root
-		} 
+		}
 		fmt.Printf("Running command: %s", cmd.String())
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())

@@ -10,8 +10,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/splunk/splunk-ai-operator/test/e2e/internal/cfg"
-	"github.com/splunk/splunk-ai-operator/test/utils"
 	"github.com/splunk/splunk-ai-operator/test/e2e/internal/k8s"
+	"github.com/splunk/splunk-ai-operator/test/utils"
 )
 
 var isCertManagerAlreadyInstalled bool

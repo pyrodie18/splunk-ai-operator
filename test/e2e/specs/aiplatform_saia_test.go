@@ -25,10 +25,12 @@ var _ = Describe("AIPlatform + AIService (SAIA)", Ordered, func() {
 		By("creating workload namespace")
 		Expect(k8s.CreateNamespace(cfg.WorkloadNS)).To(Succeed())
 
-				// Always cleanup, even if any later step fails.
+		// Always cleanup, even if any later step fails.
 		DeferCleanup(func() {
 			// stop any port-forward
-			if pfCancel != nil { pfCancel() }
+			if pfCancel != nil {
+				pfCancel()
+			}
 			// delete CRs (best-effort)
 			k8s.Delete(cfg.WorkloadNS, cfg.SampleAIService)
 			k8s.Delete(cfg.WorkloadNS, cfg.SampleAIPlatform)
@@ -36,7 +38,7 @@ var _ = Describe("AIPlatform + AIService (SAIA)", Ordered, func() {
 			k8s.DeleteNamespace(cfg.WorkloadNS)
 		})
 
-		// baseline PSA (adjust to your policy)
+		// baseline PSA (adjust to our policy)
 		_ = k8s.LabelNamespace(cfg.WorkloadNS, "pod-security.kubernetes.io/enforce", "baseline")
 	})
 

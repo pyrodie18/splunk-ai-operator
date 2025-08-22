@@ -21,20 +21,20 @@ var (
 	WorkloadNS = envOr("WORKLOAD_NAMESPACE", "aiplatform-e2e")
 
 	// service account + metrics
-	ServiceAccountName   = envOr("SERVICE_ACCOUNT", "splunk-ai-operator-controller-manager")
-	MetricsServiceName   = envOr("METRICS_SERVICE", "splunk-ai-operator-controller-manager-metrics-service")
-	MetricsRoleBindName  = envOr("METRICS_RBAC", "splunk-ai-operator-metrics-binding")
+	ServiceAccountName  = envOr("SERVICE_ACCOUNT", "splunk-ai-operator-controller-manager")
+	MetricsServiceName  = envOr("METRICS_SERVICE", "splunk-ai-operator-controller-manager-metrics-service")
+	MetricsRoleBindName = envOr("METRICS_RBAC", "splunk-ai-operator-metrics-binding")
 
 	// cert-manager behavior
 	SkipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
 
 	// samples (override in CI if needed)
 	SampleAIPlatform = envOr("AIPLATFORM_SAMPLE", "config/samples/ai_v1_aiplatform.yaml")
-	SampleAIService  = envOr("AISERVICE_SAMPLE",  "config/samples/ai_v1_aiservice.yaml")
+	SampleAIService  = envOr("AISERVICE_SAMPLE", "config/samples/ai_v1_aiservice.yaml")
 
 	// CR names
 	AIPlatformName = envOr("AIPLATFORM_NAME", "testtenant")
-	AIServiceName  = envOr("AISERVICE_NAME",  "saia")
+	AIServiceName  = envOr("AISERVICE_NAME", "saia")
 
 	// readiness
 	ReadyConditionType     = envOr("READY_CONDITION", "Ready")
@@ -42,9 +42,9 @@ var (
 	AIServiceReadyTimeout  = durationEnv("AISERVICE_READY_TIMEOUT", 10*time.Minute)
 
 	// port-forward target (prefer a Service)
-	ForwardLocalPort  = envOr("FORWARD_LOCAL",  "8080")
+	ForwardLocalPort  = envOr("FORWARD_LOCAL", "8080")
 	ForwardRemotePort = envOr("FORWARD_REMOTE", "8080")
-	ServiceToForward  = envOr("FORWARD_SERVICE","saia-gateway")
+	ServiceToForward  = envOr("FORWARD_SERVICE", "saia-gateway")
 	ServiceNamespace  = envOr("FORWARD_NAMESPACE", WorkloadNS)
 
 	// REST request
