@@ -586,8 +586,6 @@ func buildWorkerAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform, cfg e
 		annotations["sidecar.opentelemetry.io/auto-instrument"] = "true"
 	}
 
-	// Add any additional logic as needed
-
 	return annotations, labels
 }
 

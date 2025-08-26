@@ -111,15 +111,6 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
-	// ensure finalizer exists for future cleanup
-	if !containsString(p.Finalizers, aiPlatformFinalizer) {
-		p.Finalizers = append(p.Finalizers, aiPlatformFinalizer)
-		if err := r.Update(ctx, p); err != nil {
-			return ctrl.Result{}, err
-		}
-		// return so we reconcile again with the fresh object
-		return ctrl.Result{Requeue: true}, nil
-	}
 
 	// normal reconcile
 	svc := aiplatform.New(p, r.Client, r.Scheme, r.Recorder)
@@ -130,7 +121,6 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	return res, err
 }
-
 
 // --- 8️⃣ reconcileStatus: update CR status/conditions ---
 func (r *AIPlatformReconciler) reconcileStatus(ctx context.Context, p *aiv1.AIPlatform) error {
