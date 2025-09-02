@@ -291,7 +291,7 @@ func (r *SaiaReconciler) reconcileSAIAConfigMap(
 		// previously hardcoded
 		"SERVICE_NAME":                    "splunk_ai_assistant",
 		"SERVICE_INTERNAL_NAME":           "SAIA",
-		"SPLUNK_ISSUERS":                  "https://splunk-standalone-standalone-service:8089",
+		"SPLUNK_ISSUERS":                  "https://splunk-splunk-standalone-standalone-service:8089",
 		"SPLUNK_AI_ASSISTANT_SERVICE_CMP": "true",
 		"ENABLE_AUTHZ":                    "false", // FIXME remove when ready
 		"FEATURE_CONFIG_FILE_LOCATION":    "/etc/config/features_config.yaml",
