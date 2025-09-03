@@ -4,10 +4,10 @@ package storage
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
+	//"crypto/x509"
 	"fmt"
 	"net/http"
-	"os"
+	//"os"
 	"path"
 	"strings"
 
@@ -17,14 +17,15 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	ai "github.com/splunk/splunk-ai-operator/api/v1"
-	"github.com/splunk/splunk-ai-operator/pkg/ai/types"
+	//"github.com/splunk/splunk-ai-operator/pkg/ai/types"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // s3Client implements StorageClient for AWS S3.
 type s3Client struct {
-	cli    *s3.S3
+	cli    s3iface.S3API
 	bucket string
 	prefix string
 }
@@ -35,27 +36,29 @@ func NewS3Client(
 	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
 	// Use env var or fallback default cert path
-	caCertPath := os.Getenv("CA_CERT_PATH")
-	if caCertPath == "" {
-		caCertPath = types.CertPath // e.g., "/etc/certs/ca.crt"
-	}
-
-	// Load CA cert
-	rootCAs, err := x509.SystemCertPool()
-	if err != nil {
-		rootCAs = x509.NewCertPool()
-	}
-	if certData, err := os.ReadFile(caCertPath); err == nil {
-		if ok := rootCAs.AppendCertsFromPEM(certData); !ok {
-			fmt.Printf("warning: could not append cert from %s\n", caCertPath)
+	/*
+		caCertPath := os.Getenv("CA_CERT_PATH")
+		if caCertPath == "" {
+			caCertPath = types.CertPath // e.g., "/etc/certs/ca.crt"
 		}
-	} else {
-		fmt.Printf("warning: failed to read CA cert from %s: %v\n", caCertPath, err)
-	}
 
-	// Setup custom TLS and HTTP transport
-	tlsConfig := &tls.Config{RootCAs: rootCAs}
-	tlsConfig = &tls.Config{
+		// Load CA cert
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil {
+			rootCAs = x509.NewCertPool()
+		}
+		if certData, err := os.ReadFile(caCertPath); err == nil {
+			if ok := rootCAs.AppendCertsFromPEM(certData); !ok {
+				fmt.Printf("warning: could not append cert from %s\n", caCertPath)
+			}
+		} else {
+			fmt.Printf("warning: failed to read CA cert from %s: %v\n", caCertPath, err)
+		}
+
+		// Setup custom TLS and HTTP transport
+		//tlsConfig := &tls.Config{RootCAs: rootCAs} // FIXME use custom CA certs
+	*/
+	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true, // For local testing, skip TLS verification
 	}
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()

@@ -35,6 +35,8 @@
               "MODEL_VERSION" : "v0.3.14-36-g1549f5a",
               "RAY_VERSION": "2.44.0",
               "CA_CERT_PATH": "/Users/vivekr/Projects/splunk-ai-operator/etc/certs/tls.crt", 
+              "INSTANCE_FILE": "/Users/vivekr/Projects/splunk-ai-operator/config/configs/instance.yaml",
+              "APPLICATION_FILE": "/Users/vivekr/Projects/splunk-ai-operator/config/configs/applications.yaml",
             },
         },
         {

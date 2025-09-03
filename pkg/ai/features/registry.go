@@ -1,11 +1,12 @@
 package features
 
 import (
+	"github.com/splunk/splunk-ai-operator/pkg/ai/features/common"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/features/saia"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/features/seca"
 )
 
-var FeatureHandlers = map[string]FeatureHandler{
-	"saia": &saia.SaiaReconciler{},
-	"seca": &seca.SecaReconciler{},
+var FeatureFactories = map[string]common.FeatureFactory{
+	"saia": &saia.SaiaFactory{},
+	"seca": &seca.SecaFactory{},
 }
