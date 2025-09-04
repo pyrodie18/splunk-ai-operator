@@ -7,7 +7,11 @@ To set up the Splunk AI Operator, follow the steps in this document to verify ev
     - [Create a Cluster Config](#create-a-cluster-config)
     - [Deploy the Cluster Config](#deploy-the-cluster-config)
     - [Ensure OIDC Provider](#ensure-oidc-provider)
-    - [Install Cluster Add Ons](#install-cluster-add-ons) 
+    - [Install Cluster Add Ons](#install-cluster-add-ons)
+    - [EBS Pod Identity Role and Association](#ebs-pod-identity-role-and-association)
+    - [Create gp3 Storage Class](#create-gp3-storage-class)
+  - [Prerequisite App Installation](#prerequisite-app-installation)
+    - [Cluster Autoscaler](#cluster-autoscaler)
 
 ## AWS EKS Setup
 The first step is creating a Kubernetes cluster that the Splunk AI operator and Splunk AI Operator CRs will run on. For now, the supported insfrastructure is AWS EKS clusters.
@@ -111,7 +115,7 @@ eksctl create addon --cluster "cluster-name" --name aws-ebs-csi-driver --force
 ### EBS Pod Identity Role and Association
 For the eks-pod-identity-agent and aws-ebs-csi-driver add ons to work, they need roles and associations created.
 
-1. Create the policy file. Update the `__REGION__`, `__COLON__`, and `__ACCOUNT_ID__` fields with the information for your cluster.
+1. Create the policy file. Update the `__REGION__` and `__ACCOUNT_ID__` fields with the information for your cluster.
 ```json
 {
   "Version": "2012-10-17",
@@ -123,7 +127,7 @@ For the eks-pod-identity-agent and aws-ebs-csi-driver add ons to work, they need
       "Action": [ "sts:AssumeRole", "sts:TagSession" ],
       "Condition": {
         "StringEquals": { "aws:SourceAccount": "__ACCOUNT_ID__" },
-        "StringLike":   { "aws:SourceArn": "arn:aws:eks:__REGION____COLON____ACCOUNT_ID__:podidentityassociation/*" }
+        "StringLike":   { "aws:SourceArn": "arn:aws:eks:__REGION__:__ACCOUNT_ID__:podidentityassociation/*" }
       }
     }
   ]
@@ -139,6 +143,64 @@ aws iam attach-role-policy --role-name "role-name" --policy-arn "arn:aws:iam::aw
 ```
 4. Create a pod identity association for the service account for the ebs csi controller with the following command:
 ```bash
-aws eks create-pod-identity-association --cluster-name "cluster-name" --namespace "kube-system" --service-account "ebs-csi-controller-sa" --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/EBSCSIDriverPodIdentityRole-cluster-name"
+aws eks create-pod-identity-association --cluster-name "cluster-name" --namespace "kube-system" --service-account "ebs-csi-controller-sa" --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/role-name"
 ```
 
+### Create gp3 Storage Class
+Create the storage class file to apply. In the following examples, the file name is `storageclass.yaml`.
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+```
+
+Apply the storage class with the following command:
+```bash
+kubectl apply -f storageclass.yaml
+```
+
+## Prerequisite App Installation
+There are a few deployments that have to be available in order for the Splunk AI Operator to work correctly. Install the following to continue with the setup.
+
+### Cluster Autoscaler
+The cluster autoscaler requires an iamserviceaccount to be created. Start by running the following command:
+```bash
+eksctl create iamserviceaccount  --cluster "cluster-name" \
+    --name "cluster-autoscaler" \
+    --namespace "kube-system" \
+    --role-name "ClusterAutoscalerRole-cluster-name" \
+    --attach-policy-arn arn:aws:iam::aws:policy/AutoScalingFullAccess \
+    --approve \
+    --override-existing-serviceaccounts
+```
+
+Next, verify the helm chart is up to date.
+```bash
+helm repo add autoscaler https://kubernetes.github.io/autoscaler
+helm repo update
+```
+
+Finally, install the cluster-autoscaler helm chart with the following command:
+```bash
+helm_retry 5 upgrade --install "cluster-autoscaler" autoscaler/cluster-autoscaler \
+    --namespace "kube-system" \
+    --set autoDiscovery.clusterName="cluster-name" \
+    --set awsRegion="us-west-2" \
+    --set rbac.serviceAccount.create=false \
+    --set rbac.serviceAccount.name="cluster-autoscaler" \
+    --set image.repository=registry.k8s.io/autoscaling/cluster-autoscaler \
+    --set image.tag="v1.31.2" \
+    --set extraArgs.balance-similar-node-groups=true \
+    --set extraArgs.skip-nodes-with-system-pods=false \
+    --set extraArgs.expander=least-waste \
+    --wait --timeout 15m
+```
