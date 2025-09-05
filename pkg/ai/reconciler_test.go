@@ -6,12 +6,19 @@ import (
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	//corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	//"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	//"sigs.k8s.io/controller-runtime/pkg/client"
+	corev1 "k8s.io/api/core/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 /*
@@ -76,6 +83,7 @@ func TestReconcileFeatures_CreatesNewAIService(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-ai",
 			Namespace: "default",
+			UID:       types.UID("test-ai-uid"), // set a stable UID for owner lookups
 		},
 		Spec: aiApi.AIPlatformSpec{
 			Features: []aiApi.FeatureSpec{
@@ -88,9 +96,26 @@ func TestReconcileFeatures_CreatesNewAIService(t *testing.T) {
 		},
 	}
 
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(aiApi.AddToScheme(scheme))
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(platform).
+		// if your reconciler updates status for AIService in tests, include this line
+		WithStatusSubresource(&aiApi.AIService{}).
+		// register the controller owner index used by MatchingFields(".metadata.controller", <UID>)
+		WithIndex(&aiApi.AIService{}, ".metadata.controller", func(obj client.Object) []string {
+			// use the apimachinery helper to read the controller OwnerRef
+			if owner := metav1.GetControllerOfNoCopy(obj); owner != nil {
+				// only index when this owner is marked as controller
+				if owner.Controller != nil && *owner.Controller {
+					return []string{string(owner.UID)}
+				}
+			}
+			return nil
+		}).
 		Build()
 
 	reconciler := &AIPlatformReconciler{
@@ -98,11 +123,11 @@ func TestReconcileFeatures_CreatesNewAIService(t *testing.T) {
 		Scheme: scheme,
 	}
 
-	// Act → should create the AIService because it doesn't exist
+	// Act
 	err := reconciler.ReconcileFeatures(ctx, platform)
 	assert.NoError(t, err)
 
-	// Assert → AIService should now exist
+	// Assert
 	created := &aiApi.AIService{}
 	serviceKey := types.NamespacedName{Name: "my-ai-feature1", Namespace: "default"}
 	err = fakeClient.Get(ctx, serviceKey, created)
@@ -117,18 +142,16 @@ func TestReconcileFeatures_DoesNotRecreateExistingAIService(t *testing.T) {
 	ctx := context.Background()
 	scheme := buildTestScheme(t)
 
-	// Existing AIService
-	existingService := &aiApi.AIService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-ai-feature1",
-			Namespace: "default",
-		},
-	}
+	// Register schemes
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(aiApi.AddToScheme(scheme))
 
 	platform := &aiApi.AIPlatform{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-ai",
 			Namespace: "default",
+			UID:       types.UID("test-ai-uid"),
 		},
 		Spec: aiApi.AIPlatformSpec{
 			Features: []aiApi.FeatureSpec{
@@ -141,9 +164,30 @@ func TestReconcileFeatures_DoesNotRecreateExistingAIService(t *testing.T) {
 		},
 	}
 
+	// Existing AIService that is already owned by the platform
+	existingService := &aiApi.AIService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-ai-feature1",
+			Namespace: "default",
+		},
+	}
+	// Set controller owner reference so the indexer can find it
+	require.NoError(t, controllerutil.SetControllerReference(platform, existingService, scheme))
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(platform, existingService).
+		// If your reconcile touches status on AIService, keep this
+		WithStatusSubresource(&aiApi.AIService{}).
+		// Register the field index used by MatchingFields(".metadata.controller", ownerUID)
+		WithIndex(&aiApi.AIService{}, ".metadata.controller", func(obj client.Object) []string {
+			if owner := metav1.GetControllerOfNoCopy(obj); owner != nil {
+				if owner.Controller != nil && *owner.Controller {
+					return []string{string(owner.UID)}
+				}
+			}
+			return nil
+		}).
 		Build()
 
 	reconciler := &AIPlatformReconciler{
@@ -151,11 +195,11 @@ func TestReconcileFeatures_DoesNotRecreateExistingAIService(t *testing.T) {
 		Scheme: scheme,
 	}
 
-	// Act → should NOT recreate because it already exists
+	// Act, should not recreate the service
 	err := reconciler.ReconcileFeatures(ctx, platform)
 	assert.NoError(t, err)
 
-	// Assert → Still only one AIService, no duplication
+	// Assert, still exactly one AIService with the same name
 	fetched := &aiApi.AIService{}
 	serviceKey := types.NamespacedName{Name: "my-ai-feature1", Namespace: "default"}
 	err = fakeClient.Get(ctx, serviceKey, fetched)

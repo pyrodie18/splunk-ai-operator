@@ -151,7 +151,6 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-
 	// feature handler init
 	factoryInit := time.Now()
 	factory, ok := features.FeatureFactories[featureName]

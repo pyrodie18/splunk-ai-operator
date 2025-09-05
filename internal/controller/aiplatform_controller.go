@@ -111,7 +111,6 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
-
 	// normal reconcile
 	svc := aiplatform.New(p, r.Client, r.Scheme, r.Recorder)
 	res, err := svc.Reconcile(ctx, p)
