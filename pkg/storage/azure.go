@@ -28,7 +28,7 @@ type azureClient struct {
 func NewAzureClient(
 	k8sClient client.Client,
 	namespace, container, prefix string,
-	vs ai.AiVolumeSpec,
+	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
 	var cred azcore.TokenCredential
 	var err error

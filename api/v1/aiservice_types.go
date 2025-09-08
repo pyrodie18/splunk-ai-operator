@@ -22,23 +22,36 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const aiServiceFinalizer = "ai.splunk.com/aiservice-protect"
+
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // AIServiceSpec defines the desired state of AIService
 type AIServiceSpec struct {
-	// SplunkConfiguration instance reference
-	Version             string                 `json:"version,omitempty"`
-	TaskVolume          AiVolumeSpec           `json:"taskVolume,omitempty"`
-	SplunkConfiguration SplunkConfiguration    `json:"splunkConfiguration,omitempty"`
-	VectorDbUrl         string                 `json:"vectorDbUrl"`
-	AIPlatformUrl       string                 `json:"aiPlatformUrl,omitempty"`
-	AIPlatformRef       corev1.ObjectReference `json:"aiPlatformRef,omitempty"`
-	Replicas            int32                  `json:"replicas,omitempty"`
-	ServiceAccountName  string                 `json:"serviceAccountName,omitempty"`
+	// Features defines the features to be enabled for the AIService
+	Feature FeatureSpec `json:"features,omitempty"`
+	// Version specifies the version of the AIService
+	Version string `json:"version,omitempty"`
+	// TaskVolume specifies the volume to be used for tasks
+	TaskVolume ObjectStorageSpec `json:"taskVolume,omitempty"`
+	// SplunkConfigurationSpec specifies the Splunk configuration for the AIService
+	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
+	// VectorDbUrl specifies the URL for the vector database
+	VectorDbUrl string `json:"vectorDbUrl"`
+	// AIPlatformUrl specifies the URL for the AI Platform
+	AIPlatformUrl string `json:"aiPlatformUrl,omitempty"`
+	// AIPlatformRef is a reference to the AIPlatform resource
+	AIPlatformRef corev1.ObjectReference `json:"aiPlatformRef"`
+	// Replicas specifies the number of replicas for the AIService
+	Replicas int32 `json:"replicas,omitempty"`
+	// ServiceAccountName specifies the service account to be used by the AIService
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	//Port specifies the default port for the service
-	Port        int32               `json:"port,omitempty" default:"80"`
-	Env         map[string]string   `json:"env,omitempty"`
+	Port int32 `json:"port,omitempty" default:"80"`
+	// Env specifies environment variables for the AIService
+	Env map[string]string `json:"env,omitempty"`
+	// Tolerations specifies the tolerations for the AIService pods
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// node affinity configuration
 	Affinity corev1.Affinity `json:"affinity,omitempty"`
@@ -50,6 +63,9 @@ type AIServiceSpec struct {
 	MTLS MTLSConfig `json:"mtls,omitempty"`
 	// ServiceTemplate is a template used to create Kubernetes services
 	ServiceTemplate corev1.Service `json:"serviceTemplate"`
+	// Cluster domain (default: cluster.local)
+	// +kubebuilder:default=cluster.local
+	ClusterDomain string `json:"clusterDomain,omitempty"`
 }
 
 type MetricsConfig struct {

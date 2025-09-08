@@ -1,0 +1,35 @@
+name: Build and Test
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - develop
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  check-formatting:
+    uses: ./.github/workflows/check-formatting.yml
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    needs: check-formatting
+
+  build-image:
+    uses: ./.github/workflows/build-image.yml
+    secrets: inherit
+    needs: unit-tests
+
+  vulnerability-scan:
+    uses: ./.github/workflows/vulnerability-scan.yml
+    secrets: inherit
+    needs: build-image
+
+  # smoke-tests:
+  #   uses: ./.github/workflows/smoke-tests.yml
+  #   secrets: inherit
+  #   needs: vulnerability-scan

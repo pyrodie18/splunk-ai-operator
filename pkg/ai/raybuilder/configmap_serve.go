@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
+	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
 	"github.com/splunk/splunk-ai-operator/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,18 +18,22 @@ import (
 	syaml "sigs.k8s.io/yaml"
 )
 
-func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
+func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *enterpriseApi.AIPlatform) error {
 	log := log.FromContext(ctx) // Define logger
 
+	var storObj = p.Spec.ObjectStorage
+	storObj.Path = fmt.Sprintf("%s/%s", storObj.Path, "ray-services/ai-platform/applications")
+
 	// 2️⃣ List actual artifacts in storage
-	storCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.Volume)
+	storCli, err := storage.NewStorageClient(b.Client, p.Namespace, storObj)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err
 	}
 
-	// 2️⃣ List actual artifacts in storage
-	artfCli, err := storage.NewStorageClient(b.Client, p.Namespace, p.Spec.Volume)
+	var artfObj = p.Spec.ObjectStorage
+	artfObj.Path = fmt.Sprintf("%s/%s", artfObj.Path, "model_artifacts")
+	artfCli, err := storage.NewStorageClient(b.Client, p.Namespace, artfObj)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err
@@ -55,7 +59,7 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *aiApi.AIPlatfo
 
 	// 3) Walk the original list and keep only the ones that exist
 	for _, a := range config.RayService.Applications {
-		// build the key your Exists method expects
+		// build the key our Exists method expects
 		// e.g. "appName-modelVersion.zip"
 		key := fmt.Sprintf("%s-%s.zip", a.Name, version)
 

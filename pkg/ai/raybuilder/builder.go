@@ -4,13 +4,20 @@ File: controllers/raybuilder/builder.go
 package raybuilder
 
 import (
+	"bytes"
 	"context"
+	"embed"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
+	"text/template"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
+	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/internal/telemetry"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/raybuilder/raystatus"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/sidecars"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -29,16 +36,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+//go:embed applications.yaml
+var embeddedApplicationsYAML embed.FS
+
 // Builder encapsulates RayService generation logic.
 type Builder struct {
-	ai *aiApi.AIPlatform
+	ai *enterpriseApi.AIPlatform
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
 
+type ApplicationParams struct {
+	ArtifactBucketName string `yaml:"ARTIFACTS_S3_BUCKET"`
+	CloudProvider      string `yaml:"CLOUD_PROVIDER"`
+}
+
 // New returns a new Builder for the given AIPlatform instance.
-func New(ai *aiApi.AIPlatform, client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *Builder {
+func New(ai *enterpriseApi.AIPlatform, client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *Builder {
 	return &Builder{
 		ai:       ai,
 		Client:   client,
@@ -48,14 +63,51 @@ func New(ai *aiApi.AIPlatform, client client.Client, scheme *runtime.Scheme, rec
 }
 
 // --- 7️⃣ ReconcileRayService: build & create/update the RayService CR ---
-func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) error {
+func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPlatform) error {
 	logger := log.FromContext(ctx) // Define logger
 	rs := b.Build()
 
-	// Fetch the ServeConfigMap
-	serveConfigMap := &corev1.ConfigMap{}
-	serveConfigMapKey := types.NamespacedName{Namespace: p.Namespace, Name: p.Name + "-serveconfig"}
-	if err := b.Client.Get(ctx, serveConfigMapKey, serveConfigMap); err != nil {
+	// Load applications.yaml and parameterize ARTIFACTS_S3_BUCKET
+	u, err := url.Parse(p.Spec.ObjectStorage.Path)
+	if err != nil {
+		fmt.Println("Error parsing URL:", err)
+		return err
+	}
+
+	// Set CloudProvider based on URL scheme
+	var cloudProvider string
+	switch u.Scheme {
+	case "s3":
+		cloudProvider = "aws"
+	case "gs":
+		cloudProvider = "gcp"
+	default:
+		cloudProvider = "azure" // TODO: FIX THIS, need to support minio
+	}
+
+	param := ApplicationParams{
+		ArtifactBucketName: u.Host,
+		CloudProvider:      cloudProvider,
+	}
+
+	// Use embedded applications.yaml content
+	templateData, err := embeddedApplicationsYAML.ReadFile("applications.yaml")
+	if err != nil {
+		logger.Error(err, "Failed to read embedded applications.yaml")
+		return err
+	}
+
+	// Create a new template and parse the embedded YAML as a template
+	tmpl, err := template.New("applications").Parse(string(templateData))
+	if err != nil {
+		logger.Error(err, "Failed to parse template")
+		return err
+	}
+
+	// Execute the template with the provided parameters
+	var serveConfig bytes.Buffer
+	if err := tmpl.Execute(&serveConfig, param); err != nil {
+		logger.Error(err, "Failed to execute template")
 		return err
 	}
 
@@ -66,7 +118,7 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) 
 			Namespace: p.Namespace,
 		},
 	}
-	err := b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
+	err = b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
 	if errors.IsNotFound(err) {
 		rayService = &rayv1.RayService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -78,13 +130,8 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) 
 		}
 	}
 
-	// Add ServeConfigMap to RayService annotations FIXME
-	if serveConfig, exists := serveConfigMap.Data["serveconfig.yaml"]; exists {
-		rs.Spec.ServeConfigV2 = serveConfig
-	} else {
-		logger.Error(fmt.Errorf("serveconfig.yaml not found"), "ServeConfigMap is missing serveconfig.yaml key")
-		return fmt.Errorf("serveconfig.yaml not found in ConfigMap %s", serveConfigMapKey.Name)
-	}
+	// Set the parameterized serve config
+	rs.Spec.ServeConfigV2 = serveConfig.String()
 
 	rayService.Spec = rs.Spec
 	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}
@@ -108,7 +155,7 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *aiApi.AIPlatform) 
 }
 
 // FIXME work with @shang to find if rayserve support this internally
-func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *aiApi.AIPlatform) error {
+func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *enterpriseApi.AIPlatform) error {
 	logger := log.FromContext(ctx)
 	saName := p.Spec.ServiceAccountName
 	if saName == "" {
@@ -161,41 +208,103 @@ func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *aiApi.AIPla
 	return nil
 }
 
-func (b *Builder) ReconcileRayServiceStatus(
-	ctx context.Context,
-	p *aiApi.AIPlatform,
-) error {
-	// 1️⃣ fetch the up-to-date RayService
-	rs := &rayv1.RayService{}
-	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
-	if err := b.Client.Get(ctx, key, rs); err != nil {
+// ApplyNormalizedConditions collects Ray signals and rolls them up into AIPlatform conditions.
+// Signature matches your state-machine call sites.
+func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	snap, err := raystatus.CollectRaySnapshot(ctx, b.Client, p.Namespace, p.Name)
+	if err != nil {
+		now := metav1.NewTime(time.Now())
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "RayServiceReady",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayServiceFetchError",
+			Message:            err.Error(),
+			LastTransitionTime: now,
+		})
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayUnhealthy",
+			Message:            "Failed to collect Ray snapshot: " + err.Error(),
+			LastTransitionTime: now,
+		})
+		// optional telemetry for errors
+		telemetry.ObserveReconcileError(ctx, "ray_snapshot")
 		return err
 	}
 
-	// 2️⃣ mirror its status into your CR
-	p.Status.RayServiceStatus = rs.Status.ServiceStatus
-
-	// Add Ray head service name to status
-	p.Status.RayServiceName = fmt.Sprintf("%s-head-svc", p.Name)
-
-	// 3️⃣ set a Condition based on whatever flag you like—e.g. the top-level Ready
-	ready := metav1.ConditionFalse
-	reason := "RayServiceStatus"
-	msg := "ray service is not yet ready"
-	if rs.Status.ServiceStatus == rayv1.Running {
-		ready = metav1.ConditionTrue
-		reason = "RayServiceReady"
-		msg = "ray service is running"
+	if snap.HeadServiceName != "" {
+		p.Status.RayServiceName = snap.HeadServiceName
+	}
+	// keep a textual status, reflect Running when rsReady:
+	rsReady := snap.ServiceReady || snap.ServiceStatusRunning
+	if rsReady {
+		p.Status.RayServiceStatus = "Running"
+	} else {
+		p.Status.RayServiceStatus = "Pending"
 	}
 
-	cond := metav1.Condition{
-		Type:               "RayServiceReady",
-		Status:             ready,
-		Reason:             reason,
-		Message:            msg,
-		LastTransitionTime: metav1.Now(),
+	now := metav1.NewTime(time.Now())
+	set := func(t, reason, msg string, ok bool) {
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               t,
+			Status:             boolToCond(ok),
+			Reason:             reason,
+			Message:            msg,
+			LastTransitionTime: now,
+		})
 	}
-	meta.SetStatusCondition(&p.Status.Conditions, cond)
+
+	// RayService readiness (prefer Conditions; fallback to ServiceStatus)
+	set("RayServiceReady",
+		map[bool]string{true: "Ready", false: "NotReady"}[rsReady],
+		fmt.Sprintf("UpgradeInProgress=%t", snap.UpgradeInProgress),
+		rsReady,
+	)
+
+	// Upgrade status
+	set("RayServiceUpgradeInProgress",
+		map[bool]string{true: "Upgrading", false: "Idle"}[snap.UpgradeInProgress],
+		"Zero-downtime upgrade status as reported by KubeRay",
+		snap.UpgradeInProgress,
+	)
+
+	// Endpoint discovery (map[string]string on RayClusterStatus.Endpoints)
+	hasEndpoints := len(snap.EndpointMap) > 0
+	set("RayEndpointsDiscovered",
+		map[bool]string{true: "Found", false: "Missing"}[hasEndpoints],
+		fmt.Sprintf("keys=%v", keysOf(snap.EndpointMap)),
+		hasEndpoints,
+	)
+
+	// Cluster readiness: head ready AND all workers ready (tune if you want thresholds)
+	clusterReady := snap.HeadPodReady && snap.DesiredWorkerReplicas == snap.AvailableWorkerReplicas
+	set("RayClusterReady",
+		map[bool]string{true: "AllPodsReady", false: "PodsNotReady"}[clusterReady],
+		fmt.Sprintf("workers %d/%d headReady=%t", snap.AvailableWorkerReplicas, snap.DesiredWorkerReplicas, snap.HeadPodReady),
+		clusterReady,
+	)
+
+	// Serve route (is the k8s Service backed by endpoints?)
+	set("RayServeRouteReady",
+		map[bool]string{true: "EndpointsAvailable", false: "NoEndpoints"}[snap.ServeServiceHasBackend],
+		fmt.Sprintf("service=%s backed=%t", snap.ServeServiceName, snap.ServeServiceHasBackend),
+		snap.ServeServiceHasBackend,
+	)
+
+	// Top-level Ready rollup
+	platformReady := rsReady && clusterReady && snap.ServeServiceHasBackend
+	set("Ready",
+		map[bool]string{true: "AllHealthy", false: "Degraded"}[platformReady],
+		"Composite of RayServiceReady ∧ RayClusterReady ∧ RayServeRouteReady",
+		platformReady,
+	)
+
+	telemetry.SetCondition(ctx, "RayServiceReady", string(boolToCond(rsReady)))
+	telemetry.SetCondition(ctx, "RayClusterReady", string(boolToCond(clusterReady)))
+	telemetry.SetCondition(ctx, "RayServeRouteReady", string(boolToCond(snap.ServeServiceHasBackend)))
+	telemetry.SetDesiredReplicas(ctx, snap.DesiredWorkerReplicas)
+	telemetry.SetReadyReplicas(ctx, snap.AvailableWorkerReplicas)
 
 	return nil
 }
@@ -238,78 +347,24 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 	head.Template.ObjectMeta.Labels = labels
 
 	var workers []rayv1.WorkerGroupSpec
-	// List all nodes in the cluster
-	nodeList := &corev1.NodeList{}
-	if err := b.Client.List(context.Background(), nodeList); err != nil {
-		// If we can't list nodes, fallback to static config
-		/* for i, cfg := range b.ai.Spec.GPUs {
-			annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
-			wg := rayv1.WorkerGroupSpec{
-				GroupName:   cfg.Tier,
-				MinReplicas: &cfg.MinReplicas,
-				MaxReplicas: &cfg.MaxReplicas,
-				RayStartParams: map[string]string{
-					"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":%d}"`, b.ai.Spec.DefaultAcceleratorType, i, cfg.GPUsPerPod),
+	for _, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
+		annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
+		wg := rayv1.WorkerGroupSpec{
+			GroupName:   cfg.Tier,
+			MinReplicas: &cfg.MinReplicas,
+			MaxReplicas: &cfg.MaxReplicas,
+			RayStartParams: map[string]string{
+				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":1}"`, b.ai.Spec.DefaultAcceleratorType, cfg.GPUsPerPod),
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: annotations,
+					Labels:      labels,
 				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: annotations,
-						Labels:      labels,
-					},
-					Spec: b.makeWorkerTemplate(cfg).Spec,
-				},
-			}
-			workers = append(workers, wg)
-		} */
-	} else {
-		// Map GPU nodes by GPU type
-		gpuNodes := map[string][]corev1.Node{}
-		for _, node := range nodeList.Items {
-			for k, v := range node.Status.Capacity {
-				if strings.HasPrefix(string(k), "nvidia.com/gpu") && v.Value() > 0 {
-					gpuType := node.Labels["nvidia.com/gpu.product"]
-					if gpuType == "" {
-						gpuType = "unknown"
-					}
-					gpuNodes[gpuType] = append(gpuNodes[gpuType], node)
-				}
-			}
+				Spec: b.makeWorkerTemplate(cfg).Spec,
+			},
 		}
-
-		// For each model in modelToGPUConfig, try to match to available GPU nodes
-		for model, cfg := range modelToGPUConfig {
-			gpuType := cfg.GPUType
-			nodes := gpuNodes[gpuType]
-			replicas := int32(len(nodes))
-			if replicas == 0 {
-				// fallback to config
-				replicas = int32(cfg.Replicas)
-			}
-			// Build dummy GPUConfig for annotation/label helpers
-			gpuConfig := aiApi.GPUConfig{
-				Tier:        model, // Use model name as tier/group
-				MinReplicas: replicas,
-				MaxReplicas: replicas,
-				//GPUsPerPod:  cfg.TPSize,
-			}
-			annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, gpuConfig)
-			wg := rayv1.WorkerGroupSpec{
-				GroupName:   model,
-				MinReplicas: &replicas,
-				MaxReplicas: &replicas,
-				RayStartParams: map[string]string{
-					"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count\":%d}"`, b.ai.Spec.DefaultAcceleratorType, cfg.TPSize),
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: annotations,
-						Labels:      labels,
-					},
-					Spec: b.makeWorkerTemplate(gpuConfig).Spec,
-				},
-			}
-			workers = append(workers, wg)
-		}
+		workers = append(workers, wg)
 	}
 
 	return rayv1.RayClusterSpec{
@@ -334,8 +389,8 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 				"--",
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
-				{Name: "CLUSTER_NAME", Value: os.Getenv("CLUSTER_NAME")},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "CLUSTER_NAME", Value: "ai-platform-models"}, // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -393,9 +448,9 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 		}},
 	}
 
-	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
-	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
-	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+	spec.NodeSelector = b.ai.Spec.CPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.CPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
 	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
 	// FIXME need to find better way to add sidecars
 	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
@@ -403,17 +458,20 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 	return corev1.PodTemplateSpec{Spec: spec}
 }
 
-func (b *Builder) makeWorkerTemplate(cfg aiApi.GPUConfig) corev1.PodTemplateSpec {
+func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemplateSpec {
 	rayCommand := fmt.Sprintf(`echo %s worker;
         ulimit -n 65536;
     	export PATH="/home/ray/anaconda3/bin:$PATH";
         KUBERAY_GEN_RAY_START_CMD=$(echo $KUBERAY_GEN_RAY_START_CMD | sed -e 's/"{/{/g' -e 's/}"/}/g' -e 's/\\\"/"/g');
         $KUBERAY_GEN_RAY_START_CMD;`, cfg.Tier)
 	spec := corev1.PodSpec{
-		ServiceAccountName: b.ai.Spec.ServiceAccountName,
+		Affinity:           b.ai.Spec.GPUSchedulingSpec.Affinity,
+		Tolerations:        b.ai.Spec.GPUSchedulingSpec.Tolerations,
+		NodeSelector:       b.ai.Spec.GPUSchedulingSpec.NodeSelector,
+		ServiceAccountName: b.ai.Spec.WorkerGroupSpec.ServiceAccountName,
 		Containers: []corev1.Container{{
 			Name:            "ray-worker",
-			Image:           SetImageRegistry("RELATED_IMAGE_RAY_WORKER", b.ai.Spec.Images.RayWorkerGroupImage),
+			Image:           SetImageRegistry("RELATED_IMAGE_RAY_WORKER", b.ai.Spec.WorkerGroupSpec.ImageRegistry),
 			ImagePullPolicy: corev1.PullAlways,
 			Command: []string{
 				"/bin/bash",
@@ -424,14 +482,13 @@ func (b *Builder) makeWorkerTemplate(cfg aiApi.GPUConfig) corev1.PodTemplateSpec
 				rayCommand,
 			},
 			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_ACCELERATOR_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
 				{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
 				{Name: "SERVICE_NAME", Value: b.ai.Name},
 				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
 				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
 				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
-				{Name: "GPU_TYPE", Value: "L40S"},                                                 // FIXME
-				{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
+				{Name: "GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},                       // FIXME
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -458,7 +515,8 @@ func (b *Builder) makeWorkerTemplate(cfg aiApi.GPUConfig) corev1.PodTemplateSpec
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
-		}},
+		},
+		},
 	}
 
 	// apply scheduling
@@ -496,7 +554,7 @@ func SetImageRegistry(key, defaultValue string) string {
 	return defaultValue
 }
 
-func buildWorkerAnnotationsAndLabels(aiPlatform *aiApi.AIPlatform, cfg aiApi.GPUConfig) (map[string]string, map[string]string) {
+func buildWorkerAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform, cfg enterpriseApi.GPUConfig) (map[string]string, map[string]string) {
 	annotations := make(map[string]string)
 	labels := make(map[string]string)
 
@@ -528,12 +586,10 @@ func buildWorkerAnnotationsAndLabels(aiPlatform *aiApi.AIPlatform, cfg aiApi.GPU
 		annotations["sidecar.opentelemetry.io/auto-instrument"] = "true"
 	}
 
-	// Add any additional logic as needed
-
 	return annotations, labels
 }
 
-func buildHeadAnnotationsAndLabels(aiPlatform *aiApi.AIPlatform) (map[string]string, map[string]string) {
+func buildHeadAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform) (map[string]string, map[string]string) {
 	annotations := make(map[string]string)
 	labels := make(map[string]string)
 
@@ -570,4 +626,22 @@ func buildHeadAnnotationsAndLabels(aiPlatform *aiApi.AIPlatform) (map[string]str
 // boolPtr returns a pointer to the given boolean value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func keysOf(m map[string]string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func boolToCond(b bool) metav1.ConditionStatus {
+	if b {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
 }

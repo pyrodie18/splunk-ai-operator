@@ -18,46 +18,211 @@ package controller
 
 import (
 	"context"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"time"
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/internal/controller/common"
+	telemetry "github.com/splunk/splunk-ai-operator/internal/telemetry"
+	aiplatform "github.com/splunk/splunk-ai-operator/pkg/ai"
+	"github.com/splunk/splunk-ai-operator/pkg/config"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	//"sigs.k8s.io/controller-runtime/pkg/handler"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// AIPlatformReconciler reconciles a AIPlatform object
-type AIPlatformReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
-}
+const ownerKey = ".metadata.controller"
+const aiPlatformFinalizer = "ai.splunk.com/aiplatform-protect"
 
 // +kubebuilder:rbac:groups=ai.splunk.com,resources=aiplatforms,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ai.splunk.com,resources=aiplatforms/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ai.splunk.com,resources=aiplatforms/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheusrules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=rayservices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=rayjobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="core",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="monitoring",resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;watch;update;patch;delete
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AIPlatform object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
+// AIPlatformReconciler reconciles a AIPlatform
+type AIPlatformReconciler struct {
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	Config   *config.OperatorConfig // injected runtime config
+}
+
 func (r *AIPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	// telemetry setup omitted for brevity
 
-	// TODO(user): your logic here
+	// fetch
+	p := &aiv1.AIPlatform{}
+	if err := r.Get(ctx, req.NamespacedName, p); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
-	return ctrl.Result{}, nil
+	// deletion flow
+	if p.DeletionTimestamp != nil {
+		// only act if our finalizer is present
+		if containsString(p.Finalizers, aiPlatformFinalizer) {
+			// 1) run cleanup for platform‑level resources
+			// delete or detach external resources here
+			// example: ensure Ray and Weaviate are removed
+			if done, err := r.finalizePlatform(ctx, p); err != nil {
+				// transient error, requeue
+				return ctrl.Result{}, err
+			} else if !done {
+				// still waiting on children to disappear, requeue soon
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+
+			// 2) remove finalizer, allow deletion to complete
+			p.Finalizers = removeString(p.Finalizers, aiPlatformFinalizer)
+			if err := r.Update(ctx, p); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// normal reconcile
+	svc := aiplatform.New(p, r.Client, r.Scheme, r.Recorder)
+	res, err := svc.Reconcile(ctx, p)
+
+	// optional: update platform status summary here
+	// _ = r.reconcileStatus(ctx, p)
+
+	return res, err
+}
+
+// --- 8️⃣ reconcileStatus: update CR status/conditions ---
+func (r *AIPlatformReconciler) reconcileStatus(ctx context.Context, p *aiv1.AIPlatform) error {
+	// reflect observedGeneration
+	p.Status.ObservedGeneration = p.Generation
+
+	cond := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             "Reconciled",
+		Message:            "All resources are up-to-date",
+		LastTransitionTime: metav1.Now(),
+	}
+	p.Status.Conditions = []metav1.Condition{cond}
+
+	// ----- telemetry: gauges for generation & condition -----
+	telemetry.SetObservedGeneration(ctx, p.Status.ObservedGeneration)
+	telemetry.SetCondition(ctx, "Ready", string(cond.Status))
+
+	// ----- telemetry: API latency/counter for status update (optional but useful) -----
+	apiStart := time.Now()
+	err := r.Status().Update(ctx, p)
+	telemetry.ObserveAPILatency(ctx, "status", "k8s_status_update", apiStart)
+	if err != nil {
+		telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "error")
+		telemetry.ObserveReconcileError(ctx, "status_update")
+		return err
+	}
+	telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "ok")
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AIPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&aiv1.AIPlatform{}).
+	// 1) Field index so we can quickly list AIService children by owning AIPlatform
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&aiv1.AIService{},
+		ownerKey, // ".metadata.controller"
+		func(rawObj client.Object) []string {
+			svc := rawObj.(*aiv1.AIService)
+			owner := metav1.GetControllerOf(svc)
+			if owner == nil {
+				return nil
+			}
+			if owner.APIVersion != aiv1.GroupVersion.String() || owner.Kind != "AIPlatform" {
+				return nil
+			}
+			return []string{owner.Name}
+		},
+	); err != nil {
+		return err
+	}
+
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("aiplatform").
-		Complete(r)
+		For(&aiv1.AIPlatform{}).
+		// AIPlatform owns its AIService children
+		Owns(&aiv1.AIService{}).
+		// Infra owned by AIPlatform itself
+		// Ray resources
+		Owns(&rayv1.RayService{}).
+		Owns(&rayv1.RayCluster{}).
+		// Weaviate pieces - whatever we create at the platform level
+		Owns(&appsv1.StatefulSet{}). // if platform creates Weaviate as a StatefulSet
+		Owns(&appsv1.Deployment{}).  // or a Deployment, if that’s how we run it
+		Owns(&corev1.Service{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
+		// Keep platform predicates light and scoped to the primary resource
+		WithEventFilter(predicate.Or(
+			common.GenerationChangedPredicate(),
+			common.AnnotationChangedPredicate(),
+			common.LabelChangedPredicate(),
+		)).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: aiv1.TotalWorker,
+		})
+
+	return b.Complete(r)
+}
+
+// finalizePlatform deletes platform‑owned children and waits until they are gone.
+// Return (true, nil) when it is safe to remove the finalizer.
+func (r *AIPlatformReconciler) finalizePlatform(ctx context.Context, p *aiv1.AIPlatform) (bool, error) {
+	// delete AIService children, they may in turn delete lower layers they own
+	{
+		var services aiv1.AIServiceList
+		if err := r.List(ctx, &services,
+			client.InNamespace(p.Namespace),
+			client.MatchingFields{ownerKey: p.Name},
+		); err != nil {
+			return false, err
+		}
+		for i := range services.Items {
+			svc := &services.Items[i]
+			// best effort delete
+			_ = r.Delete(ctx, svc)
+		}
+		if len(services.Items) > 0 {
+			return false, nil // wait for GC
+		}
+	}
+
+	return true, nil
 }

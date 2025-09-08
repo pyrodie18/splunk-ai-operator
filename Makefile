@@ -116,9 +116,26 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	go test ./test/e2e/ -v -ginkgo.v
+.PHONY: e2e-all
+e2e-all:
+	IMG=$(IMG) go test ./test/e2e/... -v -ginkgo.v -ginkgo.progress
+
+e2e-manager:
+	IMG=$(IMG) go test ./test/e2e/specs -run Manager -v -ginkgo.v -ginkgo.progress
+
+e2e-ai:
+	OPERATOR_NAMESPACE?=splunk-ai-operator-system
+	WORKLOAD_NAMESPACE?=aiplatform-e2e
+	AIPLATFORM_SAMPLE?=config/samples/ai.splunk.com_v1alpha1_aiplatform.yaml
+	AISERVICE_SAMPLE?=config/samples/ai.splunk.com_v1alpha1_aiservice_saia.yaml
+	AIPLATFORM_NAME?=testtenant
+	AISERVICE_NAME?=saia
+	FORWARD_SERVICE?=saia-gateway
+	IMG=$(IMG) OPERATOR_NAMESPACE=$(OPERATOR_NAMESPACE) WORKLOAD_NAMESPACE=$(WORKLOAD_NAMESPACE) \
+	AIPLATFORM_SAMPLE=$(AIPLATFORM_SAMPLE) AISERVICE_SAMPLE=$(AISERVICE_SAMPLE) \
+	AIPLATFORM_NAME=$(AIPLATFORM_NAME) AISERVICE_NAME=$(AISERVICE_NAME) \
+	FORWARD_SERVICE=$(FORWARD_SERVICE) \
+	go test ./test/e2e/specs -run "AIPlatform.*" -v -ginkgo.v -ginkgo.progress
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -159,7 +176,7 @@ docker-push: ## Push docker image with the manager.
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
-PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+PLATFORMS ?= linux/arm64,linux/amd64 #,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
@@ -198,6 +215,10 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: generate-artifacts
+generate-artifacts: manifests kustomize ## Generate artifacts for the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/default > artifacts.yaml
 
 ##@ Dependencies
 
@@ -339,3 +360,11 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: setup/ginkgo
+setup/ginkgo:
+	@echo Installing ginkgo
+	@go get github.com/onsi/ginkgo/v2
+	@go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@latest
+	@echo Installing gomega
+	@go get github.com/onsi/gomega/...

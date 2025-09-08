@@ -1,0 +1,46 @@
+name: Build and Push Image
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SPLUNK_AI_OPERATOR_IMAGE_NAME: splunk/splunk-ai-operator
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      S3_REGION: us-west-2
+    steps:
+      - name: Set up cosign
+        uses: sigstore/cosign-installer@main
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Dotenv Action
+        uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
+        id: dotenv
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
+      - name: Install Ginkgo
+        run: make setup/ginkgo
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.5.0
+      - name: Install Operator SDK
+        run: |
+          export ARCH=$(case $(uname -m) in x86_64) echo -n amd64 ;; aarch64) echo -n arm64 ;; *) echo -n $(uname -m) ;; esac)
+          export OS=$(uname | awk '{print tolower($0)}')
+          export OPERATOR_SDK_DL_URL=https://github.com/operator-framework/operator-sdk/releases/download/${{ steps.dotenv.outputs.OPERATOR_SDK_VERSION }}
+          sudo curl -LO ${OPERATOR_SDK_DL_URL}/operator-sdk_${OS}_${ARCH}
+          sudo chmod +x operator-sdk_${OS}_${ARCH}
+          sudo mv operator-sdk_${OS}_${ARCH} /usr/local/bin/operator-sdk
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Build and push Splunk AI Operator Image
+        run: |
+          make docker-buildx IMG=${{ secrets.ECR_REPOSITORY }}/${{ env.SPLUNK_AI_OPERATOR_IMAGE_NAME }}:$GITHUB_SHA

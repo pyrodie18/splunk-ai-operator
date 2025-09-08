@@ -1,10 +1,5 @@
 package raybuilder
 
-import (
-	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
-	corev1 "k8s.io/api/core/v1"
-)
-
 // types.go
 type ServeConfig struct {
 	ProxyLocation string        `json:"proxy_location,omitempty"`
@@ -58,10 +53,11 @@ type Config struct {
 	RayService ServeConfig `json:"rayService"`
 }
 
-type RayWorkerGroupSpec struct {
-	GroupName      string                      `json:"groupName"`
-	Replicas       int32                       `json:"replicas"`
-	RayStartParams map[string]string           `json:"rayStartParams,omitempty"`
-	Resources      corev1.ResourceRequirements `json:"resources"`
-	Scheduling     aiApi.SchedulingSpec        `json:"scheduling"`
+type InstanceDetails struct {
+	GPUType         string            `yaml:"gpuType"`
+	AcceleratorType string            `yaml:"acceleratorType,omitempty"`
+	GPUs            float64           `yaml:"gpus"`
+	Memory          string            `yaml:"memory"`
+	VCPUs           float64           `yaml:"vcpus"`
+	NodeSelector    map[string]string `yaml:"nodeSelector,omitempty"`
 }

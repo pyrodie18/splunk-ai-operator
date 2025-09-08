@@ -39,18 +39,26 @@ type AIPlatform struct {
 
 // AIPlatformSpec defines the desired state
 type AIPlatformSpec struct {
-	Volume AiVolumeSpec `json:"volume,omitempty"`
-	// s3://bucket/artifacts
-	// s3://bucket/tasks
-	// s3://bucket/models
+	// user needs to create directory structure
+	// s3://bucket/artifacts for AI artifacts
+	// s3://bucket/tasks for AI tasks (read and write permission)
+	// s3://bucket/models for AI models
+	// preferred authentication is via IAM role
+	ObjectStorage ObjectStorageSpec `json:"objectStorage"`
+	// ServiceAccountName is the name of the service account to use for the AIPlatform
+	// used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
-
-	Features []Features `json:"features,omitempty"`
-	//HeadGroupSpec          HeadGroupSpec   `json:"headGroupSpec,omitempty"`
-	//WorkerGroupSpec        WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
-	//DefaultAcceleratorType string          `json:"defaultAcceleratorType"`
+	// GpuInstanceType is the type of GPU instance to use for Ray worker groups
+	GpuInstanceType string `json:"gpuInstanceType,omitempty"` // e.g. "g6.24xlarge" or "p4d.24xlarge"
+	// options are "saia", "seca"
+	// Features to enable in the AIPlatform
+	Features []FeatureSpec `json:"features,omitempty"`
+	// RayService defines the Ray cluster configuration
+	//HeadGroupSpec *HeadGroupSpec `json:"headGroupSpec,omitempty"`
+	// WorkerGroupSpec defines the Ray worker group configuration
+	WorkerGroupSpec *WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
 	// Which sidecars to inject
-	Sidecars SidecarConfig `json:"sidecars,omitempty"`
+	Sidecars SidecarSpec `json:"sidecars,omitempty"`
 
 	// cert-manager Certificate for mTLS
 	CertificateRef string `json:"certificateRef,omitempty"`
@@ -60,17 +68,24 @@ type AIPlatformSpec struct {
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 
 	Images Images `json:"images,omitempty"` // list of image registries to use for Ray
-
+	// DefaultAcceleratorType is the default GPU type to use for Ray worker groups
 	DefaultAcceleratorType string `json:"defaultAcceleratorType,omitempty"` // e.g. "nvidia-tesla-t4"
 
-	// SplunkConfiguration instance reference
-	SplunkConfiguration SplunkConfiguration `json:"splunkConfiguration,omitempty"`
+	// SplunkConfigurationSpec instance reference
+	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
 
 	//Weaviate       WeaviateSpec     `json:"weaviate,omitempty"`
-	Storage           StorageSpec                `json:"storage,omitempty"`
-	GPUSchedulingSpec *SchedulingSpec            `json:"gpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
-	CPUSchedulingSpec *SchedulingSpec            `json:"cpuScheduling,inline"` // inlines NodeSelector, Tolerations, Affinity
-	Ingress           corev1.LoadBalancerIngress `json:",inline"`
+	Storage StorageSpec `json:"storage,omitempty"`
+	// GPUSchedulingSpec defines the scheduling configuration for GPU-based Ray worker groups
+	GPUSchedulingSpec *SchedulingSpec `json:"gpuScheduler,omitempty"` // NodeSelector, Tolerations, Affinity
+	// CPUSchedulingSpec defines the scheduling configuration for CPU-based Ray worker groups
+	CPUSchedulingSpec *SchedulingSpec `json:"cpuScheduler,omitempty"` // NodeSelector, Tolerations, Affinity
+	// Ingress defines the Ingress configuration for the AIPlatform
+	Ingress *IngressSpec `json:"ingress,omitempty"`
+	// MTLS defines the mTLS configuration for the AIPlatform
+	MTLS MTLSConfig `json:"mtls,omitempty"`
+	//  ServiceTemplate is a template used to create Kubernetes services
+	ServiceTemplate corev1.Service `json:"serviceTemplate,omitempty"`
 }
 type Images struct {
 	SAIAImage string `json:"saiaImage,omitempty"`
@@ -102,34 +117,46 @@ type VectorDBStorageSpec struct {
 	StorageClassName string `json:"storageClassName,omitempty"`
 }
 
-// Features defines the features to enable in the AIPlatform
-type Features struct {
-	Name               string `json:"name,omitempty"`
+// FeatureSpec defines the features to enable in the AIPlatform
+type FeatureSpec struct {
+	// Name of the feature, e.g. "saia" or "seca"
+	// +kubebuilder:validation:Enum=saia;seca
+	Name string `json:"name,omitempty"`
+	// ServiceAccountName is the name of the service account to use for the feature
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
-	Version            string `json:"version,omitempty"`
+	// Version of the feature, e.g. "1.0.0"
+	Version string `json:"version,omitempty"`
 }
 
 type WeaviateSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas"`
 	//Image              string                      `json:"image"`
-	Resources          corev1.ResourceRequirements `json:"resources,omitempty"`
-	ServiceAccountName string                      `json:"serviceAccountName,omitempty"`
-	SchedulingSpec     `json:",inline"`            // inlines NodeSelector, Tolerations, Affinity
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// ServiceAccountName is the name of the service account to use for Weaviate
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// SchedulingSpec defines the scheduling configuration for Weaviate pods
+	SchedulingSpec `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
 }
 
 type HeadGroupSpec struct {
-	ServiceAccountName string           `json:"serviceAccountName,omitempty"`
-	SchedulingSpec     `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
+	// ServiceAccountName is the name of the service account to use for the Ray head group
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// SchedulingSpec defines the scheduling configuration for Ray head group pods
+	SchedulingSpec `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
+	// ImageRegistry is the image registry to use for the Ray head group
 	// image registries for Ray
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 }
 
 type WorkerGroupSpec struct {
-	ServiceAccountName string           `json:"serviceAccountName,omitempty"`
-	ImageRegistry      string           `json:"imageRegistry,omitempty"`
-	GPUConfigs         []GPUConfig      `json:"gpuConfigs,omitempty"`
-	SchedulingSpec     `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
+	// ServiceAccountName is the name of the service account to use for Ray worker groups
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// ImageRegistry is the image registry to use for Ray worker groups
+	ImageRegistry string `json:"imageRegistry,omitempty"`
+	// GPUConfigs defines the GPU worker tiers
+	GPUConfigs []GPUConfig `json:"gpuConfigs,omitempty"`
+	//SchedulingSpec     `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
 }
 
 // GPUConfig defines one worker-tier with scheduling and accelerator settings.
@@ -148,21 +175,20 @@ type SchedulingSpec struct {
 	Affinity     *corev1.Affinity    `json:"affinity,omitempty"`
 }
 
-type SplunkConfiguration struct {
+type SplunkConfigurationSpec struct {
 	// Name of the SplunkConfiguration instance
-	// +kubebuilder:validation:Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:MinLength=1
-	CRName string `json:"crName,omitempty"`
-	// Namespace of the SplunkConfiguration instance
-	// +kubebuilder:validation:Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:MinLength=1
-	CRNamespace string `json:"crNamespace,omitempty"`
+
+	//CRNamespace string `json:"crNamespace,omitempty"`
+	SplunkCustomResourceRef corev1.ObjectReference `json:"splunkCustomResourceRef,omitempty"`
 	// Splunk secret reference
 	SecretRef corev1.SecretReference `json:"secretRef,omitempty"`
 	Endpoint  string                 `json:"endpoint,omitempty"`
 	Token     string                 `json:"token,omitempty"`
+	//SecretSource:  Whether token comes from Kubernetes Secret or Vault Agent
+	SecretSource SecretSourceType `json:"secretSource,omitempty"`
+
+	//VaultFilePath Path where Vault Agent injects the Splunk HEC token
+	VaultFilePath string `json:"vaultFilePath,omitempty"`
 }
 
 // ReplicasSpec sets min/max worker replicas
@@ -178,8 +204,8 @@ type MachineClass struct {
 	EphimeralStorage     string                      `json:"ephemeral-storage,omitempty"` // e.g. "100Gi"
 }
 
-// SidecarConfig toggles injection of sidecars
-type SidecarConfig struct {
+// SidecarSpec toggles injection of sidecars
+type SidecarSpec struct {
 	// +kubebuilder:default=true
 	Envoy bool `json:"envoy,omitempty"`
 	// +kubebuilder:default=true
@@ -190,7 +216,7 @@ type SidecarConfig struct {
 	PrometheusOperator bool `json:"prometheusOperator,omitempty"`
 }
 
-type AiVolumeSpec struct {
+type ObjectStorageSpec struct {
 	// Remote volume URI in the format s3://bucketname/<path prefix>
 	Path string `json:"path"` // s3://bucketname/<path prefix> or gs://bucketname/<path prefix> or azure://containername/<path prefix>
 
@@ -201,16 +227,40 @@ type AiVolumeSpec struct {
 	Region string `json:"region"`
 
 	// Secret object name
-	SecretRef string `json:"secretRef"`
+	SecretRef string `json:"secretRef,omitempty"`
+}
+
+type IngressSpec struct {
+	Enabled     bool              `json:"enabled,omitempty"`
+	ClassName   string            `json:"className,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Hosts       []IngressHost     `json:"hosts,omitempty"`
+	TLS         []IngressTLS      `json:"tls,omitempty"`
+}
+
+type IngressHost struct {
+	Host  string        `json:"host"`
+	Paths []IngressPath `json:"paths"`
+}
+
+type IngressPath struct {
+	Path     string `json:"path"`
+	PathType string `json:"pathType"` // e.g., Prefix or Exact
+}
+
+type IngressTLS struct {
+	Hosts      []string `json:"hosts"`
+	SecretName string   `json:"secretName"`
 }
 
 // AIPlatformStatus defines observed state
 type AIPlatformStatus struct {
-	RayServiceName      string              `json:"rayServiceName,omitempty"`
-	VectorDbServiceName string              `json:"vectorDbServiceName,omitempty"`
-	RayServiceStatus    rayv1.ServiceStatus `json:"rayServiceStatus,omitempty"`
-	Conditions          []metav1.Condition  `json:"conditions,omitempty"`
-	ObservedGeneration  int64               `json:"observedGeneration,omitempty"`
+	RayServiceName      string                     `json:"rayServiceName,omitempty"`
+	VectorDbServiceName string                     `json:"vectorDbServiceName,omitempty"`
+	RayServiceStatus    rayv1.ServiceStatus        `json:"rayServiceStatus,omitempty"`
+	Conditions          []metav1.Condition         `json:"conditions,omitempty"`
+	ObservedGeneration  int64                      `json:"observedGeneration,omitempty"`
+	Ingress             corev1.LoadBalancerIngress `json:"ingress,omitempty"` // Ingress for the AIPlatform, e.g. for SAIA or Weaviate
 }
 
 // +kubebuilder:object:root=true

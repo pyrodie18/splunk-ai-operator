@@ -15,7 +15,7 @@ import (
 func NewMinioClient(
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
-	vs ai.AiVolumeSpec,
+	vs ai.ObjectStorageSpec,
 ) (StorageClient, error) {
 	awsCfg := &aws.Config{
 		Endpoint:         aws.String(vs.Endpoint),

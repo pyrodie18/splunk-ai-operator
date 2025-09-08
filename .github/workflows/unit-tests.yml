@@ -1,0 +1,31 @@
+name: Unit Tests
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
+        id: dotenv
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
+      - name: Run Unit Tests with Coverage
+        run: |
+          go install github.com/mattn/goveralls@latest
+          make test
+      #- run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
+      #- uses: actions/upload-artifact@v4.4.0
+      #  with:
+      #    name: coverage.out
+      #    path: coverage.out
+      # - name: Run Unit Tests and E2E Tests with Coverage
+      #   run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
+
+      - name: Upload coverage file
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: coverage.out
