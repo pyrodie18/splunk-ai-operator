@@ -360,3 +360,11 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: setup/ginkgo
+setup/ginkgo:
+	@echo Installing ginkgo
+	@go get github.com/onsi/ginkgo/v2
+	@go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@latest
+	@echo Installing gomega
+	@go get github.com/onsi/gomega/...
