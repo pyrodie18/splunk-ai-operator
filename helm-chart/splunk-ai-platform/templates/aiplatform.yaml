@@ -84,12 +84,12 @@ spec:
             cpu: "4"
             memory: "32Gi"
             ephemeral-storage: "100Gi"
-            nvidia.com/gpu: "2"
+            nvidia.com/gpu: "3"
           limits:
             cpu: "4"
             memory: "32Gi"
             ephemeral-storage: "100Gi"
-            nvidia.com/gpu: "2"
+            nvidia.com/gpu: "3"
       - tier: {{ .Values.instanceType }}-4-gpu
         minReplicas: 0
         maxReplicas: 10

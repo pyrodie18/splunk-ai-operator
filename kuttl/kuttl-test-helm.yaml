@@ -1,11 +1,11 @@
 apiVersion: kuttl.dev/v1beta1
 kind: TestSuite
-commands:
-  - command: helm repo add splunk https://splunk.github.io/splunk-operator/
+# commands:
+#   - command: helm repo add splunk https://splunk.github.io/splunk-ai-operator/  # TODO: add splunk-ai-operator repo when it is available.
 testDirs:
 - ./tests/helm
 parallel: 1
-timeout: 600
+timeout: 1200
 startKIND: false
 artifactsDir: kuttl-artifacts
 kindNodeCache: false

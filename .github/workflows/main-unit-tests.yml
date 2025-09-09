@@ -12,7 +12,8 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
-      - run: |
+      - name: Run Unit Tests with Coverage
+        run: |
           go install github.com/mattn/goveralls@latest
           make test
       #- run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
@@ -20,20 +21,8 @@ jobs:
       #  with:
       #    name: coverage.out
       #    path: coverage.out
-      - name: Install the latest version of kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Create kind cluster
-        run: kind create cluster
-
-      - name: Run Unit Tests with Coverage
-        run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
+      # - name: Run Unit Tests and E2E Tests with Coverage
+      #   run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
 
       - name: Upload coverage file
         uses: actions/upload-artifact@v4

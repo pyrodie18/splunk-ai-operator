@@ -151,14 +151,6 @@ func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	// ensure finalizer present
-	if !containsString(ai.Finalizers, aiServiceFinalizer) {
-		ai.Finalizers = append(ai.Finalizers, aiServiceFinalizer)
-		if err := r.Update(ctx, ai); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
 	// feature handler init
 	factoryInit := time.Now()
 	factory, ok := features.FeatureFactories[featureName]

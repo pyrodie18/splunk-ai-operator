@@ -8,22 +8,20 @@ opentelemetry-operator:
 objectStorage:
   path: "s3://ai-platform-dev-vivekr"
   region: "us-west-2"
-  secretRef: "s3-secret"
+  # secretRef: "s3-secret"
+serviceAccountName: ray-head-sa
+defaultAcceleratorType: L40S
 features:
   - name: saia
     version: "1.1.0"
     serviceAccountName: saia-service-account
-  # - name: seca
-  #   version: "1.0.0"
-  #   serviceAccountName: saia-secure-account
 storage:
   vectorDB:
-    pvcName: weaviate-pvc             # Optional: if you want to use a pre-created PVC
     size: 50Gi                        # Optional: used if pvcName is not provided
-    storageClassName: gp3             # Optional: used for dynamic PVC provisioning
+    storageClassName: gp2             # Optional: used for dynamic PVC provisioning
 workerGroupSpec:
   imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
-defaultAcceleratorType: "L40S"
+  serviceAccountName: ray-worker-sa
 instanceType: "g6.24xlarge"
 ingress:
   className: nginx
@@ -37,17 +35,10 @@ ingress:
         - ai.example.com
       secretName: ai-platform-tls
 splunkConfiguration:
-  splunkCustomResourceRef:
-    kind: "Standalone"
-    name: "splunk-standalone-stdln-0"
-    apiVersion: "enterprise.splunk.com/v4"
-  endpoint: "splunk-stdln-standalone-service"
+  endpoint: "splunk-splunk-standalone-standalone-service"
   secretRef:
-    name: "splunk-stdln-standalone-secret-v1"
-certificateRef: saia-cert
-serviceTemplate:
-  spec:
-    type: ClusterIP
+    name: "splunk-splunk-standalone-standalone-secret-v1"
+certificateRef: platform-issuer
 kuberay-operator:
   tolerations:
     - key: nvidia.com/gpu
