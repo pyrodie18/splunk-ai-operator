@@ -11,7 +11,7 @@ Utilizing the AI Platform requires one of the following remote storage providers
    * GCP Cloud Storage
 
 ### Prerequisites common to all remote storage providers
-* The App framework requires read-write access to the path used to host the files.
+* Read-write access to the path used to host the files.
 * Connections to the remote object storage endpoint need to be secured using a minimum version of TLS 1.2.
 * Three folders are created within the bucket with the following names: `artifacts`, `tasks`, `models`
     So, the three paths should be:
@@ -31,7 +31,7 @@ Utilizing the AI Platform requires one of the following remote storage providers
 * OR, Use "Managed Identity" role assignment to the Azure blob container. See [Setup Azure blob access with Managed Identity](#setup-azure-blob-access-with-managed-identity)
 
 ### Prerequisites for GCP bucket based remote object storage
-To use GCP storage in the App Framework, follow these setup requirements:
+To use GCP storage, follow these setup requirements:
 
 #### Role & Role Binding for Access: 
 Create a role and role-binding for the splunk-ai-operator service account. This allows read-write access to the GCP bucket to retrieve Splunk AI artifacts.
@@ -50,7 +50,7 @@ kubectl create secret generic gcs-secret --from-file=key.json=path/to/your-servi
 
 ## Setup Azure Blob Access with Managed Identity
 
-Azure Managed Identities can be used to provide IAM access to the blobs. With managed identities, the AKS nodes that host the pods can retrieve an OAuth token that provides authorization for the Splunk AI Operator pod to read the app packages stored in the Azure Storage account. The key point here is that the AKS node is associated with a Managed Identity, and this managed identity is given a `role` for read access called `Storage Blob Delegator` to the Azure Storage account.
+Azure Managed Identities can be used to provide IAM access to the blobs. With managed identities, the AKS nodes that host the pods can retrieve an OAuth token that provides authorization for the Splunk AI Operator pod to read the app packages stored in the Azure Storage account. The key point here is that the AKS node is associated with a Managed Identity, and this managed identity is given a `role` for read and write access called `Storage Blob Data Contributor` to the Azure Storage account.
 
 ### **Assumptions:**
 
@@ -122,12 +122,11 @@ Azure Managed Identities can be used to provide IAM access to the blobs. With ma
     ```
 
 5. **Assign Read-Write Access for Kubelet User Managed Identity to the Storage Account**
-**TODO: verify role**
 
     Use the `principalId` from the above section and assign it to the storage account:
 
     ```bash
-    az role assignment create --assignee "<principalId>" --role 'Storage Blob Delegator' --scope /subscriptions/<subscription_id>/resourceGroups/<storageAccountResourceGroup>/providers/Microsoft.Storage/storageAccounts/<storageAccountName>
+    az role assignment create --assignee "<principalId>" --role 'Storage Blob Data Contributor' --scope /subscriptions/<subscription_id>/resourceGroups/<storageAccountResourceGroup>/providers/Microsoft.Storage/storageAccounts/<storageAccountName>
     ```
 
     **For Example:**
@@ -135,10 +134,10 @@ Azure Managed Identities can be used to provide IAM access to the blobs. With ma
     If `<storageAccountResourceGroup>` is `splunkAIOperatorResourceGroup` and `<storageAccountName>` is `mystorageaccount`, the command would be:
 
     ```bash
-    az role assignment create --assignee "f0f04120-6a36-49bc--**************" --role 'Storage Blob Delegator' --scope /subscriptions/f428689e-c379-4712--**************/resourceGroups/splunkAIOperatorResourceGroup/providers/Microsoft.Storage/storageAccounts/mystorageaccount
+    az role assignment create --assignee "f0f04120-6a36-49bc--**************" --role 'Storage Blob Data Contributor' --scope /subscriptions/f428689e-c379-4712--**************/resourceGroups/splunkAIOperatorResourceGroup/providers/Microsoft.Storage/storageAccounts/mystorageaccount
     ```
 
-    After this command, you can use the App Framework for Azure Blob without secrets.
+    After this command, you can connect to Azure Blob without secrets.
 
 ### **Azure Blob Authorization Recommendations:**
 
