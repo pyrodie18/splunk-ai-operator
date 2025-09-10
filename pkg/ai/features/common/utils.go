@@ -3,9 +3,12 @@ package common
 import (
 	"context"
 	"fmt"
+	"net"
+	"path"
+
 	//"io"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,52 +23,71 @@ var IsConditionTrue = func(conditions []metav1.Condition, condType string) bool 
 	return false
 }
 
-var CheckRayHeadService = func(ctx context.Context, rayHeadURL string) error {
-	if rayHeadURL == "" {
-		return fmt.Errorf("ray head endpoint is empty")
+var CheckRayHeadService = func(ctx context.Context, endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint: %w", err)
+	}
+	if u.Scheme == "" {
+		u.Scheme = "http"
 	}
 
-	// Ensure scheme
-	if !strings.HasPrefix(rayHeadURL, "http://") && !strings.HasPrefix(rayHeadURL, "https://") {
-		rayHeadURL = "http://" + rayHeadURL
+	// If no port is present, default to 8265. If a port exists, keep it.
+	host := u.Host
+	if host == "" {
+		host = u.Path // allow bare "localhost:8265"
+		u.Path = ""
 	}
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		// no port in host, add default
+		host = net.JoinHostPort(host, "8265")
+	}
+	u.Host = host
 
-	// Ray's default health endpoint
-	healthURL := fmt.Sprintf("%s:8265", strings.TrimSuffix(rayHeadURL, "/"))
-
-	//healthURL = "http://localhost:8999" // Default Ray head service endpoint //FIXME: should be configurable
-
-	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(healthURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to reach Ray head endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ray head health endpoint returned %d", resp.StatusCode)
+		return fmt.Errorf("ray head returned %s", resp.Status)
 	}
-
-	//body, err := io.ReadAll(resp.Body)
-	//if err != nil {
-	//    return fmt.Errorf("failed to read Ray head response: %w", err)
-	//}
-
-	// Health endpoint returns a plain string "ok" if healthy
-	//if strings.TrimSpace(string(body)) != "ok" {
-	//    return fmt.Errorf("ray head reported unhealthy: %s", string(body))
-	//}
-
 	return nil
 }
 
 var CheckWeaviateService = func(ctx context.Context, weaviateURL string) error {
-	// Weaviate readiness endpoint
-	readyURL := fmt.Sprintf("http://%s/v1/.well-known/ready", strings.TrimSuffix(weaviateURL, "/")) // FIXME port is not configured
-	//readyURL = "http://localhost:8999/v1/.well-known/ready" // Default Weaviate service endpoint //FIXME: should be configurable
+	u, err := url.Parse(weaviateURL)
+	if err != nil {
+		return fmt.Errorf("invalid weaviate URL: %w", err)
+	}
+	// accept bare "host[:port]" without scheme
+	if u.Scheme == "" {
+		u.Scheme = "http"
+	}
+	if u.Host == "" {
+		// when given "localhost:8080" without scheme, Parse puts it in Path
+		u.Host = u.Path
+		u.Path = ""
+	}
+	// if no port provided, you can set a default here if you have one, otherwise leave as is
+	// _, _, err = net.SplitHostPort(u.Host)
+	// if err != nil { u.Host = net.JoinHostPort(u.Host, "8080") }
+
+	// append readiness path
+	u.Path = path.Join("/", u.Path, "/v1/.well-known/ready")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
 
 	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(readyURL)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to reach Weaviate endpoint: %w", err)
 	}
@@ -74,6 +96,5 @@ var CheckWeaviateService = func(ctx context.Context, weaviateURL string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("weaviate not ready, returned status=%d", resp.StatusCode)
 	}
-
 	return nil
 }
