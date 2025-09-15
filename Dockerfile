@@ -42,5 +42,5 @@ COPY --from=builder /certs/tls.key /certs/tls.key
 
 USER 65532:65532
 ENV INSTANCE_FILE=/instance.yaml
-ENV APPLICATION_FILE=/application.yaml   
+ENV APPLICATION_FILE=/application.yaml
 ENTRYPOINT ["/manager"]

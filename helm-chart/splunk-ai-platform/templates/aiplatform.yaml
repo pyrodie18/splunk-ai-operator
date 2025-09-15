@@ -1,0 +1,169 @@
+# templates/aiplatform.yaml
+apiVersion: ai.splunk.com/v1
+kind: AIPlatform
+metadata:
+  name: {{ include "splunk-ai-platform.fullname" . }}
+  namespace: {{ include "splunk-ai-platform.namespace" . }}
+  labels:
+{{- include "splunk-ai-platform.labels" . | nindent 4 }}
+spec:
+  objectStorage:
+    path: {{ .Values.objectStorage.path | quote }}
+{{- if .Values.objectStorage.endpoint }}
+    endpoint: {{ .Values.objectStorage.endpoint | quote }}
+{{- end }}
+    region: {{ .Values.objectStorage.region | quote }}
+    secretRef: {{ .Values.objectStorage.secretRef | quote }}
+{{- if .Values.serviceAccountName}}
+  serviceAccountName: {{ .Values.serviceAccountName | quote }}
+{{- end }}
+{{- if .Values.gpuInstanceType }}
+  gpuInstanceType: {{ .Values.gpuInstanceType | quote }}
+{{- end }}
+  features:
+{{- range .Values.features }}
+    - name: {{ .name | quote }}
+      serviceAccountName: {{ .serviceAccountName | quote }}
+      version: {{ .version | quote }}
+{{- end }}
+{{- /*
+  headGroupSpec:
+    serviceAccountName: {{ .Values.headGroupSpec.serviceAccountName | quote }}
+{{- if .Values.headGroupSpec.nodeSelector }}
+    nodeSelector: {{ toYaml .Values.headGroupSpec.nodeSelector | nindent 6 }}
+{{- end }}
+{{- if .Values.headGroupSpec.affinity }}
+    affinity: {{ toYaml .Values.headGroupSpec.affinity | nindent 6 }}
+{{- end }}
+{{- if .Values.headGroupSpec.tolerations }}
+    tolerations: {{ toYaml .Values.headGroupSpec.tolerations | nindent 6 }}
+{{- end }}
+    imageRegistry: {{ .Values.headGroupSpec.imageRegistry | quote }}
+*/}}
+  workerGroupSpec:
+    serviceAccountName: {{ .Values.workerGroupSpec.serviceAccountName | quote }}
+    imageRegistry: {{ .Values.workerGroupSpec.imageRegistry | quote }}
+{{- if .Values.instanceType }}
+    gpuConfigs:
+      - tier: {{ .Values.instanceType }}-0-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 1
+        resources:
+          requests:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+      - tier: {{ .Values.instanceType }}-1-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+      - tier: {{ .Values.instanceType }}-2-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "3"
+          limits:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "3"
+      - tier: {{ .Values.instanceType }}-4-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 4
+        resources:
+          requests:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
+          limits:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
+{{- end }}
+  sidecars:
+    envoy: {{ .Values.sidecars.envoy }}
+    fluentBit: {{ .Values.sidecars.fluentBit }}
+    otel: {{ .Values.sidecars.otel }}
+    prometheusOperator: {{ .Values.sidecars.prometheusOperator }}
+  certificateRef: {{ .Values.certificateRef | quote }}
+  clusterDomain: {{ .Values.clusterDomain | quote }}
+  images:
+    saiaImage: {{ .Values.images.saiaImage | quote }}
+    weaviateImage: {{ .Values.images.weaviateImage | quote }}
+    rayHeadGroupImage: {{ .Values.images.rayHeadGroupImage | quote }}
+    rayWorkerGroupImage: {{ .Values.images.rayWorkerGroupImage | quote }}
+  defaultAcceleratorType: {{ .Values.defaultAcceleratorType | quote }}
+  splunkConfiguration: {{ toYaml .Values.splunkConfiguration | nindent 4 }}
+  storage:
+    vectorDB:
+      pvcName: {{ .Values.storage.vectorDB.pvcName | quote }}
+      size: {{ .Values.storage.vectorDB.size | quote }}
+      storageClassName: {{ .Values.storage.vectorDB.storageClassName | quote }}
+{{- if .Values.instanceType }}
+  gpuScheduler:
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node.kubernetes.io/instance-type
+                  operator: In
+                  values:
+                    - {{ .Values.instanceType }}
+  cpuScheduler:
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            preference:
+              matchExpressions:
+                - key: node.kubernetes.io/instance-type
+                  operator: In
+                  values:
+                    - {{ .Values.instanceType }}
+{{- end }}
+{{- if .Values.mtls }}
+  mtls:
+    enabled: {{ .Values.mtls.enabled }}
+    issuerRef: {{ toYaml .Values.mtls.issuerRef | nindent 6 }}
+    secretName: {{ .Values.mtls.secretName | quote }}
+    dnsNames: {{ toYaml .Values.mtls.dnsNames | nindent 6 }}
+    termination: {{ .Values.mtls.termination | quote }}
+{{- end }}
+{{- if .Values.serviceTemplate }}
+  serviceTemplate: {{ toYaml .Values.serviceTemplate | nindent 4 }}
+{{- end}}

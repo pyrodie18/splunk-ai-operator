@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+{{- include "splunk-ai-operator.labels" . | nindent 4 }}
+  name: {{ include "splunk-ai-operator.fullname" . }}-leader-election-rolebinding
+  namespace: {{ include "splunk-ai-operator.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "splunk-ai-operator.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "splunk-ai-operator.serviceAccountName" . }}
+  namespace: {{ include "splunk-ai-operator.namespace" . }}

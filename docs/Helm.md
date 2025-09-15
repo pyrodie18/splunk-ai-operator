@@ -50,24 +50,22 @@ To deploy the full AI Platform stack using the `splunk-ai-platform` chart, you o
 ### ✨ Example: `ai-platform-values.yaml`
 
 ```yaml
-aiPlatform:
-  enabled: true
-  name: my-ai-platform
-  namespace: ai-stack
+name: my-ai-platform
+namespace: ai-stack
 
-  serviceAccountName: "ai-platform-sa"
+serviceAccountName: "ai-platform-sa"
 
-  volume:
-    path: "s3://my-bucket/prefix"
-    region: "us-west-2"
-    secretRef: "s3-secret"
+volume:
+  path: "s3://my-bucket/prefix"
+  region: "us-west-2"
+  secretRef: "s3-secret"
 
-  splunkConfiguration:
-    crName: "splunk-observability"
-    crNamespace: "splunk"
-    secretRef:
-      name: "splunk-token-secret"
-      namespace: "splunk"
+splunkConfiguration:
+  crName: "splunk-observability"
+  crNamespace: "splunk"
+  secretRef:
+    name: "splunk-token-secret"
+    namespace: "splunk"
 ```
 
 > All other settings like Ray/Weaviate images, sidecars, GPU/CPU scheduling, and storage can be customized as needed via the chart’s default `values.yaml`.
@@ -96,6 +94,12 @@ To uninstall:
 helm uninstall splunk-ai-platform -n ai-stack
 ```
 
+You can inspect all configurable values using:
+
+```bash
+helm show values splunk-ai/splunk-ai-platform
+```
+
 ---
 
 ## View Running Resources
@@ -113,8 +117,3 @@ kubectl get pods -n ai-stack
 
 * [Helm Documentation](https://helm.sh/docs/)
 * [Splunk AI Operator GitHub](https://github.com/splunk/splunk-ai-operator)
-* View all default values:
-
-```bash
-helm show values splunk-ai/splunk-ai-platform
-```
