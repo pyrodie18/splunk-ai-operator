@@ -1,0 +1,189 @@
+---
+# Default values for splunk-ai-platform.
+# This is a YAML-formatted file.
+# Users can override these (e.g. via --values) to configure both the CR and the Ingress.
+
+# Deploy Splunk AI Operator chart
+# Disable if the Splunk Operator is already deployed
+splunk-ai-operator:
+  enabled: true
+
+# Deploy KubeRay Operator chart
+# Disable if the KubeRay Operator is already deployed
+kuberay-operator:
+  enabled: true
+
+# Deploy Cert Manager chart
+# Disable if the Cert Manager is already deployed
+cert-manager:
+  enabled: true
+
+# Deploy Kube Prometheus Stack chart
+# Disable if the Kube Prometheus Stack is already deployed
+prometheus:
+  enabled: true
+
+# Deploy OpenTelemetry Operator chart
+# Disable if the OpenTelemetry Operator is already deployed
+opentelemetry-operator:
+  enabled: true
+
+# Metadata overrides:
+# Override the Splunk AI Platform helm chart name
+nameOverride: ""
+# Override the Splunk AI Platform deployment name
+fullnameOverride: ""
+# Override the namespace for the Splunk AI Platform deployment
+namespaceOverride: ""
+
+# Storage volume
+objectStorage:
+  # Remote volume URI in the format s3://bucketname/<path prefix>
+  path: ""
+  # Optional override endpoint (only really needed for S3-compatible like MinIO)
+  endpoint: ""
+  # Region of the remote storage volume where apps reside. Used for aws, if provided. Not used for minio and azure.
+  region: ""
+  # Secret object name
+  secretRef: ""
+
+# Name of the service account to use for the AIPlatform
+# used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
+serviceAccountName: ""
+
+# GpuInstanceType is the type of GPU instance to use for Ray worker groups
+# e.g. "g6.24xlarge" or "p4d.24xlarge"
+gpuInstanceType: "g6.24xlarge"
+
+# List of defined features to enable in the AI platform and version
+# Options include: saia, seca
+features:
+  - name: ""  # Name of the feature, e.g. "saia" or "seca"
+    # Name of service account to use for the AI feature
+    serviceAccountName: ""
+    # Version of the feature, e.g. "1.0.0"
+    version: ""
+
+# headGroupSpec:
+#   # Service account name for the Ray head group
+#   serviceAccountName: ""
+#   # Image registries for Ray
+#   imageRegistry: ""
+#   nodeSelector: {}
+#   affinity: {}
+#   tolerations: []
+
+# Define the Ray worker group configuration
+workerGroupSpec:
+  # Service account to use for Ray worker groups
+  serviceAccountName: ""
+  # Image registry to use for Ray worker groups
+  imageRegistry: ""
+
+# Toggles injection of sidecars
+sidecars:
+  # Enables the Envoy sidecar
+  envoy: true
+  # Enables the Fluent Bit sidecar
+  fluentBit: true
+  # Enables the OpenTelemetry collector sidecar
+  otel: true
+  # Enables the Prometheus Operator sidecar
+  prometheusOperator: true
+
+# cert-manager Certificate for mTLS
+certificateRef: ""
+# Internal cluster DNS suffix
+clusterDomain: "cluster.local"
+
+# List of image registries to use for Ray
+# TODO: is this needed? There are related image environment variables in the splunk ai operator chart/deployment
+images:
+  # Image for SAIA
+  saiaImage: "splunkai/saia:latest"
+  # Image for Weaviate
+  weaviateImage: "docker.io/weaviate:latest"
+  # Image for Ray head group
+  rayHeadGroupImage: "rayproject/ray-head:latest"
+  # Image for Ray worker group
+  rayWorkerGroupImage: "rayproject/ray-worker:latest"
+
+# Default GPU type to use for Ray worker groups
+defaultAcceleratorType: ""
+
+# SplunkConfigurationSpec instance reference
+splunkConfiguration:
+  # CR of the SplunkConfiguration instance
+  splunkCustomResourceRef:
+    {}
+    # kind: "Standalone"
+    # namespace: "default"
+    # name: "splunk-standalone-stdln-0"
+    # apiVersion: "enterprise.splunk.com/v4"
+  # Splunk secret reference
+  secretRef:
+    {}
+    # name: "splunk-secret"
+    # namespace: "default"
+  endpoint: "https://splunk.default.svc.cluster.local:8089"
+  # Optional, if not using secretRef
+  token: ""
+  # Whether token comes from Kubernetes Secret or Vault Agent, e.g. "kubernetes" or "vault"
+  secretSource: "kubernetes"
+  # Path where Vault Agent injects the Splunk HEC token
+  vaultFilePath: ""
+
+# Specifies object storage for AI artifacts (e.g., S3 or GCS bucket)
+storage:
+  vectorDB:
+    # Optional name of an existing PVC to use
+    pvcName: ""
+    # Size of the volume to create if PVCName is not provided
+    size: "100Gi"  # e.g., "100Gi", "1Ti"
+    # Optional StorageClassName to use for dynamic PVC provisioning
+    storageClassName: ""  # e.g., "gp2", "standard", "azurefile"
+
+# GPU instance type
+instanceType: ""
+
+# Ingress settings (fully optional)
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+# mTLS configuration for the AIPlatform
+mtls:
+  # Enable or disable mTLS on the SAIA service
+  enabled: false
+  # If Enabled, how to request the cert
+  issuerRef:
+    # Name of the resource being referred to
+    name: ""
+    # Kind of the resource being referred to
+    kind: ""
+    # Group of the resource being referred to
+    group: ""
+  # mTLS secret reference
+  secretName: ""
+  dnsNames: []
+  # Let users declare “I don’t want operator-managed TLS” even if Enabled=true, e.g. "operator" or "mesh"
+  termination: "operator"
+
+# Template used to create Kubernetes services
+serviceTemplate:
+  {}
+  # spec:
+  #   type: ClusterIP

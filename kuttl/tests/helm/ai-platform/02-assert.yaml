@@ -1,0 +1,20 @@
+---
+# assert for ray head service account to be ready
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-head-sa
+
+---
+# assert for ray worker service account to be ready
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-worker-sa
+
+---
+# assert for saia service account to be ready
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: saia-service-sa
