@@ -1,0 +1,647 @@
+/*
+File: controllers/raybuilder/builder.go
+*/
+package raybuilder
+
+import (
+	"bytes"
+	"context"
+	"embed"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"text/template"
+	"time"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/internal/telemetry"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/raybuilder/raystatus"
+	"github.com/splunk/splunk-ai-operator/pkg/ai/sidecars"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	//"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	rbacv1 "k8s.io/api/rbac/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+//go:embed applications.yaml
+var embeddedApplicationsYAML embed.FS
+
+// Builder encapsulates RayService generation logic.
+type Builder struct {
+	ai *enterpriseApi.AIPlatform
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+}
+
+type ApplicationParams struct {
+	ArtifactBucketName string `yaml:"ARTIFACTS_S3_BUCKET"`
+	CloudProvider      string `yaml:"CLOUD_PROVIDER"`
+}
+
+// New returns a new Builder for the given AIPlatform instance.
+func New(ai *enterpriseApi.AIPlatform, client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *Builder {
+	return &Builder{
+		ai:       ai,
+		Client:   client,
+		Scheme:   scheme,
+		Recorder: recorder,
+	}
+}
+
+// --- 7️⃣ ReconcileRayService: build & create/update the RayService CR ---
+func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	logger := log.FromContext(ctx) // Define logger
+	rs := b.Build()
+
+	// Load applications.yaml and parameterize ARTIFACTS_S3_BUCKET
+	u, err := url.Parse(p.Spec.ObjectStorage.Path)
+	if err != nil {
+		fmt.Println("Error parsing URL:", err)
+		return err
+	}
+
+	// Set CloudProvider based on URL scheme
+	var cloudProvider string
+	switch u.Scheme {
+	case "s3":
+		cloudProvider = "aws"
+	case "gs":
+		cloudProvider = "gcp"
+	default:
+		cloudProvider = "azure" // TODO: FIX THIS, need to support minio
+	}
+
+	param := ApplicationParams{
+		ArtifactBucketName: u.Host,
+		CloudProvider:      cloudProvider,
+	}
+
+	// Use embedded applications.yaml content
+	templateData, err := embeddedApplicationsYAML.ReadFile("applications.yaml")
+	if err != nil {
+		logger.Error(err, "Failed to read embedded applications.yaml")
+		return err
+	}
+
+	// Create a new template and parse the embedded YAML as a template
+	tmpl, err := template.New("applications").Parse(string(templateData))
+	if err != nil {
+		logger.Error(err, "Failed to parse template")
+		return err
+	}
+
+	// Execute the template with the provided parameters
+	var serveConfig bytes.Buffer
+	if err := tmpl.Execute(&serveConfig, param); err != nil {
+		logger.Error(err, "Failed to execute template")
+		return err
+	}
+
+	annotations, labels := buildHeadAnnotationsAndLabels(p)
+	rayService := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      p.Name,
+			Namespace: p.Namespace,
+		},
+	}
+	err = b.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rayService)
+	if errors.IsNotFound(err) {
+		rayService = &rayv1.RayService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        p.Name,
+				Namespace:   p.Namespace,
+				Annotations: annotations,
+				Labels:      labels,
+			},
+		}
+	}
+
+	// Set the parameterized serve config
+	rs.Spec.ServeConfigV2 = serveConfig.String()
+
+	rayService.Spec = rs.Spec
+	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var current rayv1.RayService
+		if err := b.Client.Get(ctx, key, &current); err != nil {
+			if errors.IsNotFound(err) {
+				controllerutil.SetOwnerReference(p, rayService, b.Scheme)
+				return b.Client.Create(ctx, rayService)
+			}
+			b.Recorder.Eventf(p, corev1.EventTypeWarning, "ReconcileFailed", "Failed to reconcile RayService %v", err)
+			return err
+		}
+
+		// mutate current.Spec to match desired svc.Spec
+		current.Spec = rs.Spec
+		// now try update
+		controllerutil.SetOwnerReference(p, &current, b.Scheme)
+		return b.Client.Update(ctx, &current)
+	})
+}
+
+// FIXME work with @shang to find if rayserve support this internally
+func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	logger := log.FromContext(ctx)
+	saName := p.Spec.ServiceAccountName
+	if saName == "" {
+		logger.Info("No ServiceAccount specified for Ray head group, skipping RBAC reconciliation")
+		return nil
+	}
+
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ray-autoscaler",
+			Namespace: p.Namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"ray.io"},
+				Resources: []string{"rayclusters", "rayservices", "rayjobs"},
+				Verbs:     []string{"get", "list", "watch", "patch", "update", "delete"},
+			},
+		},
+	}
+
+	if err := b.Client.Create(ctx, role); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+	controllerutil.SetOwnerReference(p, role, b.Scheme)
+
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ray-autoscaler-binding-" + p.Namespace + "-" + saName,
+			Namespace: p.Namespace,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      saName,
+				Namespace: p.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     "ray-autoscaler",
+		},
+	}
+
+	if err := b.Client.Create(ctx, roleBinding); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+	controllerutil.SetOwnerReference(p, roleBinding, b.Scheme)
+	return nil
+}
+
+// ApplyNormalizedConditions collects Ray signals and rolls them up into AIPlatform conditions.
+// Signature matches your state-machine call sites.
+func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	snap, err := raystatus.CollectRaySnapshot(ctx, b.Client, p.Namespace, p.Name)
+	if err != nil {
+		now := metav1.NewTime(time.Now())
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "RayServiceReady",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayServiceFetchError",
+			Message:            err.Error(),
+			LastTransitionTime: now,
+		})
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RayUnhealthy",
+			Message:            "Failed to collect Ray snapshot: " + err.Error(),
+			LastTransitionTime: now,
+		})
+		// optional telemetry for errors
+		telemetry.ObserveReconcileError(ctx, "ray_snapshot")
+		return err
+	}
+
+	if snap.HeadServiceName != "" {
+		p.Status.RayServiceName = snap.HeadServiceName
+	}
+	// keep a textual status, reflect Running when rsReady:
+	rsReady := snap.ServiceReady || snap.ServiceStatusRunning
+	if rsReady {
+		p.Status.RayServiceStatus = "Running"
+	} else {
+		p.Status.RayServiceStatus = "Pending"
+	}
+
+	now := metav1.NewTime(time.Now())
+	set := func(t, reason, msg string, ok bool) {
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               t,
+			Status:             boolToCond(ok),
+			Reason:             reason,
+			Message:            msg,
+			LastTransitionTime: now,
+		})
+	}
+
+	// RayService readiness (prefer Conditions; fallback to ServiceStatus)
+	set("RayServiceReady",
+		map[bool]string{true: "Ready", false: "NotReady"}[rsReady],
+		fmt.Sprintf("UpgradeInProgress=%t", snap.UpgradeInProgress),
+		rsReady,
+	)
+
+	// Upgrade status
+	set("RayServiceUpgradeInProgress",
+		map[bool]string{true: "Upgrading", false: "Idle"}[snap.UpgradeInProgress],
+		"Zero-downtime upgrade status as reported by KubeRay",
+		snap.UpgradeInProgress,
+	)
+
+	// Endpoint discovery (map[string]string on RayClusterStatus.Endpoints)
+	hasEndpoints := len(snap.EndpointMap) > 0
+	set("RayEndpointsDiscovered",
+		map[bool]string{true: "Found", false: "Missing"}[hasEndpoints],
+		fmt.Sprintf("keys=%v", keysOf(snap.EndpointMap)),
+		hasEndpoints,
+	)
+
+	// Cluster readiness: head ready AND all workers ready (tune if you want thresholds)
+	clusterReady := snap.HeadPodReady && snap.DesiredWorkerReplicas == snap.AvailableWorkerReplicas
+	set("RayClusterReady",
+		map[bool]string{true: "AllPodsReady", false: "PodsNotReady"}[clusterReady],
+		fmt.Sprintf("workers %d/%d headReady=%t", snap.AvailableWorkerReplicas, snap.DesiredWorkerReplicas, snap.HeadPodReady),
+		clusterReady,
+	)
+
+	// Serve route (is the k8s Service backed by endpoints?)
+	set("RayServeRouteReady",
+		map[bool]string{true: "EndpointsAvailable", false: "NoEndpoints"}[snap.ServeServiceHasBackend],
+		fmt.Sprintf("service=%s backed=%t", snap.ServeServiceName, snap.ServeServiceHasBackend),
+		snap.ServeServiceHasBackend,
+	)
+
+	// Top-level Ready rollup
+	platformReady := rsReady && clusterReady && snap.ServeServiceHasBackend
+	set("Ready",
+		map[bool]string{true: "AllHealthy", false: "Degraded"}[platformReady],
+		"Composite of RayServiceReady ∧ RayClusterReady ∧ RayServeRouteReady",
+		platformReady,
+	)
+
+	telemetry.SetCondition(ctx, "RayServiceReady", string(boolToCond(rsReady)))
+	telemetry.SetCondition(ctx, "RayClusterReady", string(boolToCond(clusterReady)))
+	telemetry.SetCondition(ctx, "RayServeRouteReady", string(boolToCond(snap.ServeServiceHasBackend)))
+	telemetry.SetDesiredReplicas(ctx, snap.DesiredWorkerReplicas)
+	telemetry.SetReadyReplicas(ctx, snap.AvailableWorkerReplicas)
+
+	return nil
+}
+
+// Build constructs a RayService resource based on the AI CR.
+func (b *Builder) Build() *rayv1.RayService {
+	rs := &rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        b.ai.Name,
+			Namespace:   b.ai.Namespace,
+			Annotations: b.ai.Annotations,
+			Labels:      b.ai.Labels,
+		},
+		Spec: rayv1.RayServiceSpec{
+			RayClusterSpec: b.buildClusterConfig(),
+		},
+	}
+	return rs
+}
+
+func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
+	annotations, labels := buildHeadAnnotationsAndLabels(b.ai)
+	head := rayv1.HeadGroupSpec{
+		RayStartParams: map[string]string{
+			"dashboard-host": "0.0.0.0",
+			"num-cpus":       "0",
+		},
+		HeadService: &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        b.ai.Name + "-head-svc",
+				Namespace:   b.ai.Namespace,
+				Annotations: annotations,
+				Labels:      labels,
+			},
+		},
+		Template: b.makeHeadTemplate(),
+	}
+
+	head.Template.ObjectMeta.Annotations = annotations
+	head.Template.ObjectMeta.Labels = labels
+
+	var workers []rayv1.WorkerGroupSpec
+	for _, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
+		annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
+		wg := rayv1.WorkerGroupSpec{
+			GroupName:   cfg.Tier,
+			MinReplicas: &cfg.MinReplicas,
+			MaxReplicas: &cfg.MaxReplicas,
+			RayStartParams: map[string]string{
+				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":1}"`, b.ai.Spec.DefaultAcceleratorType, cfg.GPUsPerPod),
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: annotations,
+					Labels:      labels,
+				},
+				Spec: b.makeWorkerTemplate(cfg).Spec,
+			},
+		}
+		workers = append(workers, wg)
+	}
+
+	return rayv1.RayClusterSpec{
+		RayVersion:              os.Getenv("RAY_VERSION"),
+		EnableInTreeAutoscaling: boolPtr(true),
+		HeadGroupSpec:           head,
+		WorkerGroupSpecs:        workers,
+	}
+}
+
+func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
+	spec := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name:  "ray-head",
+			Image: SetImageRegistry("RELATED_IMAGE_RAY_HEAD", b.ai.Spec.Images.RayHeadGroupImage),
+			Args: []string{
+				"ulimit -n 65536; echo head; $KUBERAY_GEN_RAY_START_CMD",
+			},
+			Command: []string{
+				"/bin/bash",
+				"-lc",
+				"--",
+			},
+			Env: []corev1.EnvVar{
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "CLUSTER_NAME", Value: "ai-platform-models"}, // FIXME
+			},
+			Lifecycle: &corev1.Lifecycle{
+				PreStop: &corev1.LifecycleHandler{
+					Exec: &corev1.ExecAction{
+						Command: []string{
+							"/bin/sh",
+							"-c",
+							"ray stop",
+						},
+					},
+				},
+			},
+			Ports: []corev1.ContainerPort{
+				{
+					ContainerPort: 6379,
+					Name:          "gcs-server",
+					Protocol:      corev1.ProtocolTCP,
+				},
+				{
+					ContainerPort: 8265,
+					Name:          "dashboard",
+					Protocol:      corev1.ProtocolTCP,
+				},
+				{
+					ContainerPort: 10001,
+					Name:          "client",
+					Protocol:      corev1.ProtocolTCP,
+				},
+				{
+					ContainerPort: 8000,
+					Name:          "serve",
+					Protocol:      corev1.ProtocolTCP,
+				},
+			},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:              resource.MustParse("1"),
+					corev1.ResourceMemory:           resource.MustParse("2Gi"),
+					corev1.ResourceEphemeralStorage: resource.MustParse("5Gi"),
+					"nvidia.com/gpu":                resource.MustParse("0"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:              resource.MustParse("4"),
+					corev1.ResourceMemory:           resource.MustParse("8Gi"),
+					corev1.ResourceEphemeralStorage: resource.MustParse("10Gi"),
+					"nvidia.com/gpu":                resource.MustParse("0"),
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					MountPath: "/tmp/ray",
+					Name:      "ray-logs",
+				},
+			},
+		}},
+	}
+
+	spec.NodeSelector = b.ai.Spec.CPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.CPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
+	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
+	// FIXME need to find better way to add sidecars
+	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
+	sidecars.AddFluentBitSidecar(&spec)
+	return corev1.PodTemplateSpec{Spec: spec}
+}
+
+func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemplateSpec {
+	rayCommand := fmt.Sprintf(`echo %s worker;
+        ulimit -n 65536;
+    	export PATH="/home/ray/anaconda3/bin:$PATH";
+        KUBERAY_GEN_RAY_START_CMD=$(echo $KUBERAY_GEN_RAY_START_CMD | sed -e 's/"{/{/g' -e 's/}"/}/g' -e 's/\\\"/"/g');
+        $KUBERAY_GEN_RAY_START_CMD;`, cfg.Tier)
+	spec := corev1.PodSpec{
+		Affinity:           b.ai.Spec.GPUSchedulingSpec.Affinity,
+		Tolerations:        b.ai.Spec.GPUSchedulingSpec.Tolerations,
+		NodeSelector:       b.ai.Spec.GPUSchedulingSpec.NodeSelector,
+		ServiceAccountName: b.ai.Spec.WorkerGroupSpec.ServiceAccountName,
+		Containers: []corev1.Container{{
+			Name:            "ray-worker",
+			Image:           SetImageRegistry("RELATED_IMAGE_RAY_WORKER", b.ai.Spec.WorkerGroupSpec.ImageRegistry),
+			ImagePullPolicy: corev1.PullAlways,
+			Command: []string{
+				"/bin/bash",
+				"-lc",
+				"--",
+			},
+			Args: []string{
+				rayCommand,
+			},
+			Env: []corev1.EnvVar{
+				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+				{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
+				{Name: "SERVICE_NAME", Value: b.ai.Name},
+				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
+				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
+				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
+				{Name: "GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},                       // FIXME
+			},
+			Lifecycle: &corev1.Lifecycle{
+				PreStop: &corev1.LifecycleHandler{
+					Exec: &corev1.ExecAction{
+						Command: []string{
+							"/bin/sh",
+							"-c",
+							"ray stop",
+						},
+					},
+				},
+			},
+			Resources: cfg.Resources,
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					MountPath: "/tmp/ray",
+					Name:      "ray-logs",
+				},
+			},
+			Ports: []corev1.ContainerPort{
+				{
+					ContainerPort: 8080,
+					Name:          "metrics",
+					Protocol:      corev1.ProtocolTCP,
+				},
+			},
+		},
+		},
+	}
+
+	// apply scheduling
+	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
+	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
+	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+
+	found := false
+	for _, vol := range spec.Volumes {
+		if vol.Name == "ray-logs" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{
+			Name: "ray-logs",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
+	// FIXME need to find better way to add sidecars
+	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
+	sidecars.AddFluentBitSidecar(&spec)
+
+	return corev1.PodTemplateSpec{Spec: spec}
+}
+
+func SetImageRegistry(key, defaultValue string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultValue
+}
+
+func buildWorkerAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform, cfg enterpriseApi.GPUConfig) (map[string]string, map[string]string) {
+	annotations := make(map[string]string)
+	labels := make(map[string]string)
+
+	// Example: propagate tier and GPU type as labels/annotations
+	annotations["gpu-tier"] = cfg.Tier
+	labels["gpu-tier"] = cfg.Tier
+	if aiPlatform.Annotations != nil {
+		for k, v := range aiPlatform.Annotations {
+			if strings.Contains(k, "last-applied-configuration") {
+				continue
+			}
+			annotations[k] = v
+		}
+	}
+	if aiPlatform.Labels != nil {
+		for k, v := range aiPlatform.Labels {
+			if strings.Contains(k, "last-applied-configuration") {
+				continue
+			}
+			labels[k] = v
+		}
+	}
+	annotations["prometheus.io/path"] = "/metrics"
+	annotations["prometheus.io/port"] = "8080"
+	annotations["prometheus.io/scheme"] = "http"
+	annotations["ray.io/overwrite-container-cmd"] = "true"
+	if aiPlatform.Spec.Sidecars.Otel {
+		annotations["sidecar.opentelemetry.io/inject"] = fmt.Sprintf("%s-otel-coll", aiPlatform.Name)
+		annotations["sidecar.opentelemetry.io/auto-instrument"] = "true"
+	}
+
+	return annotations, labels
+}
+
+func buildHeadAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform) (map[string]string, map[string]string) {
+	annotations := make(map[string]string)
+	labels := make(map[string]string)
+
+	// Example: propagate tier and GPU type as labels/annotations
+	if aiPlatform.Annotations != nil {
+		for k, v := range aiPlatform.Annotations {
+			if strings.Contains(k, "last-applied-configuration") {
+				continue
+			}
+			annotations[k] = v
+		}
+	}
+	if aiPlatform.Labels != nil {
+		for k, v := range aiPlatform.Labels {
+			if strings.Contains(k, "last-applied-configuration") {
+				continue
+			}
+			labels[k] = v
+		}
+	}
+	annotations["prometheus.io/path"] = "/metrics"
+	annotations["prometheus.io/port"] = "8080"
+	annotations["prometheus.io/scheme"] = "http"
+	annotations["ray.io/overwrite-container-cmd"] = "true"
+
+	if aiPlatform.Spec.Sidecars.Otel {
+		annotations["sidecar.opentelemetry.io/inject"] = fmt.Sprintf("%s-otel-coll", aiPlatform.Name)
+		annotations["sidecar.opentelemetry.io/auto-instrument"] = "true"
+	}
+
+	return annotations, labels
+}
+
+// boolPtr returns a pointer to the given boolean value.
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func keysOf(m map[string]string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func boolToCond(b bool) metav1.ConditionStatus {
+	if b {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
+}

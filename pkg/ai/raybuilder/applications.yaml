@@ -1,0 +1,581 @@
+applications:
+  - name: Entrypoint
+    import_path: splunkai_models_apps.custom.deployments.entrypoint.main:SERVE_APP
+    route_prefix: /
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: entrypoint
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: UaeLarge
+      deployment_configs:
+        EmbeddingModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.025
+            L40S:
+              ray_actor_options:
+                num_gpus: 0.05
+          options:
+            autoscaling_config:
+              max_replicas: 10
+            ray_actor_options:
+              num_gpus: 0.1
+      deployment_type: embedding_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.025
+          L40S:
+            engine_args:
+              gpu_memory_utilization: 0.05
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.1
+            tensor_parallel_size: 1
+        model_id: uae_large
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/uae-large
+    name: UaeLarge
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /uae_large
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: uae_large
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: AllMinilmL6V2
+      deployment_configs:
+        EmbeddingModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.005
+          options:
+            autoscaling_config:
+              max_replicas: 12
+              min_replicas: 1
+              target_ongoing_requests: 3
+            ray_actor_options:
+              num_gpus: 0.01
+      deployment_type: embedding_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.005
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.01
+            tensor_parallel_size: 1
+        model_id: all_minilm_l6_v2
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/all-minilm-l6-v2
+    name: AllMinilmL6V2
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /all_minilm_l6_v2
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: all_minilm_l6_v2
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: BiEncoder
+      deployment_configs:
+        EmbeddingModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.005
+          options:
+            autoscaling_config:
+              max_replicas: 10
+            ray_actor_options:
+              num_gpus: 0.01
+      deployment_type: embedding_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.005
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.01
+            tensor_parallel_size: 1
+        model_id: bi_encoder
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/bi-encoder
+    name: BiEncoder
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /bi_encoder
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: bi_encoder
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: MbartTranslator
+      custom_deployment_import_path: mbart_translator:MbartTranslatorDeployment
+      deployment_configs:
+        MbartTranslatorDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.05
+            L40S:
+              ray_actor_options:
+                num_gpus: 0.1
+          options:
+            ray_actor_options:
+              num_gpus: 0.2
+      deployment_type: custom_deployment
+    name: MbartTranslator
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /mbart_translator
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: mbart_translator
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: XlmRobertaLanguageClassifier
+      deployment_configs:
+        ClassificationModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.025
+            L40S:
+              ray_actor_options:
+                num_gpus: 0.05
+          options:
+            autoscaling_config:
+              max_replicas: 10
+            ray_actor_options:
+              num_gpus: 0.1
+      deployment_type: classification_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.025
+          L40S:
+            engine_args:
+              gpu_memory_utilization: 0.05
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.1
+            task: classify
+            tensor_parallel_size: 1
+        model_id: xlm_roberta_language_classifier
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/xlm-roberta-language-classifier
+    name: XlmRobertaLanguageClassifier
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /xlm_roberta_language_classifier
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: xlm_roberta_language_classifier
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: PromptInjectionTfidf
+      custom_deployment_import_path: prompt_injection_tfidf:PromptInjectionTfidfDeployment
+      deployment_type: custom_deployment
+    name: PromptInjectionTfidf
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /prompt_injection_tfidf
+    runtime_env:
+      env_vars:
+        APPLICATION_NAME: "PromptInjectionTfidf"
+        API_VERSION: "v1"
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: CrossEncoder
+      deployment_configs:
+        ScoringModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.005
+          options:
+            ray_actor_options:
+              num_gpus: 0.01
+      deployment_type: scoring_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.005
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.01
+            tensor_parallel_size: 1
+        model_id: cross_encoder
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/cross-encoder
+        model_type: vllm_scoring_model
+    name: CrossEncoder
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /cross_encoder
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: cross_encoder
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: Llama31Instruct
+      deployment_configs:
+        LLMDeployment:
+          gpu_type_options_override:
+            A10G:
+              autoscaling_config:
+                min_replicas: "2"
+              ray_actor_options:
+                num_gpus: 2
+            H100:
+              autoscaling_config:
+                max_replicas: 2
+                min_replicas: 1
+              ray_actor_options:
+                num_gpus: 0.5
+            L40S:
+              autoscaling_config:
+                max_replicas: 1
+              ray_actor_options:
+                num_gpus: 1
+            T4:
+              ray_actor_options:
+                num_gpus: 4
+                runtime_env:
+                  pip:
+                    - triton==3.2.0
+          options:
+            autoscaling_config:
+              min_replicas: 1
+      deployment_type: text_gen_model_deployment
+      gpu_types: '["L40S"]'
+      model_definition:
+        gpu_type_model_config_override:
+          A10G:
+            engine_args:
+              tensor_parallel_size: 2
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.5
+              tensor_parallel_size: 1
+          L40S:
+            engine_args:
+              tensor_parallel_size: 1
+          T4:
+            engine_args:
+              dtype: half
+              tensor_parallel_size: 4
+        model_id: llama31_instruct
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/llama31-8b-instruct
+      tokenizer_definition:
+        model_id: llama31_instruct
+        model_loader:
+          object_storage:
+            artifacts_list:
+              - config.json
+              - tokenizer_config.json
+              - tokenizer.json
+            prefix: model_artifacts/llama31-8b-instruct
+    name: Llama31Instruct
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /llama31_instruct
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: llama31_instruct
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+        VLLM_WORKER_MULTIPROC_METHOD: spawn
+  - args:
+      application_name: E5LanguageClassifier
+      deployment_configs:
+        ClassificationModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.025
+            L40S:
+              ray_actor_options:
+                num_gpus: 0.05
+          options:
+            autoscaling_config:
+              max_replicas: 10
+            ray_actor_options:
+              num_gpus: 0.1
+      deployment_type: classification_model_deployment
+      model_definition:
+        gpu_type_model_config_override:
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.025
+          L40S:
+            engine_args:
+              gpu_memory_utilization: 0.05
+        model_config:
+          engine_args:
+            gpu_memory_utilization: 0.1
+            task: classify
+            tensor_parallel_size: 1
+        model_id: e5_language_classifier
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/e5-language-classifier
+    name: E5LanguageClassifier
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /e5_language_classifier
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: e5_language_classifier
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: Llama3170bInstructAwq
+      deployment_configs:
+        LLMDeployment:
+          gpu_type_options_override:
+            A100:
+              autoscaling_config:
+                max_replicas: 2
+                min_replicas: 2
+              ray_actor_options:
+                num_gpus: 4
+            A10G:
+              autoscaling_config:
+                min_replicas: "0"
+              ray_actor_options:
+                num_gpus: 4
+            H100:
+              autoscaling_config:
+                max_replicas: 2
+                min_replicas: 1
+              ray_actor_options:
+                num_gpus: 1
+            L40S:
+              autoscaling_config:
+                max_replicas: "2"
+                min_replicas: "1"
+              ray_actor_options:
+                num_gpus: 2
+            T4:
+              ray_actor_options:
+                num_gpus: 8
+                runtime_env:
+                  pip:
+                    - triton==3.2.0
+          options:
+            autoscaling_config:
+              min_replicas: 1
+              target_ongoing_requests: 3
+            max_ongoing_requests: 4
+      deployment_type: text_gen_model_deployment
+      gpu_types: '["L40S"] '
+      model_definition:
+        gpu_type_model_config_override:
+          A100:
+            engine_args:
+              tensor_parallel_size: 4
+          A10G:
+            engine_args:
+              gpu_memory_utilization: 0.95
+              tensor_parallel_size: 4
+          H100:
+            engine_args:
+              gpu_memory_utilization: 0.95
+              tensor_parallel_size: 1
+          L40S:
+            engine_args:
+              gpu_memory_utilization: 0.95
+              tensor_parallel_size: 2
+          T4:
+            engine_args:
+              dtype: half
+              tensor_parallel_size: 8
+        model_id: llama31_70b_instruct_awq
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/llama31-70b-instruct-awq
+      tokenizer_definition:
+        model_id: llama31_70b_instruct_awq
+        model_loader:
+          object_storage:
+            artifacts_list:
+              - config.json
+              - tokenizer_config.json
+              - tokenizer.json
+            prefix: model_artifacts/llama31-70b-instruct-awq
+    name: Llama3170bInstructAwq
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /llama31_70b_instruct_awq
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: llama31_70b_instruct_awq
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+        VLLM_WORKER_MULTIPROC_METHOD: spawn
+  - args:
+      application_name: PromptInjectionCrossEncoder
+      deployment_configs:
+        ScoringModelDeployment:
+          gpu_type_options_override:
+            H100:
+              ray_actor_options:
+                num_gpus: 0.015
+            L40S:
+              ray_actor_options:
+                num_gpus: 0.025
+          options:
+            ray_actor_options:
+              num_gpus: 0.05
+      deployment_type: scoring_model_deployment
+      model_definition:
+        model_id: prompt_injection_cross_encoder
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/prompt-injection-cross-encoder-1114
+        model_type: sentence_transformer_cross_encoder
+    name: PromptInjectionCrossEncoder
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /prompt_injection_cross_encoder
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: prompt_injection_cross_encoder
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"
+  - args:
+      application_name: PromptInjectionClassifier
+      deployment_type: classification_model_deployment
+      model_definition:
+        custom_model_import_path: prompt_injection_classifier:PromptInjectionClassificationModel
+        model_id: prompt_injection_classifier
+        model_loader:
+          object_storage:
+            prefix: model_artifacts/prompt-injection-classifier-01052025
+        model_type: custom_model
+    name: PromptInjectionClassifier
+    import_path: splunkai_models_apps.main:create_serve_app
+    route_prefix: /prompt_injection_classifier
+    runtime_env:
+      env_vars:
+        API_VERSION: "v1"
+        APPLICATION_NAME: prompt_injection_classifier
+        ARTIFACTS_S3_BUCKET: "{{.ArtifactBucketName}}"
+        CLOUD_PROVIDER: "{{.CloudProvider}}"
+        ENABLE_AUTHN: "false"
+        ENABLE_AUTHZ: "false"
+        SERVICE_EXTERNAL_NAME: "ai-platform-models"
+        SERVICE_INTERNAL_NAME: "ai_platform_models"
+        SERVICE_NAME: "ai_platform_models"
+        SKIP_VERIFICATION: "true"
+        USE_SYSTEM_PERMISSIONS: "true"

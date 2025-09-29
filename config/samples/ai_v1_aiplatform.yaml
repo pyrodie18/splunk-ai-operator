@@ -1,0 +1,150 @@
+apiVersion: ai.splunk.com/v1
+kind: AIPlatform
+metadata:
+  name: splunk-ai-stack
+spec:
+
+  # // s3://ai-platform-dev-vivekr/artifacts
+  # // s3://ai-platform-dev-vivekr/applications
+  objectStorage:
+    path: s3://ai-platform-dev-vivekr
+    region: us-west-2
+  serviceAccountName: ray-head-sa
+
+  serviceTemplate:
+    spec:
+      type: ClusterIP
+  
+  features:
+    - name: saia
+      version: "1.1.0"
+      serviceAccountName: saia-service-account
+    - name: seca
+      version: "1.0.0"
+      serviceAccountName: saia-secure-account
+
+  # // storage allows to extend
+  storage:
+    vectorDB:
+      pvcName: weaviate-pvc             # Optional: if you want to use a pre-created PVC
+      size: 50Gi                        # Optional: used if pvcName is not provided
+      storageClassName: gp3             # Optional: used for dynamic PVC provisioning
+
+  #GpuInstanceType:  g6.12xlarge
+  workerGroupSpec:  
+    serviceAccountName: ray-worker-sa
+    imageRegistry: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-5
+    gpuConfigs:
+      - tier: g6.12xlarge-0-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 1
+        resources:
+          requests:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "16"
+            memory: "32Gi"
+            ephemeral-storage: "10Gi"
+            nvidia.com/gpu: "1"
+
+      - tier: g6.12xlarge-1-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "16"
+            memory: "16Gi"
+            ephemeral-storage: "50Gi"
+            nvidia.com/gpu: "2"
+
+      - tier: g6.12xlarge-2-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 2
+        resources:
+          requests:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "4"
+            memory: "32Gi"
+            ephemeral-storage: "100Gi"
+            nvidia.com/gpu: "2"
+
+      - tier: g6.12xlarge-4-gpu
+        minReplicas: 0
+        maxReplicas: 10
+        gpusPerPod: 4
+        resources:
+          requests:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
+          limits:
+            cpu: "8"
+            memory: "64Gi"
+            ephemeral-storage: "200Gi"
+            nvidia.com/gpu: "4"
+
+  cpuScheduler:
+    affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: node.kubernetes.io/instance-type
+                      operator: In
+                      values:
+                        - g6.12xlarge
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+  gpuScheduler:
+    tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+              - g6.12xlarge
+
+  ingress:
+    className: nginx
+    hosts:
+      - host: ai.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts:
+          - ai.example.com
+        secretName: ai-platform-tls
+
+  splunkConfiguration:
+    endpoint: splunk-standalone-standalone-service
+    secretRef:
+      name: splunk-standalone-standalone-secret-v1
+      namespace: test
+  certificateRef: saia-cert

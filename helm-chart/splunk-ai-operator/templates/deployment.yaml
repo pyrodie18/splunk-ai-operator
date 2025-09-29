@@ -1,0 +1,102 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "splunk-ai-operator.fullname" . }}-controller-manager
+  namespace: {{ include "splunk-ai-operator.namespace" . }}
+  labels:
+{{- include "splunk-ai-operator.labels" . | nindent 4 }}
+{{- if .Values.labels }}
+{{ toYaml .Values.labels | nindent 4 }}
+{{- end }}
+{{- if .Values.annotations }}
+  annotations:
+{{ toYaml .Values.annotations | nindent 4 }}
+{{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{- include "splunk-ai-operator.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+{{- with .Values.podAnnotations }}
+      annotations:
+{{- toYaml . | nindent 8 }}
+{{- end }}
+      labels:
+{{- include "splunk-ai-operator.selectorLabels" . | nindent 8 }}
+{{- if .Values.podLabels }}
+{{ toYaml .Values.podLabels | indent 8 }}
+{{- end }}
+    spec:
+      serviceAccountName: {{ include "splunk-ai-operator.serviceAccountName" . }}
+      securityContext:
+{{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+        - name: manager
+          image: {{ .Values.image.repository }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+          - --metrics-bind-address=:8443
+          - --leader-elect
+          - --health-probe-bind-address=:8081
+          command:
+          - /manager
+{{- with .Values.livenessProbe }}
+          livenessProbe:
+{{- toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.readinessProbe }}
+          readinessProbe:
+{{- toYaml . | nindent 12 }}
+{{- end }}
+          env:
+          - name: WATCH_NAMESPACE
+            value: {{ .Values.watchNamespace }}
+          - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
+            value: {{ .Values.splunkEnterpriseImage}}
+          - name: OPERATOR_NAME
+            value: splunk-ai-operator
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: RELATED_IMAGE_RAY_HEAD
+            value: {{ .Values.rayHeadImage }}
+          - name: RELATED_IMAGE_RAY_WORKER
+            value: {{ .Values.rayWorkerImage }}
+          - name: RELATED_IMAGE_WEAVIATE
+            value: {{ .Values.weaviateImage }}
+          - name: RELATED_IMAGE_SAIA_API
+            value: {{ .Values.saiaApiImage }}
+          - name: RELATED_IMAGE_POST_INSTALL_HOOK
+            value: {{ .Values.saiaSchemaImage }}
+          - name: MODEL_VERSION
+            value: v0.3.14-36-g1549f5a
+          - name: RAY_VERSION
+            value: 2.44.0
+          resources:
+{{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+{{- with .Values.volumeMounts }}
+          volumeMounts:
+{{- toYaml .| nindent 12 }}
+{{- end }}
+{{- with .Values.volumes }}
+      volumes:
+{{- toYaml .| nindent 8 }}
+{{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      tolerations:
+{{- toYaml .Values.tolerations | nindent 8 }}
