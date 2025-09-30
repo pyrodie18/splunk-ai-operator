@@ -1,0 +1,25 @@
+apiVersion: v1
+entries:
+  splunk-ai-operator:
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2025-09-30T13:14:58.315565118Z"
+    description: A Helm chart for deploying the Splunk AI Operator
+    digest: 8bba3cb29b37732ecbc261b75fb0883783b347e1ec8ffa122b9763f9449b9d49
+    home: https://github.com/splunk/splunk-ai-operator
+    icon: https://example.com/icon.png
+    keywords:
+    - splunk
+    - ai
+    - kuberay
+    maintainers:
+    - email: splunkai@cisco.com
+      name: Splunk AI Team
+    name: splunk-ai-operator
+    sources:
+    - https://github.com/splunk/splunk-ai-operator
+    type: application
+    urls:
+    - https://splunk.github.io/splunk-ai-operator/splunk-ai-operator-0.1.0.tgz
+    version: 0.1.0
+generated: "2025-09-30T13:14:58.312776182Z"
