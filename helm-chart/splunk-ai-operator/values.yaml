@@ -1,0 +1,99 @@
+# Metadata overrides:
+# Override the Splunk AI Operator helm chart name
+nameOverride: ""
+# Override the namespace for the Splunk AI Operator deployment
+namespaceOverride: ""
+
+# Add labels to Splunk AI Operator deployment
+labels: {}
+
+# Add annotations to Splunk AI Operator deployment
+annotations: {}
+
+# Add pod annotations to Splunk AI Operator deployment pod
+podAnnotations:
+  kubectl.kubernetes.io/default-container: manager
+
+# Add pod labels to Splunk AI Operator deployment pod
+podLabels: {}
+
+# List namespaces to be watched by Splunk AI Operator e.x "namespace1,namespace2", must have cluster-wide access
+# Default watches the entire cluster
+# TODO: should we have an extra clusterWideAccess flag? If so, all of the rbac templates need to be updated
+watchNamespace: ""
+# Splunk image
+splunkEnterpriseImage: "splunk/splunk:9.4.1"
+# Ray Head image
+rayHeadImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5"
+# Ray Worker image
+rayWorkerImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6"
+# Weaviate image
+weaviateImage: "semitechnologies/weaviate:stable-v1.28-007846a"
+# SAIA API image
+saiaApiImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-6"
+# SAIA Schema image
+saiaSchemaImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5"
+
+# Set security context for Splunk Operator pod
+# reference: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#podsecuritycontext-v1-core
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Splunk AI Operator image and pull policy
+# reference: https://github.com/splunk/splunk-ai-operator
+image:
+  repository: docker.io/splunk/splunk-ai-operator:0.1.0
+  pullPolicy: IfNotPresent
+
+# Define liveness probe to check if manager container is running
+# reference: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#types-of-probe
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# Define readiness probe to check if manager container is ready for requests
+# reference: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#types-of-probe
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Set resource requests and limits for manager container
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Specify volume mounts for the manager container, append additional volume mounts to list
+# reference: https://kubernetes.io/docs/tasks/configure-pod-container/configure-volume-storage/
+volumeMounts: []
+# - mountPath:
+#   name:
+
+# Specify volumes for Splunk AI Operator pod, append additional volumes to list
+# reference: https://kubernetes.io/docs/concepts/storage/volumes/
+volumes: []
+# - name:
+#   persistentVolumeClaim:
+#     claimName:
+
+# Set duration in seconds the pod needs to terminate gracefully
+# reference: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.20/#pod-v1-core
+terminationGracePeriodSeconds: 10
+
+# Set tolerations for Splunk AI Operator pod
+tolerations:
+  - effect: NoSchedule
+    key: dedicated
+    operator: Equal
+    value: cpu
