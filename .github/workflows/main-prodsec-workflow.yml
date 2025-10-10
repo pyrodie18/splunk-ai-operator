@@ -3,6 +3,16 @@ on:
   workflow_call:
 
 jobs:
+  semgrep:
+    name: Semgrep Scanner
+    runs-on: ubuntu-24.04
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_KEY }}
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v3
+      - run: semgrep ci
   FOSSA-scanner:
     runs-on: ubuntu-latest
     env:
@@ -18,4 +28,4 @@ jobs:
       - name: Run FOSSA Test
         uses: fossas/fossa-action@main
         with:
-          api-key: ${{secrets.FOSSA_API_TOKEN}}
+          api-key: ${{secrets.FOSSA_INTERNAL_KEY}}
