@@ -84,8 +84,6 @@ workerGroupSpec:
 sidecars:
   # Enables the Envoy sidecar
   envoy: true
-  # Enables the Fluent Bit sidecar
-  fluentBit: true
   # Enables the OpenTelemetry collector sidecar
   otel: true
   # Enables the Prometheus Operator sidecar

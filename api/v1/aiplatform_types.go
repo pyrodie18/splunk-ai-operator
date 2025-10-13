@@ -56,7 +56,7 @@ type AIPlatformSpec struct {
 	// RayService defines the Ray cluster configuration
 	//HeadGroupSpec *HeadGroupSpec `json:"headGroupSpec,omitempty"`
 	// WorkerGroupSpec defines the Ray worker group configuration
-	WorkerGroupSpec *WorkerGroupSpec `json:"workerGroupSpec,omitempty"`
+	WorkerGroupConfig *WorkerGroupConfig `json:"workerGroupConfig,omitempty"`
 	// Which sidecars to inject
 	Sidecars SidecarSpec `json:"sidecars,omitempty"`
 
@@ -126,6 +126,10 @@ type FeatureSpec struct {
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// Version of the feature, e.g. "1.0.0"
 	Version string `json:"version,omitempty"`
+	// ScaleFactor is the desired fixed number of replicas for the feature.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	ScaleFactor *int32 `json:"scaleFactor,omitempty"`
 }
 
 type WeaviateSpec struct {
@@ -149,13 +153,13 @@ type HeadGroupSpec struct {
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 }
 
-type WorkerGroupSpec struct {
+type WorkerGroupConfig struct {
 	// ServiceAccountName is the name of the service account to use for Ray worker groups
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// ImageRegistry is the image registry to use for Ray worker groups
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 	// GPUConfigs defines the GPU worker tiers
-	GPUConfigs []GPUConfig `json:"gpuConfigs,omitempty"`
+	// GPUConfigs []GPUConfig `json:"gpuConfigs,omitempty"`
 	//SchedulingSpec     `json:",inline"` // inlines NodeSelector, Tolerations, Affinity
 }
 
@@ -208,8 +212,6 @@ type MachineClass struct {
 type SidecarSpec struct {
 	// +kubebuilder:default=true
 	Envoy bool `json:"envoy,omitempty"`
-	// +kubebuilder:default=true
-	FluentBit bool `json:"fluentBit,omitempty"`
 	// +kubebuilder:default=true
 	Otel bool `json:"otel,omitempty"`
 	// +kubebuilder:default=true

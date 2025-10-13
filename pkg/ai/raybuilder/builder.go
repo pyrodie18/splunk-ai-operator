@@ -6,10 +6,10 @@ package raybuilder
 import (
 	"bytes"
 	"context"
-	"embed"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -18,8 +18,9 @@ import (
 	enterpriseApi "github.com/splunk/splunk-ai-operator/api/v1"
 	"github.com/splunk/splunk-ai-operator/internal/telemetry"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/raybuilder/raystatus"
-	"github.com/splunk/splunk-ai-operator/pkg/ai/sidecars"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,14 +31,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	//"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	k8syaml "sigs.k8s.io/yaml"
 )
-
-//go:embed applications.yaml
-var embeddedApplicationsYAML embed.FS
 
 // Builder encapsulates RayService generation logic.
 type Builder struct {
@@ -48,8 +44,23 @@ type Builder struct {
 }
 
 type ApplicationParams struct {
-	ArtifactBucketName string `yaml:"ARTIFACTS_S3_BUCKET"`
-	CloudProvider      string `yaml:"CLOUD_PROVIDER"`
+	ArtifactBucketName string           `yaml:"ARTIFACTS_S3_BUCKET"`
+	CloudProvider      string           `yaml:"CLOUD_PROVIDER"`
+	Replicas           map[string]int32 `yaml:"REPLICAS"`
+}
+
+type WorkerConfigs map[string][]InstanceDetail
+
+type InstanceDetail struct {
+	Tier       string                      `yaml:"tier"`
+	GPUsPerPod int32                       `yaml:"gpusPerPod"`
+	Env        map[string]string           `yaml:"env,omitempty"`
+	Resources  corev1.ResourceRequirements `yaml:"resources"`
+}
+
+type FeatureConfig struct {
+	ApplicationScale map[string]int32            `yaml:"applicationScale"`
+	InstanceScale    map[string]map[string]int32 `yaml:"instanceScale"`
 }
 
 // New returns a new Builder for the given AIPlatform instance.
@@ -65,7 +76,11 @@ func New(ai *enterpriseApi.AIPlatform, client client.Client, scheme *runtime.Sch
 // --- 7️⃣ ReconcileRayService: build & create/update the RayService CR ---
 func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPlatform) error {
 	logger := log.FromContext(ctx) // Define logger
-	rs := b.Build()
+	rs, err := b.Build(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to build RayService")
+		return err
+	}
 
 	// Load applications.yaml and parameterize ARTIFACTS_S3_BUCKET
 	u, err := url.Parse(p.Spec.ObjectStorage.Path)
@@ -85,13 +100,49 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 		cloudProvider = "azure" // TODO: FIX THIS, need to support minio
 	}
 
+	// Initialize the replicas map by iterating through features
+	replicasMap := make(map[string]int32)
+
+	for _, feature := range p.Spec.Features {
+		// Read YAML file for this feature
+		fileName := filepath.Join("features", feature.Name+".yaml")
+		yamlData, err := os.ReadFile(fileName)
+		if err != nil {
+			logger.Error(err, "Failed to read feature YAML file", "feature", feature.Name, "file", fileName)
+			continue
+		}
+
+		// Parse the YAML content into a map
+		var featureConfig FeatureConfig
+		err = yaml.UnmarshalStrict(yamlData, &featureConfig)
+		if err != nil {
+			logger.Error(err, "Failed to parse feature YAML", "feature", feature.Name, "file", fileName)
+			continue
+		}
+
+		// Calculate replicas multiplier from feature.Replicas (nil means auto => 1)
+		var multiplier int32 = 1
+		if feature.ScaleFactor != nil {
+			// Validation guarantees value >= 1
+			multiplier = *feature.ScaleFactor
+		}
+		logger.Info("test:", "yamlData", string(yamlData))
+
+		// Generate map from product of values and feature's Replicas setting
+		for appName, baseReplicas := range featureConfig.ApplicationScale {
+			logger.Info("test:", "appName", appName, "replicas", baseReplicas*multiplier)
+			replicasMap[appName] = baseReplicas * multiplier
+		}
+	}
+
 	param := ApplicationParams{
 		ArtifactBucketName: u.Host,
 		CloudProvider:      cloudProvider,
+		Replicas:           replicasMap,
 	}
 
 	// Use embedded applications.yaml content
-	templateData, err := embeddedApplicationsYAML.ReadFile("applications.yaml")
+	templateData, err := os.ReadFile("applications.yaml")
 	if err != nil {
 		logger.Error(err, "Failed to read embedded applications.yaml")
 		return err
@@ -310,7 +361,11 @@ func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseAp
 }
 
 // Build constructs a RayService resource based on the AI CR.
-func (b *Builder) Build() *rayv1.RayService {
+func (b *Builder) Build(ctx context.Context) (*rayv1.RayService, error) {
+	rayclusterSpec, err := b.buildClusterConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build cluster config: %w", err)
+	}
 	rs := &rayv1.RayService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        b.ai.Name,
@@ -319,13 +374,13 @@ func (b *Builder) Build() *rayv1.RayService {
 			Labels:      b.ai.Labels,
 		},
 		Spec: rayv1.RayServiceSpec{
-			RayClusterSpec: b.buildClusterConfig(),
+			RayClusterSpec: *rayclusterSpec,
 		},
 	}
-	return rs
+	return rs, nil
 }
 
-func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
+func (b *Builder) buildClusterConfig(ctx context.Context) (*rayv1.RayClusterSpec, error) {
 	annotations, labels := buildHeadAnnotationsAndLabels(b.ai)
 	head := rayv1.HeadGroupSpec{
 		RayStartParams: map[string]string{
@@ -346,14 +401,53 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 	head.Template.ObjectMeta.Annotations = annotations
 	head.Template.ObjectMeta.Labels = labels
 
+	instanceYamlFile, err := os.ReadFile("instance.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("error reading YAML file: %v", err)
+	}
+
+	var instanceMap WorkerConfigs
+	// must use sigs.k8s.io/yaml , stdlib yaml doesn't understand corev1
+	if err := k8syaml.UnmarshalStrict(instanceYamlFile, &instanceMap); err != nil {
+		return nil, fmt.Errorf("error reading YAML file: %v", err)
+	}
+
+	// initialize instanceScale to avoid nil map assignment panic
+	instanceScale := make(map[string]int32)
+	for _, feature := range b.ai.Spec.Features {
+		// Read YAML file for this feature
+		fileName := filepath.Join("features", feature.Name+".yaml")
+		yamlData, err := os.ReadFile(fileName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read feature YAML file %s: %v", feature.Name, err)
+
+		}
+		var featureConfig FeatureConfig
+		err = yaml.UnmarshalStrict(yamlData, &featureConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse feature YAML file %s: %v", fileName, err)
+		}
+		for k, val := range featureConfig.InstanceScale[b.ai.Spec.DefaultAcceleratorType] {
+			old_val, ok := instanceScale[k]
+			if ok {
+				instanceScale[k] = old_val + val
+			} else {
+				instanceScale[k] = val
+			}
+		}
+	}
+
 	var workers []rayv1.WorkerGroupSpec
-	for _, cfg := range b.ai.Spec.WorkerGroupSpec.GPUConfigs {
+	var gpuConfigs = instanceMap[b.ai.Spec.DefaultAcceleratorType]
+	for _, cfg := range gpuConfigs {
 		annotations, labels := buildWorkerAnnotationsAndLabels(b.ai, cfg)
+
+		cpuLimit := cfg.Resources.Limits[corev1.ResourceCPU]
 		wg := rayv1.WorkerGroupSpec{
-			GroupName:   cfg.Tier,
-			MinReplicas: &cfg.MinReplicas,
-			MaxReplicas: &cfg.MaxReplicas,
+			GroupName: cfg.Tier,
+			Replicas:  int32Ptr(instanceScale[cfg.Tier]),
 			RayStartParams: map[string]string{
+				"num-cpus":  cpuLimit.String(),
 				"resources": fmt.Sprintf(`"{\"accelerator_type:%s\":1,\"gpu_count:%d\":1}"`, b.ai.Spec.DefaultAcceleratorType, cfg.GPUsPerPod),
 			},
 			Template: corev1.PodTemplateSpec{
@@ -367,19 +461,20 @@ func (b *Builder) buildClusterConfig() rayv1.RayClusterSpec {
 		workers = append(workers, wg)
 	}
 
-	return rayv1.RayClusterSpec{
+	return &rayv1.RayClusterSpec{
 		RayVersion:              os.Getenv("RAY_VERSION"),
 		EnableInTreeAutoscaling: boolPtr(true),
 		HeadGroupSpec:           head,
 		WorkerGroupSpecs:        workers,
-	}
+	}, nil
 }
 
 func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{{
-			Name:  "ray-head",
-			Image: SetImageRegistry("RELATED_IMAGE_RAY_HEAD", b.ai.Spec.Images.RayHeadGroupImage),
+			Name:            "ray-head",
+			Image:           SetImageRegistry("RELATED_IMAGE_RAY_HEAD", b.ai.Spec.Images.RayHeadGroupImage),
+			ImagePullPolicy: corev1.PullAlways,
 			Args: []string{
 				"ulimit -n 65536; echo head; $KUBERAY_GEN_RAY_START_CMD",
 			},
@@ -453,12 +548,38 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
 	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
 	// FIXME need to find better way to add sidecars
-	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
-	sidecars.AddFluentBitSidecar(&spec)
 	return corev1.PodTemplateSpec{Spec: spec}
 }
 
-func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemplateSpec {
+func (b *Builder) makeWorkerTemplate(cfg InstanceDetail) corev1.PodTemplateSpec {
+	defaultEnv := []corev1.EnvVar{
+		{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
+		{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
+		{Name: "SERVICE_NAME", Value: b.ai.Name},
+		{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
+		{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
+		{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
+		{Name: "GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},                       // FIXME
+	}
+
+	// Combine defaultEnv with cfg.Env to create combinedEnv
+	combinedEnv := make([]corev1.EnvVar, len(defaultEnv))
+	copy(combinedEnv, defaultEnv)
+
+	// Add cfg.Env entries, cfg.Env values override defaultEnv if same key exists
+	for key, value := range cfg.Env {
+		found := false
+		for i, envVar := range combinedEnv {
+			if envVar.Name == key {
+				combinedEnv[i].Value = value
+				found = true
+				break
+			}
+		}
+		if !found {
+			combinedEnv = append(combinedEnv, corev1.EnvVar{Name: key, Value: value})
+		}
+	}
 	rayCommand := fmt.Sprintf(`echo %s worker;
         ulimit -n 65536;
     	export PATH="/home/ray/anaconda3/bin:$PATH";
@@ -468,10 +589,10 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 		Affinity:           b.ai.Spec.GPUSchedulingSpec.Affinity,
 		Tolerations:        b.ai.Spec.GPUSchedulingSpec.Tolerations,
 		NodeSelector:       b.ai.Spec.GPUSchedulingSpec.NodeSelector,
-		ServiceAccountName: b.ai.Spec.WorkerGroupSpec.ServiceAccountName,
+		ServiceAccountName: b.ai.Spec.WorkerGroupConfig.ServiceAccountName,
 		Containers: []corev1.Container{{
 			Name:            "ray-worker",
-			Image:           SetImageRegistry("RELATED_IMAGE_RAY_WORKER", b.ai.Spec.WorkerGroupSpec.ImageRegistry),
+			Image:           SetImageRegistry("RELATED_IMAGE_RAY_WORKER", b.ai.Spec.WorkerGroupConfig.ImageRegistry),
 			ImagePullPolicy: corev1.PullAlways,
 			Command: []string{
 				"/bin/bash",
@@ -481,15 +602,7 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 			Args: []string{
 				rayCommand,
 			},
-			Env: []corev1.EnvVar{
-				{Name: "DEFAULT_GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},
-				{Name: "RAY_HEAD_SERVICE_HOST", Value: fmt.Sprintf("%s.%s.svc.%s", b.ai.Name+"-head-svc", b.ai.Namespace, os.Getenv("CLUSTER_DOMAIN"))},
-				{Name: "SERVICE_NAME", Value: b.ai.Name},
-				{Name: "SERVICE_INTERNAL_NAME", Value: b.ai.Name},
-				{Name: "USE_SYSTEM_PERMISSIONS", Value: "true"},
-				{Name: "GPG_PUBLICKEY_PATH", Value: "kv-splunk/al-platform.ray-worker-sa/gpgkey"}, // FIXME
-				{Name: "GPU_TYPE", Value: b.ai.Spec.DefaultAcceleratorType},                       // FIXME
-			},
+			Env: combinedEnv,
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
 					Exec: &corev1.ExecAction{
@@ -540,9 +653,6 @@ func (b *Builder) makeWorkerTemplate(cfg enterpriseApi.GPUConfig) corev1.PodTemp
 			},
 		})
 	}
-	// FIXME need to find better way to add sidecars
-	sidecars := sidecars.New(b.Client, b.Scheme, b.Recorder, b.ai)
-	sidecars.AddFluentBitSidecar(&spec)
 
 	return corev1.PodTemplateSpec{Spec: spec}
 }
@@ -554,7 +664,7 @@ func SetImageRegistry(key, defaultValue string) string {
 	return defaultValue
 }
 
-func buildWorkerAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform, cfg enterpriseApi.GPUConfig) (map[string]string, map[string]string) {
+func buildWorkerAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform, cfg InstanceDetail) (map[string]string, map[string]string) {
 	annotations := make(map[string]string)
 	labels := make(map[string]string)
 
@@ -626,6 +736,10 @@ func buildHeadAnnotationsAndLabels(aiPlatform *enterpriseApi.AIPlatform) (map[st
 // boolPtr returns a pointer to the given boolean value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func int32Ptr(i int32) *int32 {
+	return &i
 }
 
 func keysOf(m map[string]string) []string {

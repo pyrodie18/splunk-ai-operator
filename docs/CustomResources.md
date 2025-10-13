@@ -87,7 +87,6 @@ spec:
           cpu: "24"  
   sidecars:
     envoy: true
-    fluentBit: true
     otel: true
     prometheusOperator: true
   certificateRef: "platform-issuer"
