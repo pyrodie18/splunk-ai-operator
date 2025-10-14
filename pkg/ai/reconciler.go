@@ -189,6 +189,8 @@ func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform *
 func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiApi.AIPlatform, feature aiApi.FeatureSpec, name string) *aiApi.AIService {
 	vectorDbUrl := platform.Status.VectorDbServiceName
 
+	taskObjectStorage := platform.Spec.ObjectStorage
+	taskObjectStorage.Path = fmt.Sprintf("%s/%s", feature.Name, "tasks") // FIXME TODO Validate if task exist
 	return &aiApi.AIService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -208,7 +210,7 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 				Namespace:  platform.Namespace,
 			},
 			ServiceAccountName:  feature.ServiceAccountName,
-			TaskVolume:          platform.Spec.ObjectStorage, // FIXME
+			TaskVolume:          taskObjectStorage,
 			SplunkConfiguration: platform.Spec.SplunkConfiguration,
 			VectorDbUrl:         vectorDbUrl,
 			Replicas:            1,

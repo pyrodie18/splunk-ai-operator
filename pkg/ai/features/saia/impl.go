@@ -479,8 +479,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
 		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
 		//{Name: "SAIA_STORAGE", Value: "local"}, //FIXME TODO
-		{Name: "S3_BUCKET", Value: "ai-platform-bucket-us-east-1"}, // FIXME, TODO
-		//{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // FIXME , TODO
+		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // FIXME , TODO
 	}
 
 	// mTLS handling (dynamic)
@@ -765,7 +764,7 @@ func (r *SaiaReconciler) AddFluentBitSidecar(podSpec *corev1.PodSpec, ai *aiv1.A
 	if !found {
 		podSpec.Containers = append(podSpec.Containers, corev1.Container{
 			Name:  "fluentbit",
-			Image: "fluent/fluent-bit:1.9.6",
+			Image:  os.Getenv("RELATED_IMAGE_FLUENT_BIT"),  // "fluent/fluent-bit:1.9.6"
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("100m"),
