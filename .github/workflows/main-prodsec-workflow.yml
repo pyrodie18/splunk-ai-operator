@@ -13,6 +13,3 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: semgrep ci
-  fossa-scan:
-    uses: splunk/oss-scanning/.github/workflows/oss-scan.yml@main
-    secrets: inherit
