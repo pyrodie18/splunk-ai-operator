@@ -13,14 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: semgrep ci
-  FOSSA-scanner:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Dotenv Action
-        id: dotenv
-        uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
-      - name: Run FOSSA Test
-        uses: fossas/fossa-action@main
-        with:
-          api-key: ${{secrets.FOSSA_INTERNAL_KEY}}
+  fossa-scan:
+    uses: splunk/oss-scanning/.github/workflows/oss-scan.yml@main
+    secrets: inherit
