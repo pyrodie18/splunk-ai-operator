@@ -5385,11 +5385,13 @@ spec:
           value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-10
         - name: RELATED_IMAGE_POST_INSTALL_HOOK
           value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10
+        - name: RELATED_IMAGE_FLUENT_BIT
+          value: fluent/fluent-bit:1.9.6
         - name: MODEL_VERSION
           value: v0.3.14-36-g1549f5a
         - name: RAY_VERSION
           value: 2.44.0
-        image: vivekrsplunk/splunk-ai-operator:ai-31
+        image: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/splunk/splunk-ai-operator:21Oct2025
         livenessProbe:
           httpGet:
             path: /healthz

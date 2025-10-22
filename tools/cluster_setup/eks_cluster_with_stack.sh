@@ -1416,7 +1416,7 @@ reconcile_flow() {
   install_splunk_ai_operator
   install_ai_platform_stack
   wait_splunk_ai_assistant_installed "Splunk_AI_Assistant_Cloud.tgz" 1200
-  push_saia_conf_into_pod
+  # push_saia_conf_into_pod
 }
 
 # ---------- MAIN ----------
