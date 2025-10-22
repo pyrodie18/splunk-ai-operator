@@ -31,9 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	//"sigs.k8s.io/controller-runtime/pkg/handler"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -179,16 +179,16 @@ func (r *AIPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&aiv1.AIPlatform{}).
 		// AIPlatform owns its AIService children
 		Owns(&aiv1.AIService{}).
-		// Infra owned by AIPlatform itself
-		// Ray resources
-		Owns(&rayv1.RayService{}).
-		Owns(&rayv1.RayCluster{}).
+		// Infra owned by AIPlatform itself - with specific predicates
+		// Ray resources - only reconcile on generation changes
+		Owns(&rayv1.RayService{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&rayv1.RayCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Weaviate pieces - whatever we create at the platform level
-		Owns(&appsv1.StatefulSet{}). // if platform creates Weaviate as a StatefulSet
-		Owns(&appsv1.Deployment{}).  // or a Deployment, if that’s how we run it
+		Owns(&appsv1.StatefulSet{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})). // if platform creates Weaviate as a StatefulSet
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(common.DeploymentChangedPredicate())).    // or a Deployment, if that's how we run it
 		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(common.ConfigMapChangedPredicate())).
+		Owns(&corev1.Secret{}, builder.WithPredicates(common.SecretChangedPredicate())).
 		// Keep platform predicates light and scoped to the primary resource
 		WithEventFilter(predicate.Or(
 			common.GenerationChangedPredicate(),

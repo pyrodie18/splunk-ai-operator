@@ -13,6 +13,7 @@ import (
 )
 
 func NewMinioClient(
+	ctx context.Context,
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
 	vs ai.ObjectStorageSpec,
@@ -24,7 +25,7 @@ func NewMinioClient(
 	}
 	if vs.SecretRef != "" {
 		secret := &corev1.Secret{}
-		if err := k8sClient.Get(context.TODO(),
+		if err := k8sClient.Get(ctx,
 			client.ObjectKey{Namespace: namespace, Name: vs.SecretRef},
 			secret,
 		); err != nil {

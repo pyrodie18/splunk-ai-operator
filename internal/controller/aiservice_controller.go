@@ -21,10 +21,16 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -35,6 +41,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	aiv1 "github.com/splunk/splunk-ai-operator/api/v1"
+	"github.com/splunk/splunk-ai-operator/internal/controller/common"
 	telemetry "github.com/splunk/splunk-ai-operator/internal/telemetry"
 	"github.com/splunk/splunk-ai-operator/pkg/ai/features"
 	"github.com/splunk/splunk-ai-operator/pkg/config"
@@ -200,11 +207,32 @@ func (r *AIServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&aiv1.AIService{}).
 		Named("aiservice").
 		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
 		Owns(&certmanagerv1.Certificate{}).
 		Owns(&batchv1.Job{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
+		// Watch referenced AIPlatform (not owned by AIService)
+		Watches(
+			&aiv1.AIPlatform{},
+			handler.EnqueueRequestsFromMapFunc(r.findAIServicesForPlatform),
+			builder.WithPredicates(predicate.Or(
+				common.GenerationChangedPredicate(),
+				common.AnnotationChangedPredicate(),
+			)),
+		).
+		// Add predicates to filter events and avoid unnecessary reconciliations
+		WithEventFilter(predicate.Or(
+			common.GenerationChangedPredicate(),
+			common.AnnotationChangedPredicate(),
+			common.LabelChangedPredicate(),
+		)).
+		// Configure concurrency control
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: aiv1.TotalWorker,
+		}).
 		Complete(r)
 }
 
@@ -241,6 +269,36 @@ func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AISer
 	}
 	telemetry.IncAPIRequest(ctx, "status", "k8s_status_update", "ok")
 	return nil
+}
+
+// findAIServicesForPlatform maps an AIPlatform resource to AIServices that reference it
+func (r *AIServiceReconciler) findAIServicesForPlatform(ctx context.Context, platform client.Object) []reconcile.Request {
+	log := logf.FromContext(ctx)
+
+	var services aiv1.AIServiceList
+	if err := r.List(ctx, &services, client.InNamespace(platform.GetNamespace())); err != nil {
+		log.Error(err, "failed to list AIServices for AIPlatform", "platform", platform.GetName())
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, svc := range services.Items {
+		// Check if this service references the platform
+		if svc.Spec.AIPlatformRef.Name == platform.GetName() &&
+			(svc.Spec.AIPlatformRef.Namespace == platform.GetNamespace() || svc.Spec.AIPlatformRef.Namespace == "") {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+				},
+			})
+			log.V(1).Info("queueing AIService for reconciliation due to AIPlatform change",
+				"service", svc.Name,
+				"platform", platform.GetName())
+		}
+	}
+
+	return requests
 }
 
 func containsString(slice []string, s string) bool {
