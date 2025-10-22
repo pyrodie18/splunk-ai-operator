@@ -1024,6 +1024,14 @@ spec:
                     - saia
                     - seca
                     type: string
+                  scaleFactor:
+                    description: |-
+                      ScaleFactor is the desired fixed number of replicas for the feature.
+                      This field is optional: when omitted (nil) the operator will treat it as an "auto" mode
+                      and decide the effective scale at runtime based on internal logic.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   serviceAccountName:
                     description: ServiceAccountName is the name of the service account
                       to use for the feature

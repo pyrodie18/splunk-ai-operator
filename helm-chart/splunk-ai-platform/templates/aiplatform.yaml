@@ -108,7 +108,6 @@ spec:
 {{- end }}
   sidecars:
     envoy: {{ .Values.sidecars.envoy }}
-    fluentBit: {{ .Values.sidecars.fluentBit }}
     otel: {{ .Values.sidecars.otel }}
     prometheusOperator: {{ .Values.sidecars.prometheusOperator }}
   certificateRef: {{ .Values.certificateRef | quote }}

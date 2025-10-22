@@ -2664,9 +2664,6 @@ spec:
                   envoy:
                     default: true
                     type: boolean
-                  fluentBit:
-                    default: true
-                    type: boolean
                   otel:
                     default: true
                     type: boolean
