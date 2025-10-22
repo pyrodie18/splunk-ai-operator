@@ -120,8 +120,13 @@ func (r *SaiaReconciler) validateAIService(
 			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "fetching AIPlatform failed")
 			return fmt.Errorf("fetching AIPlatform: %w", err)
 		}
-		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
-		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local")   // FIXME domain name
+		// Use ClusterDomain from spec, defaulting to "cluster.local" if not set
+		clusterDomain := ai.Spec.ClusterDomain
+		if clusterDomain == "" {
+			clusterDomain = "cluster.local"
+		}
+		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, clusterDomain)
+		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, clusterDomain)
 	}
 	if ai.Spec.AIPlatformRef.Name == "" && ai.Spec.AIPlatformUrl == "" {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")
@@ -220,8 +225,7 @@ func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform
 
 	// Check RayService endpoint is reachable
 	if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
-		//return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err) FIXME
-		return nil
+		return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err)
 	}
 
 	return nil
@@ -241,8 +245,7 @@ func (r *SaiaReconciler) validateVectorDatabaseReady(ctx context.Context, aiPlat
 
 	// Check if VectorDB service endpoint is accessible
 	if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
-		//return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
-		return nil
+		return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
 	}
 
 	return nil
@@ -764,7 +767,7 @@ func (r *SaiaReconciler) AddFluentBitSidecar(podSpec *corev1.PodSpec, ai *aiv1.A
 	if !found {
 		podSpec.Containers = append(podSpec.Containers, corev1.Container{
 			Name:  "fluentbit",
-			Image:  os.Getenv("RELATED_IMAGE_FLUENT_BIT"),  // "fluent/fluent-bit:1.9.6"
+			Image: os.Getenv("RELATED_IMAGE_FLUENT_BIT"), // "fluent/fluent-bit:1.9.6"
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("100m"),

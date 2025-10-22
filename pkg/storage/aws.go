@@ -31,6 +31,7 @@ type s3Client struct {
 }
 
 func NewS3Client(
+	ctx context.Context,
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
 	vs ai.ObjectStorageSpec,
@@ -76,7 +77,7 @@ func NewS3Client(
 	// Load static credentials if SecretRef is set
 	if vs.SecretRef != "" {
 		secret := &corev1.Secret{}
-		if err := k8sClient.Get(context.TODO(),
+		if err := k8sClient.Get(ctx,
 			client.ObjectKey{Namespace: namespace, Name: vs.SecretRef},
 			secret,
 		); err != nil {

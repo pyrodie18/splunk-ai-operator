@@ -24,6 +24,7 @@ type gcsClient struct {
 }
 
 func NewGCSClient(
+	ctx context.Context,
 	k8sClient client.Client,
 	namespace, bucket, prefix string,
 	vs ai.ObjectStorageSpec,
@@ -32,7 +33,7 @@ func NewGCSClient(
 
 	if vs.SecretRef != "" {
 		secret := &corev1.Secret{}
-		if err := k8sClient.Get(context.TODO(),
+		if err := k8sClient.Get(ctx,
 			client.ObjectKey{Namespace: namespace, Name: vs.SecretRef},
 			secret,
 		); err != nil {
@@ -46,7 +47,7 @@ func NewGCSClient(
 		opts = append(opts, option.WithCredentialsJSON(keyJSON))
 	}
 
-	cli, err := storage.NewClient(context.Background(), opts...)
+	cli, err := storage.NewClient(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("new GCS client: %w", err)
 	}

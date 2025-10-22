@@ -123,7 +123,7 @@ func TestNewStorageClient(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := tt.setupClient().Build()
 
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -171,7 +171,7 @@ func TestStorageClient_BuildArtifactURI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 			require.NoError(t, err)
 			require.NotNil(t, client)
 
@@ -218,7 +218,7 @@ func TestStorageClient_GetPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 			require.NoError(t, err)
 
 			prefix := client.GetPrefix()
@@ -266,7 +266,7 @@ func TestStorageClient_ListObjects(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 			require.NoError(t, err)
 
 			objects, err := client.ListObjects(ctx)
@@ -289,7 +289,7 @@ func TestStorageClient_Exists(t *testing.T) {
 
 	fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
-	client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+	client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 		Path: "fixture://test-bucket/prefix",
 	})
 	require.NoError(t, err)
@@ -328,7 +328,7 @@ func TestStorageClient_WithSecrets(t *testing.T) {
 		SecretRef: "storage-secret",
 	}
 
-	client, err := NewStorageClient(fakeClient, "default", volumeSpec)
+	client, err := NewStorageClient(context.Background(), fakeClient, "default", volumeSpec)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 
@@ -367,7 +367,7 @@ func TestStorageClient_BuildLoaderBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 			require.NoError(t, err)
 
 			block := client.BuildLoaderBlock(tt.uri)
@@ -409,7 +409,7 @@ func TestStorageClient_BuildWorkingDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewStorageClient(fakeClient, "default", tt.volumeSpec)
+			client, err := NewStorageClient(context.Background(), fakeClient, "default", tt.volumeSpec)
 			require.NoError(t, err)
 
 			dir := client.BuildWorkingDir(tt.modelName)
@@ -426,7 +426,7 @@ func TestFixtureClient_Methods(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
 	t.Run("fixture BuildArtifactURI", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path: "fixture://test-bucket/artifacts",
 		})
 		require.NoError(t, err)
@@ -437,7 +437,7 @@ func TestFixtureClient_Methods(t *testing.T) {
 	})
 
 	t.Run("fixture GetPrefix", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path: "fixture://test-bucket/my/prefix",
 		})
 		require.NoError(t, err)
@@ -447,7 +447,7 @@ func TestFixtureClient_Methods(t *testing.T) {
 	})
 
 	t.Run("fixture GetPrefix empty", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path: "fixture://test-bucket/",
 		})
 		require.NoError(t, err)
@@ -457,7 +457,7 @@ func TestFixtureClient_Methods(t *testing.T) {
 	})
 
 	t.Run("fixture BuildLoaderBlock", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path: "fixture://test-bucket/models",
 		})
 		require.NoError(t, err)
@@ -477,7 +477,7 @@ func TestMinioClient_Methods(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 
 	t.Run("minio client creation", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path:     "minio://test-bucket/artifacts",
 			Endpoint: "http://minio.default.svc:9000",
 		})
@@ -490,7 +490,7 @@ func TestMinioClient_Methods(t *testing.T) {
 	})
 
 	t.Run("minio BuildArtifactURI", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path:     "minio://test-bucket/artifacts",
 			Endpoint: "http://minio.default.svc:9000",
 		})
@@ -502,7 +502,7 @@ func TestMinioClient_Methods(t *testing.T) {
 	})
 
 	t.Run("minio GetPrefix", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path:     "minio://test-bucket/my/prefix",
 			Endpoint: "http://minio.default.svc:9000",
 		})
@@ -513,7 +513,7 @@ func TestMinioClient_Methods(t *testing.T) {
 	})
 
 	t.Run("minio BuildWorkingDir", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path:     "minio://test-bucket/apps",
 			Endpoint: "http://minio.default.svc:9000",
 		})
@@ -525,7 +525,7 @@ func TestMinioClient_Methods(t *testing.T) {
 	})
 
 	t.Run("minio BuildLoaderBlock", func(t *testing.T) {
-		client, err := NewStorageClient(fakeClient, "default", ai.ObjectStorageSpec{
+		client, err := NewStorageClient(context.Background(), fakeClient, "default", ai.ObjectStorageSpec{
 			Path:     "minio://test-bucket/models",
 			Endpoint: "http://minio.default.svc:9000",
 		})
