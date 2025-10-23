@@ -56,7 +56,6 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 		{"Validate", r.validateAIService},
 		{"ServiceAccount", r.reconcileServiceAccount},
 		{"SAIAConfigMap", r.reconcileSAIAConfigMap},
-		{"FluentBitConfig", r.reconcileFluentBitConfig},
 		{"Certificate", r.reconcileCertificate},
 		{"PostInstallHook", r.reconcilePostInstallHook},
 		{"SAIADeployment", r.reconcileSAIADeployment},
@@ -594,9 +593,6 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		deployment.ObjectMeta.Annotations[k] = v
 	}
 
-	// Add logging sidecar
-	r.AddFluentBitSidecar(&deployment.Spec.Template.Spec, ai)
-
 	if err := controllerutil.SetControllerReference(ai, deployment, r.Scheme); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Deployment failed")
 		return fmt.Errorf("ownerref on Deployment: %w", err)
@@ -701,117 +697,6 @@ func (r *SaiaReconciler) reconcileServiceMonitor(
 	return err
 }
 
-// reconcileFluentBitConfig ensures the FluentBit sidecar ConfigMap exists and is up-to-date // remove me
-func (r *SaiaReconciler) reconcileFluentBitConfig(ctx context.Context, p *aiv1.AIService) error {
-	// Retrieve the secret reference from SplunkConfiguration
-	secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{
-		Name:      p.Spec.SplunkConfiguration.SecretRef.Name,
-		Namespace: p.Namespace,
-	}
-	if err := r.Get(ctx, secretKey, secret); err != nil {
-		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("failed to retrieve secret %q: %v", secretKey.Name, err))
-		// Log the error and return a formatted error
-		return fmt.Errorf("failed to retrieve secret %q: %w", secretKey.Name, err)
-	}
-
-	// Extract the HEC token from the secret
-	hecToken, exists := secret.Data["hec_token"]
-	if !exists {
-		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("hec_token not found in secret %q", secretKey.Name))
-		return fmt.Errorf("hec_token not found in secret %q", secretKey.Name)
-	}
-
-	// Retrieve the endpoint from SplunkConfiguration
-	endpoint := p.Spec.SplunkConfiguration.Endpoint
-	if endpoint == "" {
-		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", "endpoint is not specified in SplunkConfiguration")
-		return fmt.Errorf("endpoint is not specified in SplunkConfiguration")
-	}
-
-	fluentbitConfig := fmt.Sprintf(renderFluentBitConf(), endpoint, string(hecToken))
-	// Update FluentBit configuration with the retrieved values
-	data := map[string]string{
-		"fluent-bit.conf": fluentbitConfig,
-		"parser.conf":     renderParserConf(),
-	}
-
-	cmName := fmt.Sprintf("%s-fluentbit-config", p.Name)
-	err := r.createOrUpdateConfigMap(ctx, cmName, data, p)
-	if err != nil {
-		return err
-	}
-
-	// Validate the ConfigMap before returning
-	found := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: p.Namespace}, found)
-	if err != nil {
-		r.Recorder.Event(p, corev1.EventTypeWarning, "InvalidSpec", fmt.Sprintf("failed to retrieve ConfigMap %q: %v", cmName, err))
-		return fmt.Errorf("failed to validate ConfigMap %q: %w", cmName, err)
-	}
-	return nil
-}
-
-func (r *SaiaReconciler) AddFluentBitSidecar(podSpec *corev1.PodSpec, ai *aiv1.AIService) {
-	// Add FluentBit sidecar if enabled and not already present
-
-	found := false
-	for _, container := range podSpec.Containers {
-		if container.Name == "fluentbit" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		podSpec.Containers = append(podSpec.Containers, corev1.Container{
-			Name:  "fluentbit",
-			Image: "fluent/fluent-bit:1.9.6",
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("128Mi"),
-				},
-				Limits: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("128Mi"),
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					MountPath: "/fluent-bit/etc/parser.conf",
-					SubPath:   "parser.conf",
-					Name:      "fluentbit-config",
-				},
-				{
-					MountPath: "/fluent-bit/etc/fluent-bit.conf",
-					SubPath:   "fluent-bit.conf",
-					Name:      "fluentbit-config",
-				},
-			},
-		})
-
-	}
-	found = false
-	for _, volume := range podSpec.Volumes {
-		if volume.Name == "fluentbit-config" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-			Name: "fluentbit-config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: fmt.Sprintf("%s-fluentbit-config", ai.Name),
-					},
-				},
-			},
-		})
-	}
-}
-
 // createOrUpdateConfigMap is a helper to create or patch a ConfigMap // remove me
 func (r *SaiaReconciler) createOrUpdateConfigMap(
 	ctx context.Context,
@@ -843,47 +728,4 @@ func (r *SaiaReconciler) createOrUpdateConfigMap(
 		return r.Update(ctx, found)
 	}
 	return nil
-}
-
-// renderFluentBitConf generates the FluentBit configuration for the given RayService.
-func renderFluentBitConf() string {
-	return `
-	[SERVICE]
-        Parsers_File /fluent-bit/etc/parser.conf
-    [INPUT]
-        Name tail
-        Path /tmp/ray/session_latest/logs/*, /tmp/ray/session_latest/logs/*/*
-        Tag ray
-        Path_Key source_log_file_path
-        Refresh_Interval 5
-        Parser colon_prefix_parser
-    [FILTER]
-        Name                modify
-        Match               ray
-        Add                 application_name NONE
-        Add                 deployment_name NONE
-    [OUTPUT]
-        Name stdout
-        Format json_lines
-        Match *
-    [OUTPUT]
-        Name   splunk
-        Match  *
-        Host   "%s"
-        Splunk_Token  %s
-        TLS    On
-        TLS.verify  Off
-`
-}
-
-// renderParserConf generates the parser configuration for FluentBit.
-func renderParserConf() string {
-	return `
-	[PARSER]
-        Name                colon_prefix_parser
-        Format              regex
-        Regex               :actor_name:ServeReplica:(?<application_name>[a-zA-Z0-9_-]+):(?<deployment_name>[a-zA-Z0-9_-]+)
-        Time_Key            time
-        Time_Format         %Y-%m-%dT%H:%M:%S
-`
 }

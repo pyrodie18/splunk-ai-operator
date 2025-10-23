@@ -1,0 +1,22 @@
+applicationScale:
+  AllMinilmL6V2: 1
+  BiEncoder: 1
+  CrossEncoder: 1
+  E5LanguageClassifier: 1
+  Entrypoint: 1
+  Llama31Instruct: 1
+  Llama3170bInstructAwq: 1
+  MbartTranslator: 1
+  PromptInjectionClassifier: 1
+  PromptInjectionCrossEncoder: 1
+  PromptInjectionTfidf: 1
+  UaeLarge: 1
+  XlmRobertaLanguageClassifier: 1
+instanceScale:
+  L40S:
+    l40s-0-gpu: 1
+    l40s-1-gpu: 2
+    l40s-2-gpu: 1
+  H100_NVL:
+    h100-nvl-0-gpu: 1
+    h100-nvl-1-gpu: 2

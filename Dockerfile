@@ -37,6 +37,8 @@ WORKDIR /
 
 COPY --from=builder /workspace/manager .
 COPY config/configs/instance.yaml instance.yaml
+COPY config/configs/applications.yaml applications.yaml
+COPY config/configs/features/ features/
 COPY --from=builder /certs/tls.crt /certs/tls.crt
 COPY --from=builder /certs/tls.key /certs/tls.key
 
