@@ -188,6 +188,28 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 	// Set the parameterized serve config
 	rs.Spec.ServeConfigV2 = serveConfig.String()
 
+	// Create or update ConfigMap with serveConfig for debugging
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      p.Name + "-serve-config",
+			Namespace: p.Namespace,
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, b.Client, configMap, func() error {
+		if configMap.Data == nil {
+			configMap.Data = make(map[string]string)
+		}
+		configMap.Data["serve-config.yaml"] = serveConfig.String()
+		configMap.Data["cloud-provider"] = cloudProvider
+		configMap.Data["artifact-bucket"] = u.Host
+		// Set owner reference for garbage collection
+		return controllerutil.SetControllerReference(p, configMap, b.Scheme)
+	})
+	if err != nil {
+		logger.Error(err, "Failed to create/update serve config ConfigMap")
+		// Don't fail the reconciliation for ConfigMap creation failure
+	}
+
 	rayService.Spec = rs.Spec
 	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {

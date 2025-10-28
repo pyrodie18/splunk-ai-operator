@@ -486,7 +486,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
 		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
 		// SAIA uses /tasks subdirectory within its feature path
-		{Name: "S3_BUCKET", Value:  ai.Spec.TaskVolume.Path},
+		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path},
 	}
 
 	// MinIO support: Add MinIO-specific environment variables if endpoint is configured

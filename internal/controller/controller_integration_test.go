@@ -417,9 +417,9 @@ var _ = Describe("AIService Reconcile with Feature Handler", func() {
 				NamespacedName: serviceKey,
 			})
 
-			// May return error about waiting for Job completion (this is expected)
+			// May return error about AIPlatform infrastructure not ready (this is expected with new validation logic)
 			if err != nil {
-				Expect(err.Error()).To(ContainSubstring("waiting for completion"))
+				Expect(err.Error()).To(ContainSubstring("AIPlatform infrastructure not ready"))
 			}
 
 			// Verify service still exists

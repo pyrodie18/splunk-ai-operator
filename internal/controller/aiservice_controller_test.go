@@ -185,9 +185,9 @@ var _ = Describe("AIService Controller", func() {
 				NamespacedName: serviceKey,
 			})
 
-			// Expect error about waiting for Job completion (this triggers requeue)
+			// Expect error about AIPlatform infrastructure not ready (new validation logic)
 			Expect(err).ToNot(BeNil())
-			Expect(err.Error()).To(ContainSubstring("waiting for completion"))
+			Expect(err.Error()).To(ContainSubstring("AIPlatform infrastructure not ready"))
 
 			// Verify AIService still exists and Job was created
 			retrieved := &aiv1.AIService{}
@@ -363,9 +363,9 @@ var _ = Describe("AIService Controller", func() {
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: serviceKey,
 			})
-			// Expect error about waiting for Job completion
+			// Expect error about AIPlatform infrastructure not ready (new validation logic)
 			Expect(err).ToNot(BeNil())
-			Expect(err.Error()).To(ContainSubstring("waiting for completion"))
+			Expect(err.Error()).To(ContainSubstring("AIPlatform infrastructure not ready"))
 
 			// Update spec
 			retrieved := &aiv1.AIService{}
@@ -377,9 +377,9 @@ var _ = Describe("AIService Controller", func() {
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: serviceKey,
 			})
-			// Expect error about Job still running
+			// Expect error about AIPlatform infrastructure not ready (new validation logic)
 			Expect(err).ToNot(BeNil())
-			Expect(err.Error()).To(Or(ContainSubstring("still running"), ContainSubstring("waiting for completion")))
+			Expect(err.Error()).To(Or(ContainSubstring("AIPlatform infrastructure not ready"), ContainSubstring("still running"), ContainSubstring("waiting for completion")))
 
 			// Verify replicas update was persisted (even though reconcile returned error)
 			Expect(fakeClient.Get(ctx, serviceKey, retrieved)).To(Succeed())
