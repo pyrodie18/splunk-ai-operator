@@ -2,6 +2,7 @@ package saia
 
 import (
 	"context"
+	"strings"
 
 	"fmt"
 	"os"
@@ -489,7 +490,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	}
 
 	// MinIO support: Add MinIO-specific environment variables if endpoint is configured
-	if ai.Spec.TaskVolume.Endpoint != "" {
+	if strings.HasPrefix(ai.Spec.TaskVolume.Path, "minio") && ai.Spec.TaskVolume.Endpoint != "" {
 		env = append(env, corev1.EnvVar{Name: "MINIO_ENDPOINT_URL", Value: ai.Spec.TaskVolume.Endpoint})
 	}
 
@@ -501,7 +502,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: ai.Spec.TaskVolume.SecretRef},
-						Key:                  "accessKey",
+						Key:                  "s3_access_key",
 					},
 				},
 			},
@@ -510,7 +511,7 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: ai.Spec.TaskVolume.SecretRef},
-						Key:                  "secretKey",
+						Key:                  "s3_secret_key",
 					},
 				},
 			},
