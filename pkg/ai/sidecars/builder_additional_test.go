@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -41,127 +40,7 @@ func TestReconcile(t *testing.T) {
 	t.Skip("Skipping Reconcile test - requires Prometheus Operator CRDs to be registered in scheme")
 }
 
-func TestAddFluentBitSidecar(t *testing.T) {
-	scheme := setupFakeScheme()
-
-	tests := []struct {
-		name            string
-		platform        *aiApi.AIPlatform
-		initialPodSpec  *corev1.PodSpec
-		expectedChanges func(*testing.T, *corev1.PodSpec)
-	}{
-		{
-			name: "fluentbit disabled - no sidecar added",
-			platform: &aiApi.AIPlatform{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-platform",
-					Namespace: "default",
-				},
-				Spec: aiApi.AIPlatformSpec{
-					Sidecars: aiApi.SidecarSpec{
-						FluentBit: false,
-					},
-				},
-			},
-			initialPodSpec: &corev1.PodSpec{
-				Containers: []corev1.Container{
-					{Name: "main-container"},
-				},
-			},
-			expectedChanges: func(t *testing.T, podSpec *corev1.PodSpec) {
-				assert.Len(t, podSpec.Containers, 1)
-				assert.Equal(t, "main-container", podSpec.Containers[0].Name)
-			},
-		},
-		{
-			name: "fluentbit enabled - sidecar added",
-			platform: &aiApi.AIPlatform{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-platform",
-					Namespace: "default",
-				},
-				Spec: aiApi.AIPlatformSpec{
-					Sidecars: aiApi.SidecarSpec{
-						FluentBit: true,
-					},
-				},
-			},
-			initialPodSpec: &corev1.PodSpec{
-				Containers: []corev1.Container{
-					{Name: "main-container"},
-				},
-			},
-			expectedChanges: func(t *testing.T, podSpec *corev1.PodSpec) {
-				assert.Len(t, podSpec.Containers, 2)
-
-				// Find fluentbit container
-				var fluentbitContainer *corev1.Container
-				for i := range podSpec.Containers {
-					if podSpec.Containers[i].Name == "fluentbit" {
-						fluentbitContainer = &podSpec.Containers[i]
-						break
-					}
-				}
-
-				require.NotNil(t, fluentbitContainer, "fluentbit container should be added")
-				assert.Equal(t, "fluent/fluent-bit:1.9.6", fluentbitContainer.Image)
-
-				// Verify resources
-				assert.Equal(t, resource.MustParse("100m"), fluentbitContainer.Resources.Requests[corev1.ResourceCPU])
-				assert.Equal(t, resource.MustParse("128Mi"), fluentbitContainer.Resources.Requests[corev1.ResourceMemory])
-
-				// Verify volume mounts
-				assert.Len(t, fluentbitContainer.VolumeMounts, 3)
-
-				// Verify volumes added
-				assert.Len(t, podSpec.Volumes, 1)
-				assert.Equal(t, "fluentbit-config", podSpec.Volumes[0].Name)
-			},
-		},
-		{
-			name: "fluentbit already present - no duplicate added",
-			platform: &aiApi.AIPlatform{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-platform",
-					Namespace: "default",
-				},
-				Spec: aiApi.AIPlatformSpec{
-					Sidecars: aiApi.SidecarSpec{
-						FluentBit: true,
-					},
-				},
-			},
-			initialPodSpec: &corev1.PodSpec{
-				Containers: []corev1.Container{
-					{Name: "main-container"},
-					{Name: "fluentbit", Image: "existing-image"},
-				},
-				Volumes: []corev1.Volume{
-					{Name: "fluentbit-config"},
-				},
-			},
-			expectedChanges: func(t *testing.T, podSpec *corev1.PodSpec) {
-				// Should not add duplicate container
-				assert.Len(t, podSpec.Containers, 2)
-
-				// Should not add duplicate volume
-				assert.Len(t, podSpec.Volumes, 1)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			recorder := record.NewFakeRecorder(100)
-			builder := New(fakeClient, scheme, recorder, tt.platform)
-
-			builder.AddFluentBitSidecar(tt.initialPodSpec)
-
-			tt.expectedChanges(t, tt.initialPodSpec)
-		})
-	}
-}
+// TestAddFluentBitSidecar removed - FluentBit functionality has been removed from the codebase
 
 func TestReconcileEnvoyConfig(t *testing.T) {
 	ctx := context.Background()

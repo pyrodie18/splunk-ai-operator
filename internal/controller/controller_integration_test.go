@@ -29,7 +29,6 @@ import (
 	"github.com/splunk/splunk-ai-operator/pkg/config"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -58,6 +57,8 @@ var _ = Describe("AIPlatform Reconcile Error Handling", func() {
 		os.Setenv("RELATED_IMAGE_RAY_HEAD", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_RAY_WORKER", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_FLUENT_BIT", "fluent/fluent-bit:latest")
+		os.Setenv("INSTANCE_FILE", "../../config/configs/instance.yaml")
+		os.Setenv("APPLICATION_FILE", "../../config/configs/applications.yaml")
 
 		s := scheme.Scheme
 		_ = aiv1.AddToScheme(s)
@@ -134,10 +135,9 @@ var _ = Describe("AIPlatform Reconcile Error Handling", func() {
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{
 						NodeSelector: map[string]string{},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "test-registry",
-						GPUConfigs:         []aiv1.GPUConfig{},
 					},
 					Images: aiv1.Images{
 						RayHeadGroupImage:   "ray-head:latest",
@@ -235,49 +235,9 @@ var _ = Describe("AIPlatform Reconcile Error Handling", func() {
 							},
 						},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "test-registry",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("4"),
-										corev1.ResourceMemory: resource.MustParse("8Gi"),
-										"nvidia.com/gpu":      resource.MustParse("1"),
-									},
-								},
-							},
-							{
-								Tier:        "tier-2",
-								MinReplicas: 0,
-								MaxReplicas: 2,
-								GPUsPerPod:  2,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("8"),
-										corev1.ResourceMemory: resource.MustParse("16Gi"),
-										"nvidia.com/gpu":      resource.MustParse("2"),
-									},
-								},
-							},
-						},
-					},
-					Features: []aiv1.FeatureSpec{
-						{
-							Name:               "saia",
-							ServiceAccountName: "saia-sa",
-							Version:            "1.0.0",
-						},
-						{
-							Name:               "seca",
-							ServiceAccountName: "seca-sa",
-							Version:            "1.0.0",
-						},
 					},
 					Images: aiv1.Images{
 						SAIAImage:           "saia:latest",
@@ -308,8 +268,6 @@ var _ = Describe("AIPlatform Reconcile Error Handling", func() {
 				Namespace: platform.Namespace,
 			}, retrieved)).To(Succeed())
 			Expect(retrieved.Spec.ServiceAccountName).To(Equal("test-sa"))
-			Expect(retrieved.Spec.Features).To(HaveLen(2))
-			Expect(retrieved.Spec.WorkerGroupSpec.GPUConfigs).To(HaveLen(2))
 		})
 	})
 })

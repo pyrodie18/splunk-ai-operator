@@ -241,18 +241,38 @@ func (r *AIServiceReconciler) reconcileStatus(ctx context.Context, p *aiv1.AISer
 	// reflect observedGeneration
 	p.Status.ObservedGeneration = p.Generation
 
-	cond := metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionTrue,
-		Reason:             "Reconciled",
-		Message:            "All resources are up-to-date",
-		LastTransitionTime: metav1.Now(),
+	// Note: Feature reconciler already sets detailed stage conditions in Status.Conditions
+	// We only update the overall Ready condition here if not already set by feature reconciler
+	hasReadyCondition := false
+	for _, c := range p.Status.Conditions {
+		if c.Type == "Ready" {
+			hasReadyCondition = true
+			break
+		}
 	}
-	p.Status.Conditions = []metav1.Condition{cond}
+
+	// Only add Ready condition if feature reconciler didn't already add it
+	if !hasReadyCondition {
+		cond := metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Reconciled",
+			Message:            "All resources are up-to-date",
+			LastTransitionTime: metav1.Now(),
+		}
+		p.Status.Conditions = append(p.Status.Conditions, cond)
+	}
 
 	// telemetry: gauges for generation & condition
 	telemetry.SetObservedGeneration(ctx, p.Status.ObservedGeneration)
-	telemetry.SetCondition(ctx, "Ready", string(cond.Status))
+
+	// Get the Ready condition status for telemetry
+	for _, c := range p.Status.Conditions {
+		if c.Type == "Ready" {
+			telemetry.SetCondition(ctx, "Ready", string(c.Status))
+			break
+		}
+	}
 
 	// FIXME: add AIService scale fields, set them here:
 	// telemetry.SetDesiredReplicas(ctx, p.Spec.Replicas)

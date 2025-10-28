@@ -30,7 +30,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -59,6 +58,8 @@ var _ = Describe("AIPlatform Controller", func() {
 		os.Setenv("RELATED_IMAGE_RAY_HEAD", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_RAY_WORKER", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_FLUENT_BIT", "fluent/fluent-bit:latest")
+		os.Setenv("INSTANCE_FILE", "../../config/configs/instance.yaml")
+		os.Setenv("APPLICATION_FILE", "../../config/configs/applications.yaml")
 
 		// Create a fake client with proper scheme
 		s := scheme.Scheme
@@ -132,30 +133,9 @@ var _ = Describe("AIPlatform Controller", func() {
 					SplunkConfiguration: aiv1.SplunkConfigurationSpec{
 						Endpoint: "https://splunk.example.com:8089",
 					},
-					Features: []aiv1.FeatureSpec{
-						{
-							Name:               "saia",
-							ServiceAccountName: "saia-sa",
-							Version:            "1.0.0",
-						},
-					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "test-registry",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("4"),
-										corev1.ResourceMemory: resource.MustParse("8Gi"),
-									},
-								},
-							},
-						},
 					},
 					Images: aiv1.Images{
 						SAIAImage:           "saia:latest",
@@ -274,35 +254,9 @@ var _ = Describe("AIPlatform Controller", func() {
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{
 						NodeSelector: map[string]string{"gpu": "true"},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "test-registry",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("4"),
-										corev1.ResourceMemory: resource.MustParse("8Gi"),
-									},
-								},
-							},
-						},
-					},
-					Features: []aiv1.FeatureSpec{
-						{
-							Name:               "saia",
-							ServiceAccountName: "saia-sa",
-							Version:            "1.0.0",
-						},
-						{
-							Name:               "seca",
-							ServiceAccountName: "seca-sa",
-							Version:            "1.0.0",
-						},
 					},
 					Images: aiv1.Images{
 						SAIAImage:           "saia:latest",
@@ -366,23 +320,9 @@ var _ = Describe("AIPlatform Controller", func() {
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{
 						NodeSelector: map[string]string{"gpu": "true"},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "test-registry",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("4"),
-										corev1.ResourceMemory: resource.MustParse("8Gi"),
-									},
-								},
-							},
-						},
 					},
 					Images: aiv1.Images{
 						SAIAImage:           "saia:latest",
@@ -458,6 +398,8 @@ var _ = Describe("AIPlatform Requeue Scenarios", func() {
 		os.Setenv("RELATED_IMAGE_RAY_HEAD", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_RAY_WORKER", "rayproject/ray:latest")
 		os.Setenv("RELATED_IMAGE_FLUENT_BIT", "fluent/fluent-bit:latest")
+		os.Setenv("INSTANCE_FILE", "../../config/configs/instance.yaml")
+		os.Setenv("APPLICATION_FILE", "../../config/configs/applications.yaml")
 
 		s := scheme.Scheme
 		_ = aiv1.AddToScheme(s)
@@ -527,23 +469,9 @@ var _ = Describe("AIPlatform Requeue Scenarios", func() {
 				GPUSchedulingSpec: &aiv1.SchedulingSpec{
 					NodeSelector: map[string]string{"gpu": "true"},
 				},
-				WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+				WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 					ServiceAccountName: "worker-sa",
 					ImageRegistry:      "test-registry",
-					GPUConfigs: []aiv1.GPUConfig{
-						{
-							Tier:        "tier-1",
-							MinReplicas: 0,
-							MaxReplicas: 5,
-							GPUsPerPod:  1,
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("4"),
-									corev1.ResourceMemory: resource.MustParse("8Gi"),
-								},
-							},
-						},
-					},
 				},
 				Images: aiv1.Images{
 					SAIAImage:           "saia:latest",

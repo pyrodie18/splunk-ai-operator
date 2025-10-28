@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
@@ -50,9 +49,8 @@ func TestNew(t *testing.T) {
 				NodeSelector: map[string]string{},
 				Tolerations:  []corev1.Toleration{},
 			},
-			WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+			WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 				ServiceAccountName: "worker-sa",
-				GPUConfigs:         []aiv1.GPUConfig{},
 			},
 			Images: aiv1.Images{
 				RayHeadGroupImage:   "ray-head:latest",
@@ -75,6 +73,7 @@ func TestBuilder_Build(t *testing.T) {
 	os.Setenv("RELATED_IMAGE_RAY_HEAD", "rayproject/ray:latest")
 	os.Setenv("RELATED_IMAGE_RAY_WORKER", "rayproject/ray:latest")
 	os.Setenv("RELATED_IMAGE_FLUENT_BIT", "fluent/fluent-bit:latest")
+	os.Setenv("INSTANCE_FILE", "../../../config/configs/instance.yaml")
 
 	s := scheme.Scheme
 	_ = aiv1.AddToScheme(s)
@@ -112,9 +111,8 @@ func TestBuilder_Build(t *testing.T) {
 						NodeSelector: map[string]string{},
 						Tolerations:  []corev1.Toleration{},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
-						GPUConfigs:         []aiv1.GPUConfig{},
 					},
 					Images: aiv1.Images{
 						RayHeadGroupImage:   "ray-head:latest",
@@ -148,23 +146,8 @@ func TestBuilder_Build(t *testing.T) {
 						NodeSelector: map[string]string{},
 						Tolerations:  []corev1.Toleration{},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("4"),
-										corev1.ResourceMemory: resource.MustParse("8Gi"),
-										"nvidia.com/gpu":      resource.MustParse("1"),
-									},
-								},
-							},
-						},
 					},
 					Images: aiv1.Images{
 						RayHeadGroupImage:   "ray-head:latest",
@@ -178,16 +161,22 @@ func TestBuilder_Build(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
 			builder := New(tt.platform, fakeClient, s, recorder)
-			rayService := builder.Build()
+			rayService, err := builder.Build(ctx)
 
-			assert.NotNil(t, rayService)
-			assert.Equal(t, tt.platform.Name, rayService.Name)
-			assert.Equal(t, tt.platform.Namespace, rayService.Namespace)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, rayService)
+				assert.Equal(t, tt.platform.Name, rayService.Name)
+				assert.Equal(t, tt.platform.Namespace, rayService.Namespace)
 
-			// Verify RayClusterSpec is populated
-			assert.NotNil(t, rayService.Spec.RayClusterSpec)
-			assert.NotNil(t, rayService.Spec.RayClusterSpec.HeadGroupSpec)
+				// Verify RayClusterSpec is populated
+				assert.NotNil(t, rayService.Spec.RayClusterSpec)
+				assert.NotNil(t, rayService.Spec.RayClusterSpec.HeadGroupSpec)
+			}
 		})
 	}
 }
@@ -233,9 +222,8 @@ func TestBuilder_ReconcileRayService(t *testing.T) {
 						NodeSelector: map[string]string{},
 						Tolerations:  []corev1.Toleration{},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
-						GPUConfigs:         []aiv1.GPUConfig{},
 					},
 					Images: aiv1.Images{
 						RayHeadGroupImage:   "ray-head:latest",
@@ -282,7 +270,7 @@ func TestBuilder_ReconcileRayService(t *testing.T) {
 	}
 }
 
-// Note: buildHeadGroupSpec and buildWorkerGroupSpecs are private methods
+// Note: buildHeadGroupSpec and buildWorkerGroupConfigs are private methods
 // They are tested indirectly through TestBuilder_Build and TestBuilder_ReconcileRayService
 
 func TestApplicationParams(t *testing.T) {
@@ -349,9 +337,8 @@ func TestBuilder_createRayServiceRBAC(t *testing.T) {
 				NodeSelector: map[string]string{},
 				Tolerations:  []corev1.Toleration{},
 			},
-			WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+			WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 				ServiceAccountName: "worker-sa",
-				GPUConfigs:         []aiv1.GPUConfig{},
 			},
 			Images: aiv1.Images{
 				RayHeadGroupImage:   "ray-head:latest",

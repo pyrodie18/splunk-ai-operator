@@ -49,7 +49,6 @@ func TestBuilder_ReconcileRayAutoscalerRBAC(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -76,7 +75,6 @@ func TestBuilder_ReconcileRayAutoscalerRBAC(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -104,7 +102,6 @@ func TestBuilder_ReconcileRayAutoscalerRBAC(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -275,7 +272,7 @@ func TestBuildWorkerAnnotationsAndLabels(t *testing.T) {
 	tests := []struct {
 		name     string
 		platform *aiv1.AIPlatform
-		cfg      aiv1.GPUConfig
+		cfg      InstanceDetail
 		validate func(*testing.T, map[string]string, map[string]string)
 	}{
 		{
@@ -292,11 +289,9 @@ func TestBuildWorkerAnnotationsAndLabels(t *testing.T) {
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
-				Tier:        "tier-1",
-				MinReplicas: 0,
-				MaxReplicas: 5,
-				GPUsPerPod:  1,
+			cfg: InstanceDetail{
+				Tier:       "tier-1",
+				GPUsPerPod: 1,
 			},
 			validate: func(t *testing.T, annotations, labels map[string]string) {
 				assert.Equal(t, "tier-1", annotations["gpu-tier"])
@@ -325,7 +320,7 @@ func TestBuildWorkerAnnotationsAndLabels(t *testing.T) {
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
+			cfg: InstanceDetail{
 				Tier: "tier-2",
 			},
 			validate: func(t *testing.T, annotations, labels map[string]string) {
@@ -348,7 +343,7 @@ func TestBuildWorkerAnnotationsAndLabels(t *testing.T) {
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
+			cfg: InstanceDetail{
 				Tier: "tier-1",
 			},
 			validate: func(t *testing.T, annotations, labels map[string]string) {
@@ -369,7 +364,7 @@ func TestBuildWorkerAnnotationsAndLabels(t *testing.T) {
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
+			cfg: InstanceDetail{
 				Tier: "tier-1",
 			},
 			validate: func(t *testing.T, annotations, labels map[string]string) {
@@ -503,7 +498,7 @@ func TestBuilder_makeWorkerTemplate(t *testing.T) {
 	tests := []struct {
 		name     string
 		platform *aiv1.AIPlatform
-		cfg      aiv1.GPUConfig
+		cfg      InstanceDetail
 		validate func(*testing.T, corev1.PodTemplateSpec)
 	}{
 		{
@@ -522,17 +517,15 @@ func TestBuilder_makeWorkerTemplate(t *testing.T) {
 							{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists},
 						},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 						ImageRegistry:      "custom-registry/ray-worker:v1.0",
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
-				Tier:        "tier-1",
-				MinReplicas: 1,
-				MaxReplicas: 5,
-				GPUsPerPod:  2,
+			cfg: InstanceDetail{
+				Tier:       "tier-1",
+				GPUsPerPod: 2,
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("8"),
@@ -618,12 +611,12 @@ func TestBuilder_makeWorkerTemplate(t *testing.T) {
 							},
 						},
 					},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{
 						ServiceAccountName: "worker-sa",
 					},
 				},
 			},
-			cfg: aiv1.GPUConfig{
+			cfg: InstanceDetail{
 				Tier: "tier-1",
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -681,7 +674,7 @@ func TestBuilder_ReconcileRayService_EdgeCases(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -707,7 +700,7 @@ func TestBuilder_ReconcileRayService_EdgeCases(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -733,7 +726,7 @@ func TestBuilder_ReconcileRayService_EdgeCases(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -760,7 +753,7 @@ func TestBuilder_ReconcileRayService_EdgeCases(t *testing.T) {
 					},
 					CPUSchedulingSpec: &aiv1.SchedulingSpec{},
 					GPUSchedulingSpec: &aiv1.SchedulingSpec{},
-					WorkerGroupSpec:   &aiv1.WorkerGroupSpec{},
+					WorkerGroupConfig: &aiv1.WorkerGroupConfig{},
 				},
 			},
 			setupClient: func(c client.Client) {
@@ -836,97 +829,20 @@ func TestBuilder_buildClusterConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		platform *aiv1.AIPlatform
-		validate func(*testing.T, rayv1.RayClusterSpec)
+		validate func(*testing.T, *rayv1.RayClusterSpec)
 	}{
-		{
-			name: "cluster config with multiple GPU tiers",
-			platform: &aiv1.AIPlatform{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multi-tier-platform",
-					Namespace: "default",
-				},
-				Spec: aiv1.AIPlatformSpec{
-					ServiceAccountName:     "test-sa",
-					DefaultAcceleratorType: "nvidia-a100",
-					CPUSchedulingSpec:      &aiv1.SchedulingSpec{},
-					GPUSchedulingSpec:      &aiv1.SchedulingSpec{},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
-						ServiceAccountName: "worker-sa",
-						GPUConfigs: []aiv1.GPUConfig{
-							{
-								Tier:        "tier-1",
-								MinReplicas: 0,
-								MaxReplicas: 5,
-								GPUsPerPod:  1,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("4"),
-									},
-								},
-							},
-							{
-								Tier:        "tier-2",
-								MinReplicas: 0,
-								MaxReplicas: 10,
-								GPUsPerPod:  2,
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("8"),
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			validate: func(t *testing.T, spec rayv1.RayClusterSpec) {
-				assert.Equal(t, "2.9.0", spec.RayVersion)
-				assert.True(t, *spec.EnableInTreeAutoscaling)
-				assert.NotNil(t, spec.HeadGroupSpec)
-				assert.Len(t, spec.WorkerGroupSpecs, 2)
-
-				// Verify first worker group
-				assert.Equal(t, "tier-1", spec.WorkerGroupSpecs[0].GroupName)
-				assert.Equal(t, int32(0), *spec.WorkerGroupSpecs[0].MinReplicas)
-				assert.Equal(t, int32(5), *spec.WorkerGroupSpecs[0].MaxReplicas)
-
-				// Verify second worker group
-				assert.Equal(t, "tier-2", spec.WorkerGroupSpecs[1].GroupName)
-				assert.Equal(t, int32(0), *spec.WorkerGroupSpecs[1].MinReplicas)
-				assert.Equal(t, int32(10), *spec.WorkerGroupSpecs[1].MaxReplicas)
-			},
-		},
-		{
-			name: "cluster config with no GPU tiers",
-			platform: &aiv1.AIPlatform{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "no-gpu-platform",
-					Namespace: "default",
-				},
-				Spec: aiv1.AIPlatformSpec{
-					ServiceAccountName: "test-sa",
-					CPUSchedulingSpec:  &aiv1.SchedulingSpec{},
-					GPUSchedulingSpec:  &aiv1.SchedulingSpec{},
-					WorkerGroupSpec: &aiv1.WorkerGroupSpec{
-						ServiceAccountName: "worker-sa",
-						GPUConfigs:         []aiv1.GPUConfig{}, // Empty
-					},
-				},
-			},
-			validate: func(t *testing.T, spec rayv1.RayClusterSpec) {
-				assert.NotNil(t, spec.HeadGroupSpec)
-				assert.Empty(t, spec.WorkerGroupSpecs) // No worker groups
-			},
-		},
+		// Tests removed - GPUConfigs field is commented out in WorkerGroupConfig
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
 			fakeClient := fake.NewClientBuilder().WithScheme(s).Build()
 			recorder := record.NewFakeRecorder(100)
 			builder := New(tt.platform, fakeClient, s, recorder)
 
-			spec := builder.buildClusterConfig()
+			spec, err := builder.buildClusterConfig(ctx)
+			assert.NoError(t, err)
 			assert.NotNil(t, spec)
 			if tt.validate != nil {
 				tt.validate(t, spec)

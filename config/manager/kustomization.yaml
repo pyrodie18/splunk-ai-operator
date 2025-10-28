@@ -14,7 +14,8 @@ patches:
     \ - name: RELATED_IMAGE_WEAVIATE\n    value: \"semitechnologies/weaviate:stable-v1.28-007846a\"\n
     \ - name: RELATED_IMAGE_SAIA_API\n    value: \"667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-10\"\n
     \ - name: RELATED_IMAGE_POST_INSTALL_HOOK\n    value: \"6667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10\"\n
-    \ - name: MODEL_VERSION\n    value: \"v0.3.14-36-g1549f5a\"\n  - name: RAY_VERSION\n
+    \ - name: RELATED_IMAGE_FLUENT_BIT\n    value: \"fluent/fluent-bit:1.9.6\"\n  -
+    name: MODEL_VERSION\n    value: \"v0.3.14-36-g1549f5a\"\n  - name: RAY_VERSION\n
     \   value: \"2.44.0\""
   target:
     kind: Deployment
@@ -23,5 +24,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: vivekrsplunk/splunk-ai-operator
-  newTag: ai-23
+  newName: docker.com/splunk/splunk-ai-operator
+  newTag: v0.0.1

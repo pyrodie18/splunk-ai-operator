@@ -74,6 +74,7 @@ func (r *AIPlatformReconciler) Reconcile(ctx context.Context, p *aiApi.AIPlatfor
 		{"RayServiceStatus", raybuilder.ApplyNormalizedConditions},
 		{"WeaviateDatabaseStatus", r.ReconcileWeaviateDatabaseStatus},
 		{"AIService", r.ReconcileFeatures},
+		{"AIServiceStatus", r.CheckAIServiceStatus},
 	}
 
 	for _, stage := range stages {
@@ -189,8 +190,12 @@ func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform *
 func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiApi.AIPlatform, feature aiApi.FeatureSpec, name string) *aiApi.AIService {
 	vectorDbUrl := platform.Status.VectorDbServiceName
 
+	// Preserve the S3 bucket path and append feature-specific directory
+	// Feature implementation will append its own subdirectories (e.g., /tasks, /models, /artifacts)
 	taskObjectStorage := platform.Spec.ObjectStorage
-	taskObjectStorage.Path = fmt.Sprintf("%s/%s", feature.Name, "tasks") // FIXME TODO Validate if task exist
+	basePath := platform.Spec.ObjectStorage.Path
+	// Append only feature name: s3://bucket -> s3://bucket/saia
+	taskObjectStorage.Path = fmt.Sprintf("%s/%s", basePath, feature.Name)
 	return &aiApi.AIService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -222,4 +227,42 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 			MTLS: platform.Spec.MTLS,
 		},
 	}
+}
+
+// CheckAIServiceStatus verifies that all AIService children have successful conditions.
+// Returns an error if any AIService has failed conditions, preventing AIPlatform from marking itself as Ready.
+func (r *AIPlatformReconciler) CheckAIServiceStatus(ctx context.Context, platform *aiApi.AIPlatform) error {
+	log := log.FromContext(ctx)
+
+	// List all AIService children owned by this AIPlatform
+	var children aiApi.AIServiceList
+	if err := r.List(
+		ctx,
+		&children,
+		client.InNamespace(platform.Namespace),
+		client.MatchingFields{ownerKey: platform.Name},
+	); err != nil {
+		return fmt.Errorf("failed to list AIService children: %w", err)
+	}
+
+	// Check each child's status conditions
+	for i := range children.Items {
+		child := &children.Items[i]
+
+		// Check if AIService has any failed conditions
+		for _, cond := range child.Status.Conditions {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Error" {
+				log.Info("AIService has failed condition",
+					"service", child.Name,
+					"conditionType", cond.Type,
+					"reason", cond.Reason,
+					"message", cond.Message)
+				return fmt.Errorf("AIService %s has failed condition %s: %s",
+					child.Name, cond.Type, cond.Message)
+			}
+		}
+	}
+
+	log.Info("All AIService children have successful conditions", "count", len(children.Items))
+	return nil
 }
