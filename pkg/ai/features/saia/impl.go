@@ -379,6 +379,16 @@ func (r *SaiaReconciler) reconcileCertificate(
 		return fmt.Errorf("ownerref on Certificate: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
+		// Update Certificate spec
+		cert.Spec = certmanagerv1.CertificateSpec{
+			SecretName: ai.Spec.MTLS.SecretName,
+			IssuerRef:  ai.Spec.MTLS.IssuerRef,
+			DNSNames:   ai.Spec.MTLS.DNSNames,
+			Usages: []certmanagerv1.KeyUsage{
+				certmanagerv1.UsageServerAuth,
+				certmanagerv1.UsageClientAuth,
+			},
+		}
 		return nil
 	}); err != nil {
 		r.Recorder.Eventf(ai, corev1.EventTypeWarning, "MTLSCertificateCreationFailed", "Failed to create/update Certificate: %v", err)
@@ -582,85 +592,97 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ai.Name + "-saia-deployment",
 			Namespace: ai.Namespace,
-			Labels: map[string]string{
-				"app":       ai.Name,
-				"component": ai.Name,
-				"area":      "ml",
-				"team":      "ml",
-			},
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &ai.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": ai.Name, "component": ai.Name},
-					Annotations: map[string]string{
-						"prometheus.io/port":   "8088",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/scheme": "http",
-					},
-				},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: ai.Spec.ServiceAccountName,
-					Containers: []corev1.Container{{
-						Name:            ai.Name,
-						Image:           os.Getenv("RELATED_IMAGE_SAIA_API"),
-						ImagePullPolicy: corev1.PullAlways,
-						Ports:           ports,
-						VolumeMounts:    mounts,
-						Resources:       ai.Spec.Resources,
-						Env:             env,
-						EnvFrom:         envFrom, // <— bring in ALL static config keys
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							PeriodSeconds:    30,
-							FailureThreshold: 5,
-						},
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							PeriodSeconds:    30,
-							FailureThreshold: 5,
-						},
-						StartupProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							InitialDelaySeconds: 10,
-							PeriodSeconds:       30,
-							FailureThreshold:    5,
-						},
-					}},
-					Volumes:     volumes,
-					Affinity:    &ai.Spec.Affinity,
-					Tolerations: ai.Spec.Tolerations,
-				},
-			},
 		},
 	}
 
 	// Merge labels/annotations from AIService
+	labels := map[string]string{
+		"app":       ai.Name,
+		"component": ai.Name,
+		"area":      "ml",
+		"team":      "ml",
+	}
 	for k, v := range ai.Labels {
-		deployment.ObjectMeta.Labels[k] = v
+		labels[k] = v
+	}
+
+	annotations := map[string]string{
+		"prometheus.io/port":   "8088",
+		"prometheus.io/path":   "/metrics",
+		"prometheus.io/scheme": "http",
 	}
 	for k, v := range ai.Annotations {
 		if k == "kubectl.kubernetes.io/last-applied-configuration" || k == "kubectl.kubernetes.io/restartedAt" {
 			continue
 		}
-		deployment.ObjectMeta.Annotations[k] = v
+		annotations[k] = v
 	}
 
 	if err := controllerutil.SetControllerReference(ai, deployment, r.Scheme); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Deployment failed")
 		return fmt.Errorf("ownerref on Deployment: %w", err)
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error { return nil }); err != nil {
+
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+		// Set mutable fields that can be updated
+		deployment.ObjectMeta.Labels = labels
+		deployment.ObjectMeta.Annotations = annotations
+		deployment.Spec.Replicas = &ai.Spec.Replicas
+
+		// Set selector only on creation (immutable field)
+		if deployment.Spec.Selector == nil {
+			deployment.Spec.Selector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
+			}
+		}
+
+		// Always update the pod template
+		deployment.Spec.Template = corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      map[string]string{"app": ai.Name, "component": ai.Name},
+				Annotations: annotations,
+			},
+			Spec: corev1.PodSpec{
+				ServiceAccountName: ai.Spec.ServiceAccountName,
+				Containers: []corev1.Container{{
+					Name:            ai.Name,
+					Image:           os.Getenv("RELATED_IMAGE_SAIA_API"),
+					ImagePullPolicy: corev1.PullAlways,
+					Ports:           ports,
+					VolumeMounts:    mounts,
+					Resources:       ai.Spec.Resources,
+					Env:             env,
+					EnvFrom:         envFrom,
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						PeriodSeconds:    30,
+						FailureThreshold: 5,
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						PeriodSeconds:    30,
+						FailureThreshold: 5,
+					},
+					StartupProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						InitialDelaySeconds: 10,
+						PeriodSeconds:       30,
+						FailureThreshold:    5,
+					},
+				}},
+				Volumes:     volumes,
+				Affinity:    &ai.Spec.Affinity,
+				Tolerations: ai.Spec.Tolerations,
+			},
+		}
+		return nil
+	}); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Deployment failed")
 		return fmt.Errorf("create/update Deployment: %w", err)
 	}
@@ -727,7 +749,13 @@ func (r *SaiaReconciler) reconcileSAIAService(
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Service failed")
 		return fmt.Errorf("ownerref on Service: %w", err)
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error { return nil }); err != nil {
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+		// Update mutable fields
+		svc.Spec.Selector = map[string]string{"app": ai.Name, "component": ai.Name}
+		svc.Spec.Ports = ports
+		svc.Spec.Type = svc.Spec.Type // Type is already set above based on ServiceTemplate
+		return nil
+	}); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Service failed")
 		return fmt.Errorf("create/update Service: %w", err)
 	}
@@ -756,7 +784,18 @@ func (r *SaiaReconciler) reconcileServiceMonitor(
 	if err := controllerutil.SetControllerReference(ai, sm, r.Scheme); err != nil {
 		return err
 	}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error { return nil })
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error {
+		// Update ServiceMonitor spec
+		sm.Spec = monitoringv1.ServiceMonitorSpec{
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
+			},
+			Endpoints: []monitoringv1.Endpoint{
+				{Port: "metrics", Path: ai.Spec.Metrics.Path, Scheme: "http"},
+			},
+		}
+		return nil
+	})
 	return err
 }
 

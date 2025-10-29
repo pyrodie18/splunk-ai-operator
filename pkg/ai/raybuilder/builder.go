@@ -251,43 +251,50 @@ func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *enterpriseA
 			Name:      "ray-autoscaler",
 			Namespace: p.Namespace,
 		},
-		Rules: []rbacv1.PolicyRule{
+	}
+
+	if _, err := controllerutil.CreateOrUpdate(ctx, b.Client, role, func() error {
+		// Update Role rules
+		role.Rules = []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"ray.io"},
 				Resources: []string{"rayclusters", "rayservices", "rayjobs"},
 				Verbs:     []string{"get", "list", "watch", "patch", "update", "delete"},
 			},
-		},
+		}
+		return controllerutil.SetOwnerReference(p, role, b.Scheme)
+	}); err != nil {
+		return fmt.Errorf("failed to create/update Role: %w", err)
 	}
-
-	if err := b.Client.Create(ctx, role); err != nil && !errors.IsAlreadyExists(err) {
-		return err
-	}
-	controllerutil.SetOwnerReference(p, role, b.Scheme)
 
 	roleBinding := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "ray-autoscaler-binding-" + p.Namespace + "-" + saName,
 			Namespace: p.Namespace,
 		},
-		Subjects: []rbacv1.Subject{
+	}
+
+	if _, err := controllerutil.CreateOrUpdate(ctx, b.Client, roleBinding, func() error {
+		// Set immutable RoleRef only on creation
+		if roleBinding.RoleRef.Name == "" {
+			roleBinding.RoleRef = rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "Role",
+				Name:     "ray-autoscaler",
+			}
+		}
+		// Update Subjects (mutable field)
+		roleBinding.Subjects = []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
 				Name:      saName,
 				Namespace: p.Namespace,
 			},
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     "ray-autoscaler",
-		},
+		}
+		return controllerutil.SetOwnerReference(p, roleBinding, b.Scheme)
+	}); err != nil {
+		return fmt.Errorf("failed to create/update RoleBinding: %w", err)
 	}
-
-	if err := b.Client.Create(ctx, roleBinding); err != nil && !errors.IsAlreadyExists(err) {
-		return err
-	}
-	controllerutil.SetOwnerReference(p, roleBinding, b.Scheme)
 	return nil
 }
 
