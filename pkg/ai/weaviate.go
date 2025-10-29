@@ -115,8 +115,13 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 	}
 
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sts, func() error {
-		sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-		sts.Spec.ServiceName = name
+		// Set immutable fields only if StatefulSet is being created (UID will be empty for new objects)
+		if sts.UID == "" {
+			sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+			sts.Spec.ServiceName = name
+		}
+
+		// Mutable fields - can always be updated
 		sts.Spec.Replicas = replicas
 		sts.Spec.Template.ObjectMeta.Labels = labels
 		sts.Spec.Template.Spec.ServiceAccountName = defaultSA
@@ -178,8 +183,10 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 			})
 		}
 
-		// Set VolumeClaimTemplates (this is how StatefulSets get persistent storage)
-		sts.Spec.VolumeClaimTemplates = volumeClaimTemplates
+		// Set VolumeClaimTemplates only on creation (immutable field)
+		if sts.UID == "" {
+			sts.Spec.VolumeClaimTemplates = volumeClaimTemplates
+		}
 
 		// Container definition
 		sts.Spec.Template.Spec.Containers = []corev1.Container{{
