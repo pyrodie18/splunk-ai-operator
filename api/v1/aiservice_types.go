@@ -45,9 +45,8 @@ type AIServiceSpec struct {
 	// +kubebuilder:validation:Optional
 	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
 
-	// VectorDbUrl specifies the HTTP/HTTPS URL for the vector database
+	// VectorDbUrl specifies the URL or service name for the vector database
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^https?://.*$`
 	VectorDbUrl string `json:"vectorDbUrl"`
 
 	// AIPlatformUrl specifies the URL for the AI Platform (deprecated, use AIPlatformRef)

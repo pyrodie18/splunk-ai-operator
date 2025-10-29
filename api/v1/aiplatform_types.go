@@ -284,9 +284,9 @@ type SplunkConfigurationSpec struct {
 	// +kubebuilder:validation:Optional
 	SecretRef corev1.SecretReference `json:"secretRef,omitempty"`
 
-	// Endpoint is the Splunk HEC endpoint URL
+	// Endpoint is the Splunk HEC endpoint URL or service name (mutually exclusive with SplunkCustomResourceRef)
+	// Either Endpoint or SplunkCustomResourceRef must be provided
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Pattern=`^https?://.*$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// Token is the Splunk HEC token (consider using SecretRef instead)
