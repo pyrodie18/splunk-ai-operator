@@ -137,6 +137,57 @@ e2e-ai:
 	FORWARD_SERVICE=$(FORWARD_SERVICE) \
 	go test ./test/e2e/specs -run "AIPlatform.*" -v -ginkgo.v -ginkgo.progress
 
+# Comprehensive E2E tests for all AIPlatform features
+.PHONY: e2e-comprehensive
+e2e-comprehensive: ## Run comprehensive E2E tests (storage, ingress, MTLS, status, events)
+	IMG=$(IMG) go test ./test/e2e/specs -run "AIPlatform Comprehensive" -v -ginkgo.v -ginkgo.progress
+
+# Run specific feature tests
+.PHONY: e2e-storage
+e2e-storage: ## Run storage configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Storage Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-ingress
+e2e-ingress: ## Run ingress configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Ingress Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-mtls
+e2e-mtls: ## Run MTLS configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "MTLS Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-status
+e2e-status: ## Run status condition E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Status Conditions" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-events
+e2e-events: ## Run event tracking E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Event Tracking" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-health
+e2e-health: ## Run component health E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Component Health" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-webhook
+e2e-webhook: ## Run webhook validation E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Webhook Validation" -v -ginkgo.v -ginkgo.progress
+
+# Cluster E2E tests - creates cluster and runs full test suite
+.PHONY: e2e-cluster-kind
+e2e-cluster-kind: ## Run E2E tests on kind cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider kind --cleanup-on-success
+
+.PHONY: e2e-cluster-eks
+e2e-cluster-eks: ## Run E2E tests on EKS cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider eks --region us-west-2 --cleanup-on-success
+
+.PHONY: e2e-cluster-gke
+e2e-cluster-gke: ## Run E2E tests on GKE cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider gke --region us-central1 --cleanup-on-success
+
+.PHONY: e2e-cluster-existing
+e2e-cluster-existing: ## Run E2E tests on existing cluster (no creation/deletion)
+	CLEANUP_ON_SUCCESS=false ./test/e2e/cluster-e2e-test.sh --skip-cluster-creation --skip-operator-install --skip-dependencies
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
