@@ -1425,6 +1425,7 @@ spec:
         value: "true"
         effect: "NoSchedule"
   ingress:
+    enabled: true
     className: ${INGRESS_CLASS}
     hosts:
       - host: ${INGRESS_HOST}
@@ -1433,8 +1434,10 @@ spec:
       - hosts: [ ${INGRESS_HOST} ]
         secretName: ${INGRESS_TLS_SECRET}
   splunkConfiguration:
-    endpoint: ${AI_STANDALONE_NAME}-standalone-service
-    secretRef: { name: ${secret_name} }
+    endpoint: http://${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8089
+    secretRef:
+      name: ${secret_name}
+      namespace: ${AI_NS}
   certificateRef: ${CERT_ISSUER}
 YAML
 
