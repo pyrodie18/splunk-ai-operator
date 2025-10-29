@@ -1717,8 +1717,9 @@ spec:
                   for the AIService
                 properties:
                   endpoint:
-                    description: Endpoint is the Splunk HEC endpoint URL
-                    pattern: ^https?://.*$
+                    description: |-
+                      Endpoint is the Splunk HEC endpoint URL or service name (mutually exclusive with SplunkCustomResourceRef)
+                      Either Endpoint or SplunkCustomResourceRef must be provided
                     type: string
                   secretRef:
                     description: SecretRef references a Secret containing Splunk credentials
@@ -1860,9 +1861,8 @@ spec:
                   type: object
                 type: array
               vectorDbUrl:
-                description: VectorDbUrl specifies the HTTP/HTTPS URL for the vector
-                  database
-                pattern: ^https?://.*$
+                description: VectorDbUrl specifies the URL or service name for the
+                  vector database
                 type: string
               version:
                 description: Version specifies the version of the AIService

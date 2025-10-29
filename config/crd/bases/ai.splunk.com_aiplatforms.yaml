@@ -2762,8 +2762,9 @@ spec:
                 description: SplunkConfiguration defines the Splunk integration configuration
                 properties:
                   endpoint:
-                    description: Endpoint is the Splunk HEC endpoint URL
-                    pattern: ^https?://.*$
+                    description: |-
+                      Endpoint is the Splunk HEC endpoint URL or service name (mutually exclusive with SplunkCustomResourceRef)
+                      Either Endpoint or SplunkCustomResourceRef must be provided
                     type: string
                   secretRef:
                     description: SecretRef references a Secret containing Splunk credentials
