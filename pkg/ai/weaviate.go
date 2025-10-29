@@ -8,6 +8,7 @@ import (
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,7 +55,9 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 	// Resolve Weaviate image from env
 	weaviateImage := os.Getenv("RELATED_IMAGE_WEAVIATE")
 	if weaviateImage == "" {
-		return fmt.Errorf("RELATED_IMAGE_WEAVIATE environment variable is required")
+		err := fmt.Errorf("RELATED_IMAGE_WEAVIATE environment variable is required")
+		r.Recorder.Event(instance, corev1.EventTypeWarning, "WeaviateConfigError", err.Error())
+		return err
 	}
 
 	// Derive default values
@@ -100,6 +103,17 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 	if err := controllerutil.SetControllerReference(instance, sts, r.Scheme); err != nil {
 		return err
 	}
+
+	// Check if StatefulSet exists to emit creation event
+	stsExists := true
+	existingSts := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: instance.Namespace}, existingSts); err != nil {
+		if apierrors.IsNotFound(err) {
+			stsExists = false
+			r.Recorder.Event(instance, corev1.EventTypeNormal, "WeaviateCreating", "Creating Weaviate StatefulSet")
+		}
+	}
+
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sts, func() error {
 		sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		sts.Spec.ServiceName = name
@@ -110,19 +124,88 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 		sts.Spec.Template.Spec.Tolerations = instance.Spec.CPUSchedulingSpec.Tolerations
 		sts.Spec.Template.Spec.NodeSelector = instance.Spec.CPUSchedulingSpec.NodeSelector
 
+		// Determine PVC configuration
+		volumeMounts := []corev1.VolumeMount{}
+		var volumeClaimTemplates []corev1.PersistentVolumeClaim
+
+		// Check if user provided an existing PVC name
+		if instance.Spec.Storage.VectorDB.PVCName != "" {
+			// Use existing PVC
+			sts.Spec.Template.Spec.Volumes = []corev1.Volume{{
+				Name: "weaviate-data",
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: instance.Spec.Storage.VectorDB.PVCName,
+					},
+				},
+			}}
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				Name:      "weaviate-data",
+				MountPath: "/var/lib/weaviate",
+			})
+		} else {
+			// Create dynamic PVC via VolumeClaimTemplate
+			volumeSize := instance.Spec.Storage.VectorDB.Size
+			if volumeSize == "" {
+				volumeSize = "50Gi" // default
+			}
+
+			pvcTemplate := corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "weaviate-data",
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{
+						corev1.ReadWriteOnce,
+					},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse(volumeSize),
+						},
+					},
+				},
+			}
+
+			// Add StorageClassName if specified
+			if instance.Spec.Storage.VectorDB.StorageClassName != "" {
+				pvcTemplate.Spec.StorageClassName = &instance.Spec.Storage.VectorDB.StorageClassName
+			}
+
+			volumeClaimTemplates = append(volumeClaimTemplates, pvcTemplate)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				Name:      "weaviate-data",
+				MountPath: "/var/lib/weaviate",
+			})
+		}
+
+		// Set VolumeClaimTemplates (this is how StatefulSets get persistent storage)
+		sts.Spec.VolumeClaimTemplates = volumeClaimTemplates
+
 		// Container definition
 		sts.Spec.Template.Spec.Containers = []corev1.Container{{
-			Name:      "weaviate",
-			Image:     weaviateImage,
-			Resources: resources,
+			Name:         "weaviate",
+			Image:        weaviateImage,
+			Resources:    resources,
+			VolumeMounts: volumeMounts,
 			Ports: []corev1.ContainerPort{{
 				Name:          "http",
 				ContainerPort: 8080,
 			}},
+			Env: []corev1.EnvVar{
+				{
+					Name:  "PERSISTENCE_DATA_PATH",
+					Value: "/var/lib/weaviate",
+				},
+			},
 		}}
 		return nil
 	}); err != nil {
+		r.Recorder.Eventf(instance, corev1.EventTypeWarning, "WeaviateCreationFailed", "Failed to create/update Weaviate: %v", err)
 		return err
+	}
+
+	if !stsExists {
+		r.Recorder.Event(instance, corev1.EventTypeNormal, "WeaviateCreated", "Weaviate StatefulSet created successfully")
 	}
 
 	// 3) Ensure Service

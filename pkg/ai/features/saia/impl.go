@@ -347,6 +347,18 @@ func (r *SaiaReconciler) reconcileCertificate(
 	if !ai.Spec.MTLS.Enabled || ai.Spec.MTLS.Termination != "operator" {
 		return nil
 	}
+
+	// Check if Certificate already exists to emit creation event
+	certExists := true
+	existingCert := &certmanagerv1.Certificate{}
+	certKey := types.NamespacedName{Name: ai.Name + "-tls", Namespace: ai.Namespace}
+	if err := r.Get(ctx, certKey, existingCert); err != nil {
+		if apierrors.IsNotFound(err) {
+			certExists = false
+			r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateCreating", "Creating mTLS certificate")
+		}
+	}
+
 	cert := &certmanagerv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ai.Name + "-tls",
@@ -363,22 +375,37 @@ func (r *SaiaReconciler) reconcileCertificate(
 		},
 	}
 	if err := controllerutil.SetControllerReference(ai, cert, r.Scheme); err != nil {
-		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Certificate failed")
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "MTLSCertificateError", "Failed to set owner reference on Certificate")
 		return fmt.Errorf("ownerref on Certificate: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
 		return nil
 	}); err != nil {
+		r.Recorder.Eventf(ai, corev1.EventTypeWarning, "MTLSCertificateCreationFailed", "Failed to create/update Certificate: %v", err)
 		return fmt.Errorf("create/update Certificate: %w", err)
 	}
+
+	if !certExists {
+		r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateCreated", "mTLS Certificate created successfully")
+	}
+
 	// Wait until Certificate is Ready
+	certReady := false
 	for _, cond := range cert.Status.Conditions {
 		if cond.Type == certmanagerv1.CertificateConditionReady && cond.Status == cmmeta.ConditionTrue {
-			return nil
+			certReady = true
+			break
 		}
 	}
-	r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "Certificate is not Ready")
-	return fmt.Errorf("waiting for Certificate %q to become Ready", cert.Name)
+
+	if !certReady {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "MTLSCertificateNotReady", "Waiting for cert-manager to issue certificate")
+		return fmt.Errorf("waiting for Certificate %q to become Ready", cert.Name)
+	}
+
+	// Emit success event when certificate becomes ready
+	r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateReady", "mTLS certificate issued successfully")
+	return nil
 }
 
 // reconcilePostInstallHook creates and watches the schema setup Job.

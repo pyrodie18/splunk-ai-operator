@@ -216,8 +216,14 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 		var current rayv1.RayService
 		if err := b.Client.Get(ctx, key, &current); err != nil {
 			if errors.IsNotFound(err) {
+				// Emit event for new RayService creation
+				b.Recorder.Event(p, corev1.EventTypeNormal, "RayServiceCreating", "Creating RayService resource")
 				controllerutil.SetOwnerReference(p, rayService, b.Scheme)
-				return b.Client.Create(ctx, rayService)
+				if err := b.Client.Create(ctx, rayService); err != nil {
+					return err
+				}
+				b.Recorder.Event(p, corev1.EventTypeNormal, "RayServiceCreated", "RayService resource created successfully")
+				return nil
 			}
 			b.Recorder.Eventf(p, corev1.EventTypeWarning, "ReconcileFailed", "Failed to reconcile RayService %v", err)
 			return err
@@ -288,26 +294,75 @@ func (b *Builder) ReconcileRayAutoscalerRBAC(ctx context.Context, p *enterpriseA
 // ApplyNormalizedConditions collects Ray signals and rolls them up into AIPlatform conditions.
 // Signature matches your state-machine call sites.
 func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseApi.AIPlatform) error {
+	logger := log.FromContext(ctx)
+
 	snap, err := raystatus.CollectRaySnapshot(ctx, b.Client, p.Namespace, p.Name)
 	if err != nil {
 		now := metav1.NewTime(time.Now())
+		errMsg := fmt.Sprintf("Failed to collect Ray snapshot: %v", err)
+
 		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
 			Type:               "RayServiceReady",
 			Status:             metav1.ConditionFalse,
 			Reason:             "RayServiceFetchError",
-			Message:            err.Error(),
+			Message:            errMsg,
 			LastTransitionTime: now,
 		})
 		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionFalse,
 			Reason:             "RayUnhealthy",
-			Message:            "Failed to collect Ray snapshot: " + err.Error(),
+			Message:            errMsg,
 			LastTransitionTime: now,
 		})
-		// optional telemetry for errors
+
+		// Emit warning event
+		b.Recorder.Event(p, corev1.EventTypeWarning, "RayServiceError",
+			fmt.Sprintf("Failed to get Ray status: %v", err))
+
 		telemetry.ObserveReconcileError(ctx, "ray_snapshot")
 		return err
+	}
+
+	// Collect detailed Ray errors
+	rayErrors := raystatus.ExtractRayErrors(ctx, b.Client, p.Namespace, p.Name)
+	if rayErrors.HasError {
+		logger.Info("Ray errors detected", "summary", rayErrors.Summary)
+
+		// Emit warning event with summary (only once per unique error)
+		b.Recorder.Event(p, corev1.EventTypeWarning, "RayComponentErrors", rayErrors.Summary)
+
+		// Log detailed errors for troubleshooting
+		if len(rayErrors.ServiceErrors) > 0 {
+			logger.Info("RayService errors", "errors", rayErrors.ServiceErrors)
+		}
+		if len(rayErrors.ApplicationErrors) > 0 {
+			logger.Info("Ray application errors", "errors", rayErrors.ApplicationErrors)
+			// Emit consolidated event for application errors (avoid spam)
+			if len(rayErrors.ApplicationErrors) == 1 {
+				for appName, appError := range rayErrors.ApplicationErrors {
+					b.Recorder.Eventf(p, corev1.EventTypeWarning, "RayApplicationError",
+						"Application %s: %s", appName, appError)
+					break
+				}
+			} else {
+				appNames := []string{}
+				for appName := range rayErrors.ApplicationErrors {
+					appNames = append(appNames, appName)
+					if len(appNames) >= 3 {
+						break
+					}
+				}
+				b.Recorder.Eventf(p, corev1.EventTypeWarning, "RayApplicationErrors",
+					"%d applications failing: %v (see logs for details)", len(rayErrors.ApplicationErrors), appNames)
+			}
+		}
+		if len(rayErrors.ClusterErrors) > 0 {
+			logger.Info("RayCluster errors", "errors", rayErrors.ClusterErrors)
+		}
+		if len(rayErrors.PodErrors) > 0 {
+			logger.Info("Ray pod errors", "count", len(rayErrors.PodErrors), "errors", rayErrors.PodErrors)
+		}
 	}
 
 	if snap.HeadServiceName != "" {
@@ -332,10 +387,33 @@ func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseAp
 		})
 	}
 
+	// Helper to check if condition status changed
+	getConditionStatus := func(condType string) metav1.ConditionStatus {
+		for _, cond := range p.Status.Conditions {
+			if cond.Type == condType {
+				return cond.Status
+			}
+		}
+		return metav1.ConditionUnknown
+	}
+
 	// RayService readiness (prefer Conditions; fallback to ServiceStatus)
+	rayServiceMsg := fmt.Sprintf("UpgradeInProgress=%t", snap.UpgradeInProgress)
+	if !rsReady && rayErrors.HasError && len(rayErrors.ServiceErrors) > 0 {
+		rayServiceMsg = rayErrors.ServiceErrors[0]
+	}
+
+	// Only emit event if state changed
+	prevRSReady := getConditionStatus("RayServiceReady")
+	if rsReady && prevRSReady != metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeNormal, "RayServiceReady", "RayService is ready and running")
+	} else if !rsReady && prevRSReady == metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeWarning, "RayServiceNotReady", rayServiceMsg)
+	}
+
 	set("RayServiceReady",
 		map[bool]string{true: "Ready", false: "NotReady"}[rsReady],
-		fmt.Sprintf("UpgradeInProgress=%t", snap.UpgradeInProgress),
+		rayServiceMsg,
 		rsReady,
 	)
 
@@ -356,24 +434,107 @@ func (b *Builder) ApplyNormalizedConditions(ctx context.Context, p *enterpriseAp
 
 	// Cluster readiness: head ready AND all workers ready (tune if you want thresholds)
 	clusterReady := snap.HeadPodReady && snap.DesiredWorkerReplicas == snap.AvailableWorkerReplicas
+	clusterMsg := fmt.Sprintf("workers %d/%d headReady=%t", snap.AvailableWorkerReplicas, snap.DesiredWorkerReplicas, snap.HeadPodReady)
+	if !clusterReady && rayErrors.HasError && len(rayErrors.ClusterErrors) > 0 {
+		clusterMsg = fmt.Sprintf("%s; %s", clusterMsg, rayErrors.ClusterErrors[0])
+	}
+
+	// Only emit event if state changed
+	prevClusterReady := getConditionStatus("RayClusterReady")
+	if clusterReady && prevClusterReady != metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeNormal, "RayClusterReady", "Ray cluster pods are ready")
+	} else if !clusterReady && prevClusterReady == metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeWarning, "RayClusterNotReady", clusterMsg)
+	}
+
 	set("RayClusterReady",
 		map[bool]string{true: "AllPodsReady", false: "PodsNotReady"}[clusterReady],
-		fmt.Sprintf("workers %d/%d headReady=%t", snap.AvailableWorkerReplicas, snap.DesiredWorkerReplicas, snap.HeadPodReady),
+		clusterMsg,
 		clusterReady,
 	)
 
 	// Serve route (is the k8s Service backed by endpoints?)
+	serveMsg := fmt.Sprintf("service=%s backed=%t", snap.ServeServiceName, snap.ServeServiceHasBackend)
+	if !snap.ServeServiceHasBackend && rayErrors.HasError && len(rayErrors.ApplicationErrors) > 0 {
+		// Add first application error to message
+		for _, appErr := range rayErrors.ApplicationErrors {
+			serveMsg = fmt.Sprintf("%s; %s", serveMsg, appErr)
+			break
+		}
+	}
+
+	// Only emit event if state changed
+	prevServeReady := getConditionStatus("RayServeRouteReady")
+	if snap.ServeServiceHasBackend && prevServeReady != metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeNormal, "RayServeReady", "Ray Serve applications are ready")
+	} else if !snap.ServeServiceHasBackend && prevServeReady == metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeWarning, "RayServeNotReady", serveMsg)
+	}
+
 	set("RayServeRouteReady",
 		map[bool]string{true: "EndpointsAvailable", false: "NoEndpoints"}[snap.ServeServiceHasBackend],
-		fmt.Sprintf("service=%s backed=%t", snap.ServeServiceName, snap.ServeServiceHasBackend),
+		serveMsg,
 		snap.ServeServiceHasBackend,
 	)
 
+	// Check Weaviate status
+	weaviateErrors := raystatus.ExtractWeaviateErrors(ctx, b.Client, p.Namespace, p.Name)
+	weaviateReady := !weaviateErrors.HasError
+	weaviateMsg := "Weaviate database is running"
+	if weaviateErrors.HasError {
+		weaviateMsg = weaviateErrors.Summary
+		logger.Info("Weaviate errors detected", "summary", weaviateErrors.Summary)
+
+		if len(weaviateErrors.PodErrors) > 0 {
+			logger.Info("Weaviate pod errors", "errors", weaviateErrors.PodErrors)
+		}
+	}
+
+	// Only emit event if state changed
+	prevWeaviateReady := getConditionStatus("WeaviateDatabaseReady")
+	if weaviateReady && prevWeaviateReady != metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeNormal, "WeaviateReady", "Weaviate database is ready")
+	} else if !weaviateReady && prevWeaviateReady == metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeWarning, "WeaviateNotReady", weaviateErrors.Summary)
+	}
+
+	set("WeaviateDatabaseReady",
+		map[bool]string{true: "Ready", false: "NotReady"}[weaviateReady],
+		weaviateMsg,
+		weaviateReady,
+	)
+
 	// Top-level Ready rollup
-	platformReady := rsReady && clusterReady && snap.ServeServiceHasBackend
+	platformReady := rsReady && clusterReady && snap.ServeServiceHasBackend && weaviateReady
+	readyMsg := "All components healthy: Ray, RayServe, and Weaviate"
+	if !platformReady {
+		failedComponents := []string{}
+		if !rsReady {
+			failedComponents = append(failedComponents, "RayService")
+		}
+		if !clusterReady {
+			failedComponents = append(failedComponents, "RayCluster")
+		}
+		if !snap.ServeServiceHasBackend {
+			failedComponents = append(failedComponents, "RayServe")
+		}
+		if !weaviateReady {
+			failedComponents = append(failedComponents, "Weaviate")
+		}
+		readyMsg = fmt.Sprintf("Degraded components: %v", failedComponents)
+	}
+
+	// Only emit event if overall platform state changed
+	prevPlatformReady := getConditionStatus("Ready")
+	if platformReady && prevPlatformReady != metav1.ConditionTrue {
+		b.Recorder.Event(p, corev1.EventTypeNormal, "PlatformReady", "AI Platform is fully ready")
+	} else if !platformReady && prevPlatformReady == metav1.ConditionTrue {
+		b.Recorder.Eventf(p, corev1.EventTypeWarning, "PlatformDegraded", "Platform degraded: %v", readyMsg)
+	}
+
 	set("Ready",
 		map[bool]string{true: "AllHealthy", false: "Degraded"}[platformReady],
-		"Composite of RayServiceReady ∧ RayClusterReady ∧ RayServeRouteReady",
+		readyMsg,
 		platformReady,
 	)
 
