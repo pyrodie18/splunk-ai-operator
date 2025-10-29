@@ -25,7 +25,7 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *enterpriseApi.
 	storObj.Path = fmt.Sprintf("%s/%s", storObj.Path, "ray-services/ai-platform/applications")
 
 	// 2️⃣ List actual artifacts in storage
-	storCli, err := storage.NewStorageClient(b.Client, p.Namespace, storObj)
+	storCli, err := storage.NewStorageClient(ctx, b.Client, p.Namespace, storObj)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err
@@ -33,7 +33,7 @@ func (b *Builder) ReconcileServeConfigMap(ctx context.Context, p *enterpriseApi.
 
 	var artfObj = p.Spec.ObjectStorage
 	artfObj.Path = fmt.Sprintf("%s/%s", artfObj.Path, "model_artifacts")
-	artfCli, err := storage.NewStorageClient(b.Client, p.Namespace, artfObj)
+	artfCli, err := storage.NewStorageClient(ctx, b.Client, p.Namespace, artfObj)
 	if err != nil {
 		log.Error(err, "failed to create storage client")
 		return err

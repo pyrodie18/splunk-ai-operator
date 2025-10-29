@@ -14,58 +14,155 @@ export LANG=C LC_ALL=C
 # Force all aws invocations in this script to skip the pager
 aws() { command /usr/bin/env aws --no-cli-pager "$@"; }
 
-# ====== CONFIG ======
-CLUSTER_NAME="cluster-name" # change me!
-REGION="us-west-2"
-K8S_VERSION="1.31"
+# ====== CONFIG FILE LOCATION ======
+CONFIG_FILE="${CONFIG_FILE:-$(dirname "$0")/cluster-config.yaml}"
 
-ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+# ====== LOAD CONFIGURATION FROM YAML ======
+load_config() {
+  local cfg="$CONFIG_FILE"
+  [[ -f "$cfg" ]] || err "Config file not found: $cfg"
 
-# Pod Identity for EBS CSI (addon)
-EBS_PI_ROLE_NAME="EBSCSIDriverPodIdentityRole-${CLUSTER_NAME}"
-EBS_SA="ebs-csi-controller-sa"
-EBS_NS="kube-system"
+  log "Loading configuration from: $cfg"
 
-# Cluster Autoscaler (IRSA)
-AUTOSCALER_RELEASE="cluster-autoscaler"
-AUTOSCALER_ROLE_NAME="ClusterAutoscalerRole-${CLUSTER_NAME}"
-AUTOSCALER_SA="cluster-autoscaler"
-AUTOSCALER_NS="kube-system"
-CA_IMAGE_TAG_DEFAULT="v${K8S_VERSION}.2"
-AUTOSCALER_IMAGE_TAG="${AUTOSCALER_IMAGE_TAG:-$CA_IMAGE_TAG_DEFAULT}"
+  # Read configuration using yq (if available) or fallback to basic parsing
+  if command -v yq >/dev/null 2>&1; then
+    CLUSTER_NAME="$(yq eval '.cluster.name' "$cfg")"
+    REGION="$(yq eval '.cluster.region' "$cfg")"
+    K8S_VERSION="$(yq eval '.cluster.k8sVersion' "$cfg")"
 
-# OpenTelemetry (operator + contrib collector)
-OTEL_NS="observability"
-OTEL_OPERATOR_RELEASE="otel-operator"
-OTEL_COLLECTOR_CR="otel-collector"
+    # Node groups
+    ENABLE_CPU="$(yq eval '.nodeGroups.cpu.enabled' "$cfg")"
+    CPU_INSTANCE_TYPE="$(yq eval '.nodeGroups.cpu.instanceType' "$cfg")"
+    CPU_DESIRED="$(yq eval '.nodeGroups.cpu.desiredCapacity' "$cfg")"
+    CPU_MIN="$(yq eval '.nodeGroups.cpu.minSize' "$cfg")"
+    CPU_MAX="$(yq eval '.nodeGroups.cpu.maxSize' "$cfg")"
+    CPU_VOLUME_SIZE="$(yq eval '.nodeGroups.cpu.volumeSize' "$cfg")"
+    CPU_VOLUME_TYPE="$(yq eval '.nodeGroups.cpu.volumeType' "$cfg")"
 
-# Splunk operators
-SPLUNK_AI_NS="splunk-ai-operator-system"
-SPLUNK_AI_FILE="./artifacts.yaml"   # local bundle for Splunk AI Operator
+    ENABLE_GPU="$(yq eval '.nodeGroups.gpu.enabled' "$cfg")"
+    GPU_INSTANCE_TYPE="$(yq eval '.nodeGroups.gpu.instanceType' "$cfg")"
+    GPU_DESIRED="$(yq eval '.nodeGroups.gpu.desiredCapacity' "$cfg")"
+    GPU_MIN="$(yq eval '.nodeGroups.gpu.minSize' "$cfg")"
+    GPU_MAX="$(yq eval '.nodeGroups.gpu.maxSize' "$cfg")"
+    GPU_VOLUME_SIZE="$(yq eval '.nodeGroups.gpu.volumeSize' "$cfg")"
+    GPU_VOLUME_TYPE="$(yq eval '.nodeGroups.gpu.volumeType' "$cfg")"
 
-# AI Platform app namespace + S3 bucket & prefixes
-AI_NS="ai-platform"
-S3_BUCKET_RAW="${CLUSTER_NAME}"
-S3_BUCKET="$(echo "${S3_BUCKET_RAW}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9.-')"
-S3_BUCKET="ai-platform-dev-vivekr"
-S3_PREFIXES=("artifacts/" "apps/" "tasks/")
-AI_STANDALONE_NAME="splunk-standalone"
-AI_PLATFORM_NAME="splunk-ai-stack"
-AI_BUCKET_POLICY_NAME="S3Access-${CLUSTER_NAME}-ai-platform"
+    # Storage
+    S3_BUCKET="$(yq eval '.storage.s3Bucket' "$cfg")"
+    STORAGE_CLASS="$(yq eval '.storage.storageClass' "$cfg")"
+    VECTORDB_SIZE="$(yq eval '.storage.vectorDbSize' "$cfg")"
 
-# Optional app upload
-SPLUNK_APP_LOCAL_PATH="${SPLUNK_APP_LOCAL_PATH:-}"
+    # AI Platform
+    AI_NS="$(yq eval '.aiPlatform.namespace' "$cfg")"
+    AI_PLATFORM_NAME="$(yq eval '.aiPlatform.name' "$cfg")"
+    RAY_HEAD_SA="$(yq eval '.aiPlatform.serviceAccounts.rayHead' "$cfg")"
+    RAY_WORKER_SA="$(yq eval '.aiPlatform.serviceAccounts.rayWorker' "$cfg")"
+    SAIA_SERVICE_SA="$(yq eval '.aiPlatform.serviceAccounts.saiaService' "$cfg")"
+    DEFAULT_ACCELERATOR="$(yq eval '.aiPlatform.defaultAcceleratorType' "$cfg")"
+    WORKER_IMAGE_REGISTRY="$(yq eval '.aiPlatform.workerGroupConfig.imageRegistry' "$cfg")"
+    INGRESS_HOST="$(yq eval '.aiPlatform.ingress.host' "$cfg")"
+    INGRESS_CLASS="$(yq eval '.aiPlatform.ingress.className' "$cfg")"
+    INGRESS_TLS_SECRET="$(yq eval '.aiPlatform.ingress.tlsSecretName' "$cfg")"
+    CERT_ISSUER="$(yq eval '.aiPlatform.certificate.issuerName' "$cfg")"
 
-# Nodegroups
-ENABLE_CPU=true
-ENABLE_GPU=true
+    # Splunk Standalone
+    AI_STANDALONE_NAME="$(yq eval '.splunkStandalone.name' "$cfg")"
+    STANDALONE_SA="$(yq eval '.splunkStandalone.serviceAccount' "$cfg")"
+    SPLUNK_APP_LOCAL_PATH="$(yq eval '.splunkStandalone.localAppPath' "$cfg")"
 
-# VPC subnets
-PRIVATE_2C="subnet-0f4af6d2f36fbe73f"
-PRIVATE_2D="subnet-024d4edaabe647586"
-PUBLIC_2B="subnet-0439b4f08a984ae52"
-PUBLIC_2C="subnet-06aef8e454c0e5542"
-PUBLIC_2D="subnet-0a183703673334cb4"
+    # Files
+    SPLUNK_OPERATOR_FILE="$(yq eval '.files.splunkOperatorManifest' "$cfg")"
+    SPLUNK_AI_FILE="$(yq eval '.files.splunkAiOperatorManifest' "$cfg")"
+
+    # Operators
+    SPLUNK_IMAGE="$(yq eval '.operators.splunk.image' "$cfg")"
+    RAY_VERSION="$(yq eval '.operators.ray.version' "$cfg")"
+    NVIDIA_VERSION="$(yq eval '.operators.nvidia.devicePluginVersion' "$cfg")"
+
+    # Subnets - read as arrays (Bash 3.2 compatible)
+    PRIVATE_SUBNETS=()
+    while IFS= read -r subnet; do
+      [[ -n "$subnet" ]] && PRIVATE_SUBNETS+=("$subnet")
+    done < <(yq eval '.cluster.subnets.private[].id' "$cfg")
+
+    PUBLIC_SUBNETS=()
+    while IFS= read -r subnet; do
+      [[ -n "$subnet" ]] && PUBLIC_SUBNETS+=("$subnet")
+    done < <(yq eval '.cluster.subnets.public[].id' "$cfg")
+  else
+    # Fallback: simple grep-based parsing (less robust but works without yq)
+    CLUSTER_NAME="$(grep 'name:' "$cfg" | head -1 | sed 's/.*name: *"\(.*\)".*/\1/')"
+    REGION="$(grep 'region:' "$cfg" | head -1 | sed 's/.*region: *"\(.*\)".*/\1/')"
+    K8S_VERSION="$(grep 'k8sVersion:' "$cfg" | sed 's/.*k8sVersion: *"\(.*\)".*/\1/')"
+    S3_BUCKET="$(grep 's3Bucket:' "$cfg" | sed 's/.*s3Bucket: *"\(.*\)".*/\1/')"
+    AI_NS="$(grep 'namespace:' "$cfg" | grep -A2 'aiPlatform:' | tail -1 | sed 's/.*namespace: *"\(.*\)".*/\1/')"
+    AI_PLATFORM_NAME="splunk-ai-stack"
+    AI_STANDALONE_NAME="splunk-standalone"
+    STORAGE_CLASS="gp3"
+    VECTORDB_SIZE="50Gi"
+    RAY_HEAD_SA="ray-head-sa"
+    RAY_WORKER_SA="ray-worker-sa"
+    SAIA_SERVICE_SA="saia-service-sa"
+    DEFAULT_ACCELERATOR="L40S"
+    WORKER_IMAGE_REGISTRY=""
+    INGRESS_HOST="ai.example.com"
+    INGRESS_CLASS="nginx"
+    INGRESS_TLS_SECRET="ai-platform-tls"
+    CERT_ISSUER="platform-issuer"
+    SPLUNK_OPERATOR_FILE="./splunk-operator-cluster.yaml"
+    SPLUNK_AI_FILE="./artifacts.yaml"
+    SPLUNK_IMAGE="vivekrsplunk/splunk:ef65e8205e4d-6d943f7-28228924"
+    RAY_VERSION="v1.2.2"
+    NVIDIA_VERSION="v0.17.3"
+    ENABLE_CPU=true
+    ENABLE_GPU=true
+    CPU_INSTANCE_TYPE="m5.xlarge"
+    CPU_DESIRED=4
+    CPU_MIN=2
+    CPU_MAX=8
+    CPU_VOLUME_SIZE=500
+    CPU_VOLUME_TYPE="gp3"
+    GPU_INSTANCE_TYPE="g6e.12xlarge"
+    GPU_DESIRED=2
+    GPU_MIN=2
+    GPU_MAX=4
+    GPU_VOLUME_SIZE=1000
+    GPU_VOLUME_TYPE="gp3"
+    SPLUNK_APP_LOCAL_PATH=""
+
+    # Hardcoded subnets for fallback
+    PRIVATE_SUBNETS=("subnet-0f4af6d2f36fbe73f" "subnet-024d4edaabe647586")
+    PUBLIC_SUBNETS=("subnet-0439b4f08a984ae52" "subnet-06aef8e454c0e5542" "subnet-0a183703673334cb4")
+  fi
+
+  # Derived values
+  ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+  S3_PREFIXES=("artifacts/" "apps/" "tasks/")
+  AI_BUCKET_POLICY_NAME="S3Access-${CLUSTER_NAME}-ai-platform"
+
+  # IRSA for EBS CSI
+  EBS_IRSA_ROLE_NAME="EBSCSIDriverRole-${CLUSTER_NAME}"
+  EBS_SA="ebs-csi-controller-sa"
+  EBS_NS="kube-system"
+
+  # Cluster Autoscaler (IRSA)
+  AUTOSCALER_RELEASE="cluster-autoscaler"
+  AUTOSCALER_ROLE_NAME="ClusterAutoscalerRole-${CLUSTER_NAME}"
+  AUTOSCALER_SA="cluster-autoscaler"
+  AUTOSCALER_NS="kube-system"
+  CA_IMAGE_TAG_DEFAULT="v${K8S_VERSION}.2"
+  AUTOSCALER_IMAGE_TAG="${AUTOSCALER_IMAGE_TAG:-$CA_IMAGE_TAG_DEFAULT}"
+
+  # OpenTelemetry
+  OTEL_NS="observability"
+  OTEL_OPERATOR_RELEASE="otel-operator"
+  OTEL_COLLECTOR_CR="otel-collector"
+
+  # Splunk operators
+  SPLUNK_AI_NS="splunk-ai-operator-system"
+
+  log "Configuration loaded: cluster=${CLUSTER_NAME}, region=${REGION}, namespace=${AI_NS}"
+}
 
 # ---- logging ----
 log()   { echo -e "\033[1;32m[INFO]\033[0m $*" >&2; }
@@ -230,7 +327,7 @@ wait_autoscaler_rollout() {
 }
 
 install_nvidia_device_plugin() {
-  local ver="${NVIDIA_DEVICE_PLUGIN_VERSION:-v0.17.3}"
+  local ver="${NVIDIA_VERSION:-v0.17.3}"
   log "Ensuring NVIDIA device plugin ($ver)..."
   kubectl apply -n kube-system -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/${ver}/deployments/static/nvidia-device-plugin.yml"
   kubectl -n kube-system rollout status ds/nvidia-device-plugin-daemonset --timeout=10m || true
@@ -278,15 +375,15 @@ detect_otel_api_version() {
 # ---------- Nodegroups ----------
 generate_node_groups() {
   local nodes=""
-  if $ENABLE_CPU; then
+  if [[ "$ENABLE_CPU" == "true" ]]; then
     nodes+="
   - name: cpu-nodes
-    instanceType: m5.xlarge
-    desiredCapacity: 4
-    minSize: 2
-    maxSize: 8
-    volumeSize: 500
-    volumeType: gp3
+    instanceType: ${CPU_INSTANCE_TYPE}
+    desiredCapacity: ${CPU_DESIRED}
+    minSize: ${CPU_MIN}
+    maxSize: ${CPU_MAX}
+    volumeSize: ${CPU_VOLUME_SIZE}
+    volumeType: ${CPU_VOLUME_TYPE}
     tags:
       Name: ${CLUSTER_NAME}-cpu
       Environment: prod
@@ -294,15 +391,15 @@ generate_node_groups() {
       k8s.io/cluster-autoscaler/enabled: \"true\"
       k8s.io/cluster-autoscaler/${CLUSTER_NAME}: owned"
   fi
-  if $ENABLE_GPU; then
+  if [[ "$ENABLE_GPU" == "true" ]]; then
     nodes+="
   - name: gpu-nodes
-    instanceType: g6e.12xlarge
-    desiredCapacity: 2
-    minSize: 2
-    maxSize: 4
-    volumeSize: 1000
-    volumeType: gp3
+    instanceType: ${GPU_INSTANCE_TYPE}
+    desiredCapacity: ${GPU_DESIRED}
+    minSize: ${GPU_MIN}
+    maxSize: ${GPU_MAX}
+    volumeSize: ${GPU_VOLUME_SIZE}
+    volumeType: ${GPU_VOLUME_TYPE}
     tags:
       Name: ${CLUSTER_NAME}-gpu
       Environment: prod
@@ -320,6 +417,51 @@ generate_node_groups() {
 # ---------- Cluster config / create ----------
 create_cluster_config() {
   log "Generating cluster config..."
+
+  # Build subnet configuration dynamically
+  local private_subnets="" public_subnets=""
+
+  # Private subnets
+  for subnet in "${PRIVATE_SUBNETS[@]}"; do
+    # Extract AZ from subnet (assumes format like subnet-xxx or we use index)
+    # For now, we'll just use a generic index-based approach
+    local az_suffix
+    if [[ ${#PRIVATE_SUBNETS[@]} -eq 2 ]]; then
+      # Assume us-west-2c and us-west-2d for 2 subnets
+      if [[ "$subnet" == "${PRIVATE_SUBNETS[0]}" ]]; then az_suffix="c"; else az_suffix="d"; fi
+    else
+      # For more subnets, use sequential letters
+      local idx=0
+      for s in "${PRIVATE_SUBNETS[@]}"; do
+        if [[ "$s" == "$subnet" ]]; then
+          az_suffix=$(printf "\\$(printf '%03o' $((99+idx)))"); break
+        fi
+        ((idx++))
+      done
+    fi
+    private_subnets+="      ${REGION}${az_suffix}: { id: ${subnet} }"$'\n'
+  done
+
+  # Public subnets
+  for subnet in "${PUBLIC_SUBNETS[@]}"; do
+    local az_suffix
+    if [[ ${#PUBLIC_SUBNETS[@]} -eq 3 ]]; then
+      # Assume us-west-2b, 2c, 2d for 3 subnets
+      if [[ "$subnet" == "${PUBLIC_SUBNETS[0]}" ]]; then az_suffix="b"
+      elif [[ "$subnet" == "${PUBLIC_SUBNETS[1]}" ]]; then az_suffix="c"
+      else az_suffix="d"; fi
+    else
+      local idx=0
+      for s in "${PUBLIC_SUBNETS[@]}"; do
+        if [[ "$s" == "$subnet" ]]; then
+          az_suffix=$(printf "\\$(printf '%03o' $((98+idx)))"); break
+        fi
+        ((idx++))
+      done
+    fi
+    public_subnets+="      ${REGION}${az_suffix}: { id: ${subnet} }"$'\n'
+  done
+
   cat <<EOF > eks-cluster-config.yaml
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -337,13 +479,8 @@ addons:
 vpc:
   subnets:
     private:
-      us-west-2c: { id: ${PRIVATE_2C} }
-      us-west-2d: { id: ${PRIVATE_2D} }
-    public:
-      us-west-2b: { id: ${PUBLIC_2B} }
-      us-west-2c: { id: ${PUBLIC_2C} }
-      us-west-2d: { id: ${PUBLIC_2D} }
-managedNodeGroups:
+${private_subnets}    public:
+${public_subnets}managedNodeGroups:
 $(generate_node_groups)
 EOF
 }
@@ -356,56 +493,108 @@ ensure_oidc() {
   if [[ -z "$issuer" || "$issuer" == "None" ]]; then
     eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
   fi
+
+  # Verify OIDC provider is ready before proceeding with IRSA creation
+  log "Verifying OIDC provider is ready..."
+  local oidc_arn; oidc_arn="$(get_oidc_provider_arn || true)"
+  if [[ -z "$oidc_arn" ]]; then
+    err "OIDC provider not ready after association. Cannot proceed with IRSA creation."
+  fi
+
+  # Verify OIDC provider exists in IAM
+  if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$oidc_arn" >/dev/null 2>&1; then
+    err "OIDC provider ARN $oidc_arn not found in IAM. Cannot proceed with IRSA creation."
+  fi
+
+  log "✓ OIDC provider is ready: $oidc_arn"
 }
 
-# ---------- EBS CSI via Pod Identity ----------
+# ---------- EBS CSI via IRSA ----------
 install_ebs_csi_addon() {
-  log "Installing aws-ebs-csi-driver add-on (Pod Identity path)..."
-  eksctl create addon --cluster "${CLUSTER_NAME}" --name eks-pod-identity-agent --force || true
-  eksctl create addon --cluster "${CLUSTER_NAME}" --name aws-ebs-csi-driver --force || true
-  wait_pod_identity_agent_best_effort 180
-}
+  log "Installing aws-ebs-csi-driver add-on with IRSA..."
 
-ensure_ebs_pod_identity_role() {
-  local policy_file; policy_file="$(render_pi_trust_policy)"
-  if aws iam get-role --role-name "${EBS_PI_ROLE_NAME}" >/dev/null 2>&1; then
-    log "Pod Identity role exists: ${EBS_PI_ROLE_NAME} (updating trust policy if needed)"
-  else
-    log "Creating Pod Identity IAM role: ${EBS_PI_ROLE_NAME}"
-    aws iam create-role --role-name "${EBS_PI_ROLE_NAME}" --assume-role-policy-document "file://${policy_file}"
+  # Verify IAM role exists before creating addon
+  log "Verifying EBS CSI IAM role exists..."
+  if ! aws iam get-role --role-name "${EBS_IRSA_ROLE_NAME}" >/dev/null 2>&1; then
+    err "IAM role ${EBS_IRSA_ROLE_NAME} does not exist. Cannot create addon."
   fi
-  aws iam update-assume-role-policy --role-name "${EBS_PI_ROLE_NAME}" --policy-document "file://${policy_file}"
-  if ! aws iam list-attached-role-policies --role-name "${EBS_PI_ROLE_NAME}" \
-      --query "AttachedPolicies[?PolicyArn=='arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy'] | length(@)" \
-      --output text | grep -q '^1$'; then
-    aws iam attach-role-policy --role-name "${EBS_PI_ROLE_NAME}" --policy-arn "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-  fi
-}
+  log "✓ IAM role ${EBS_IRSA_ROLE_NAME} exists"
 
-ensure_ebs_pod_identity_association() {
-  local assoc_id
-  assoc_id="$(aws eks list-pod-identity-associations --cluster-name "${CLUSTER_NAME}" \
-    --query "associations[?namespace=='${EBS_NS}' && serviceAccount=='${EBS_SA}'].associationId" \
-    --output text 2>/dev/null || true)"
-  if [[ -n "$assoc_id" && "$assoc_id" != "None" ]]; then
-    log "Pod Identity association exists: $assoc_id"; return 0
-  fi
-  log "Creating Pod Identity association for ${EBS_NS}/${EBS_SA}"
-  local role_arn="arn:aws:iam::${ACCOUNT_ID}:role/${EBS_PI_ROLE_NAME}"
-  local i; for i in {1..6}; do
-    if aws eks create-pod-identity-association \
-      --cluster-name "${CLUSTER_NAME}" \
-      --namespace "${EBS_NS}" \
-      --service-account "${EBS_SA}" \
-      --role-arn "${role_arn}" >/dev/null 2>&1; then
-      log "Pod Identity association created."; return 0
+  # Use eksctl to create addon with IRSA
+  log "Creating aws-ebs-csi-driver addon..."
+  if ! eksctl create addon \
+    --cluster "${CLUSTER_NAME}" \
+    --name aws-ebs-csi-driver \
+    --service-account-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${EBS_IRSA_ROLE_NAME}" \
+    --force; then
+    warn "Addon creation command failed. Checking if addon already exists..."
+    # Check if addon exists (idempotent behavior)
+    if aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver >/dev/null 2>&1; then
+      log "Addon already exists, continuing..."
+    else
+      err "Failed to create EBS CSI addon. Check: aws eks describe-addon --cluster-name ${CLUSTER_NAME} --addon-name aws-ebs-csi-driver"
     fi
-    warn "Association not ready yet (attempt $i/6). Waiting 5s..."; sleep 5
+  fi
+
+  # Wait for addon to become ACTIVE
+  log "Waiting for EBS CSI addon to become ACTIVE (max 5 minutes)..."
+  local waited=0
+  while [[ $waited -lt 300 ]]; do
+    local addon_status; addon_status="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text 2>/dev/null || echo "UNKNOWN")"
+    if [[ "$addon_status" == "ACTIVE" ]]; then
+      log "✓ EBS CSI addon is ACTIVE"; break
+    elif [[ "$addon_status" == "CREATE_FAILED" ]]; then
+      err "Addon creation failed! Check: aws eks describe-addon --cluster-name ${CLUSTER_NAME} --addon-name aws-ebs-csi-driver"
+    fi
+    sleep 5; waited=$((waited+5))
   done
-  aws eks create-pod-identity-association --cluster-name "${CLUSTER_NAME}" --namespace "${EBS_NS}" --service-account "${EBS_SA}" --role-arn "${role_arn}"
+
+  # Check if we timed out
+  if [[ $waited -ge 300 ]]; then
+    local final_status; final_status="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text 2>/dev/null || echo "UNKNOWN")"
+    err "Timeout waiting for EBS CSI addon to become ACTIVE. Current status: ${final_status}. Check: kubectl get pods -n kube-system -l app=ebs-csi-controller"
+  fi
 }
 
-verify_ebs_csi_ready() { wait_rollout kube-system deploy ebs-csi-controller; wait_rollout kube-system ds ebs-csi-node; }
+ensure_ebs_irsa_role() {
+  log "Ensuring EBS CSI IRSA role and service account..."
+
+  # Create IRSA for EBS CSI using eksctl (handles role creation, trust policy, and SA annotation)
+  eksctl create iamserviceaccount \
+    --cluster "${CLUSTER_NAME}" \
+    --namespace "${EBS_NS}" \
+    --name "${EBS_SA}" \
+    --role-name "${EBS_IRSA_ROLE_NAME}" \
+    --attach-policy-arn "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy" \
+    --approve \
+    --override-existing-serviceaccounts
+
+  log "✓ EBS CSI IRSA role and service account configured"
+}
+
+verify_ebs_csi_ready() {
+  log "Verifying EBS CSI controller is ready..."
+
+  # Wait for deployment to exist
+  local waited=0
+  while [[ $waited -lt 120 ]]; do
+    if kubectl get deployment -n kube-system ebs-csi-controller >/dev/null 2>&1; then
+      log "✓ EBS CSI controller deployment exists"; break
+    fi
+    sleep 5; waited=$((waited+5))
+  done
+
+  # Wait for rollout to complete
+  log "Waiting for EBS CSI controller rollout (max 5 minutes)..."
+  kubectl rollout status deployment -n kube-system ebs-csi-controller --timeout=5m || {
+    warn "Rollout timeout - checking pod status..."
+    kubectl get pods -n kube-system -l app=ebs-csi-controller
+  }
+
+  # Also ensure daemonset is ready
+  log "Checking EBS CSI node daemonset..."
+  kubectl rollout status ds -n kube-system ebs-csi-node --timeout=3m || true
+}
 
 create_gp3_storageclass() {
   log "Creating gp3 StorageClass and setting default..."
@@ -553,18 +742,18 @@ YAML
 
 # ---------- Ray Operator ----------
 install_ray_operator() {
-  log "Installing Ray Operator v1.2.2..."
-  kubectl apply -k "github.com/ray-project/kuberay/ray-operator/config/default?ref=v1.2.2" --server-side --force-conflicts
+  log "Installing Ray Operator ${RAY_VERSION}..."
+  kubectl apply -k "github.com/ray-project/kuberay/ray-operator/config/default?ref=${RAY_VERSION}" --server-side --force-conflicts
   wait_rollout ray-system deploy kuberay-operator
 }
 
 # ---------- Splunk Operator(s) ----------
 install_splunk_operator() {
   log "Installing Splunk Operator (cluster-scope manifest in CWD)..."
-  need_file ./splunk-operator-cluster.yaml
-  kubectl apply -f ./splunk-operator-cluster.yaml --server-side --force-conflicts
-  kubectl set env deployment/splunk-operator-controller-manager  -n splunk-operator RELATED_IMAGE_SPLUNK_ENTERPRISE=vivekrsplunk/splunk:ef65e8205e4d-6d943f7-28228924
-  kubectl set env deployment/splunk-operator-controller-manager  -n splunk-operator SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+  need_file "${SPLUNK_OPERATOR_FILE}"
+  kubectl apply -f "${SPLUNK_OPERATOR_FILE}" --server-side --force-conflicts
+  kubectl set env deployment/splunk-operator-controller-manager -n splunk-operator RELATED_IMAGE_SPLUNK_ENTERPRISE="${SPLUNK_IMAGE}"
+  kubectl set env deployment/splunk-operator-controller-manager -n splunk-operator SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
   check_ready splunk-operator "name=splunk-operator"
   wait_for_crd standalones.enterprise.splunk.com 600
 }
@@ -796,14 +985,29 @@ install_splunk_standalone() {
   ensure_namespace "${AI_NS}"
   wait_for_crd standalones.enterprise.splunk.com 600
 
-  resolve_aws_creds_for_secret
-  local ak="${AWS_ACCESS_KEY_ID:-}"; local sk="${AWS_SECRET_ACCESS_KEY:-}"; local st="${AWS_SESSION_TOKEN:-}"
-  [[ -z "$ak" || -z "$sk" ]] && err "Missing AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY after resolution."
-  kubectl -n "${AI_NS}" create secret generic s3-secret \
-    --from-literal=s3_access_key="${ak}" \
-    --from-literal=s3_secret_key="${sk}" \
-    $( [[ -n "$st" ]] && printf -- "--from-literal=s3_session_token=%s" "$st" ) \
-    --dry-run=client -o yaml | kubectl apply -f -
+  # Create IRSA for Splunk Standalone (recommended approach)
+  log "Setting up IRSA for Splunk Standalone service account..."
+  local policy_arn; policy_arn="$(ensure_bucket_policy "${AI_BUCKET_POLICY_NAME}" "${S3_BUCKET}")"
+  ensure_irsa_for_sa "${STANDALONE_SA}" "${AI_NS}" "${policy_arn}"
+
+  # DEPRECATED: Create s3-secret using AWS credentials
+  # This is legacy approach - IRSA above is preferred, but Splunk Operator may still require the secret
+  log "Creating s3-secret for Splunk Standalone (fallback if IRSA not fully supported)..."
+  if resolve_aws_creds_for_secret 2>/dev/null; then
+    local ak="${AWS_ACCESS_KEY_ID:-}"; local sk="${AWS_SECRET_ACCESS_KEY:-}"; local st="${AWS_SESSION_TOKEN:-}"
+    if [[ -n "$ak" && -n "$sk" ]]; then
+      kubectl -n "${AI_NS}" create secret generic s3-secret \
+        --from-literal=s3_access_key="${ak}" \
+        --from-literal=s3_secret_key="${sk}" \
+        $( [[ -n "$st" ]] && printf -- "--from-literal=s3_session_token=%s" "$st" ) \
+        --dry-run=client -o yaml | kubectl apply -f -
+      log "✓ Created s3-secret with explicit credentials"
+    else
+      warn "No AWS credentials available - s3-secret not created. Splunk Standalone will use IRSA."
+    fi
+  else
+    warn "AWS credentials not available - s3-secret not created. Splunk Standalone will use IRSA via ${STANDALONE_SA}."
+  fi
 
   cat <<'YAML' | kubectl -n "${AI_NS}" apply -f -
 apiVersion: v1
@@ -831,11 +1035,11 @@ metadata:
   name: ${AI_STANDALONE_NAME}
   namespace: ${AI_NS}
 spec:
-  serviceAccount: saia-service-sa
+  serviceAccount: ${STANDALONE_SA}
   etcVolumeStorageConfig:
-    storageClassName: gp3
+    storageClassName: ${STORAGE_CLASS}
   varVolumeStorageConfig:
-    storageClassName: gp3
+    storageClassName: ${STORAGE_CLASS}
   volumes:
     - name: defaults
       configMap:
@@ -892,14 +1096,265 @@ update_splunk_secret_password_only() {
 
 # ---------- AIPlatform CR ----------
 wait_aiplatform_ready() {
-  local waited=0 max_wait=1800
-  log "Waiting for AIPlatform/${AI_PLATFORM_NAME} Ready condition (up to $((max_wait/60))m)..."
+  local waited=0 max_wait=1800 check_interval=15
+  local last_status="" shown_events=0
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "Monitoring AIPlatform/${AI_PLATFORM_NAME} deployment status..."
+  log "This may take 10-15 minutes for AI models to download and initialize"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
   while true; do
-    local cond; cond=$(kubectl -n "${AI_NS}" get aiplatforms.ai.splunk.com "${AI_PLATFORM_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-    if [[ "$cond" == "True" ]]; then log "AIPlatform is Ready"; return 0; fi
-    [[ $waited -ge $max_wait ]] && { warn "Timed out waiting for AIPlatform Ready (continuing)."; return 0; }
-    sleep 10; waited=$((waited+10))
+    # Get all status conditions as JSON
+    local conditions
+    conditions=$(kubectl -n "${AI_NS}" get aiplatforms.ai.splunk.com "${AI_PLATFORM_NAME}" \
+      -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
+
+    # Parse individual condition statuses
+    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+    ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
+    ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
+    ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
+    ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
+    weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
+    ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+
+    # Build status summary
+    local current_status="Ready:$ready_status Ray:$ray_service_status RayCluster:$ray_cluster_status RayServe:$ray_serve_status Weaviate:$weaviate_status"
+    [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
+
+    # Only show status update if it changed
+    if [[ "$current_status" != "$last_status" ]]; then
+      echo ""
+      log "📊 Component Status:"
+      log "  ├─ Platform Ready:     $(format_status "$ready_status")"
+      log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
+      log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
+      log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
+      log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+      [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+
+      # Show recent events since last check
+      log ""
+      log "📝 Recent Events:"
+      local events
+      events=$(kubectl get events -n "${AI_NS}" \
+        --field-selector involvedObject.name="${AI_PLATFORM_NAME}" \
+        --sort-by='.lastTimestamp' 2>/dev/null | tail -n +2 | tail -5)
+
+      if [[ -n "$events" ]]; then
+        while IFS= read -r event_line; do
+          local event_type event_reason event_message
+          event_type=$(echo "$event_line" | awk '{print $2}')
+          event_reason=$(echo "$event_line" | awk '{print $4}')
+          event_message=$(echo "$event_line" | cut -d' ' -f5-)
+
+          if [[ "$event_type" == "Warning" ]]; then
+            log "  ⚠️  $event_reason: $event_message"
+          else
+            log "  ✓  $event_reason: $event_message"
+          fi
+        done <<< "$events"
+      else
+        log "  (No events yet)"
+      fi
+
+      # Show any failure messages
+      local failure_msgs
+      failure_msgs=$(echo "$conditions" | jq -r '.[] | select(.status=="False") | "  ❌ \(.type): \(.message)"' 2>/dev/null || true)
+      if [[ -n "$failure_msgs" ]]; then
+        echo ""
+        log "⚠️  Components Not Ready:"
+        echo "$failure_msgs"
+      fi
+
+      last_status="$current_status"
+      shown_events=$((shown_events+1))
+    fi
+
+    # Check if platform is ready
+    if [[ "$ready_status" == "True" ]]; then
+      echo ""
+      log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      log "✅ AIPlatform is Ready!"
+      log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # Show final access information
+      show_platform_access_info
+      return 0
+    fi
+
+    # Check timeout
+    if [[ $waited -ge $max_wait ]]; then
+      echo ""
+      warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      warn "⏱️  Timeout waiting for AIPlatform Ready after $((max_wait/60)) minutes"
+      warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      warn "Current status: $current_status"
+      warn ""
+      warn "To check status manually:"
+      warn "  kubectl get aiplatform ${AI_PLATFORM_NAME} -n ${AI_NS}"
+      warn "  kubectl get events -n ${AI_NS} --field-selector involvedObject.name=${AI_PLATFORM_NAME}"
+      warn "  kubectl logs -n splunk-ai-operator-system deployment/splunk-ai-operator-controller-manager"
+      return 1
+    fi
+
+    # Wait before next check
+    echo -n "."
+    sleep "$check_interval"
+    waited=$((waited + check_interval))
   done
+}
+
+# Helper function to format status with colors/symbols
+format_status() {
+  local status="$1"
+  case "$status" in
+    "True")  echo "✅ Ready" ;;
+    "False") echo "❌ Not Ready" ;;
+    "Unknown") echo "⏳ Starting..." ;;
+    *) echo "❓ $status" ;;
+  esac
+}
+
+# Show access information after platform is ready
+show_platform_access_info() {
+  log ""
+  log "📍 Access Information:"
+
+  # Get service names
+  local ray_svc weaviate_svc
+  ray_svc=$(kubectl -n "${AI_NS}" get svc -l ray.io/cluster="${AI_PLATFORM_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  weaviate_svc=$(kubectl -n "${AI_NS}" get svc -l app="${AI_PLATFORM_NAME}-weaviate" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  # Ray Serve (AI API)
+  if [[ -n "$ray_svc" ]]; then
+    log "  🤖 AI Inference API (Ray Serve):"
+    log "     Internal: http://${ray_svc}.${AI_NS}.svc.cluster.local:8000"
+    log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${ray_svc} 8000:8000"
+    log "     Test: curl http://localhost:8000/v1/chat/completions"
+  fi
+
+  # Weaviate
+  if [[ -n "$weaviate_svc" ]]; then
+    log ""
+    log "  🗄️  Vector Database (Weaviate):"
+    log "     Internal: http://${weaviate_svc}.${AI_NS}.svc.cluster.local:80"
+    log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${weaviate_svc} 8080:80"
+  fi
+
+  # Ingress info
+  local ingress_host ingress_ip
+  ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
+  ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+  if [[ -n "$ingress_host" ]]; then
+    log ""
+    log "  🌐 External Access (Ingress):"
+    log "     Host: ${ingress_host}"
+    [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
+    log "     Update DNS: ${ingress_host} → ${ingress_ip}"
+    log "     Test: curl https://${ingress_host}/v1/chat/completions"
+  fi
+
+  log ""
+  log "📊 Monitoring Commands:"
+  log "  kubectl get aiplatform ${AI_PLATFORM_NAME} -n ${AI_NS}"
+  log "  kubectl get events -n ${AI_NS} --watch --field-selector involvedObject.name=${AI_PLATFORM_NAME}"
+  log "  kubectl get pods -n ${AI_NS} -l ai.splunk.com/platform=${AI_PLATFORM_NAME}"
+  log ""
+}
+
+# Quick status check function - can be called standalone
+check_aiplatform_status() {
+  local platform_name="${1:-${AI_PLATFORM_NAME}}"
+  local namespace="${2:-${AI_NS}}"
+
+  need jq
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "AIPlatform Status Check: ${namespace}/${platform_name}"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Check if resource exists
+  if ! kubectl -n "${namespace}" get aiplatforms.ai.splunk.com "${platform_name}" >/dev/null 2>&1; then
+    err "AIPlatform ${namespace}/${platform_name} not found"
+  fi
+
+  # Get all status conditions
+  local conditions
+  conditions=$(kubectl -n "${namespace}" get aiplatforms.ai.splunk.com "${platform_name}" \
+    -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
+
+  # Parse conditions
+  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+  ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
+  ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
+  ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
+  ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
+  weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
+  ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+
+  echo ""
+  log "📊 Component Status:"
+  log "  ├─ Platform Ready:     $(format_status "$ready_status")"
+  log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
+  log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
+  log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
+  log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+  [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+
+  # Show detailed messages for non-ready components
+  local not_ready
+  not_ready=$(echo "$conditions" | jq -r '.[] | select(.status=="False") | "  • \(.type): \(.message)"' 2>/dev/null || true)
+  if [[ -n "$not_ready" ]]; then
+    echo ""
+    log "⚠️  Components Not Ready:"
+    echo "$not_ready"
+  fi
+
+  # Show last 10 events
+  echo ""
+  log "📝 Recent Events (last 10):"
+  local events
+  events=$(kubectl get events -n "${namespace}" \
+    --field-selector involvedObject.name="${platform_name}" \
+    --sort-by='.lastTimestamp' 2>/dev/null | tail -n +2 | tail -10)
+
+  if [[ -n "$events" ]]; then
+    while IFS= read -r event_line; do
+      local event_type event_reason
+      event_type=$(echo "$event_line" | awk '{print $2}')
+      event_reason=$(echo "$event_line" | awk '{print $4}')
+
+      if [[ "$event_type" == "Warning" ]]; then
+        log "  ⚠️  $event_line"
+      else
+        log "  ✓  $event_line"
+      fi
+    done <<< "$events"
+  else
+    log "  (No events found)"
+  fi
+
+  # Show pod status
+  echo ""
+  log "📦 Pod Status:"
+  kubectl get pods -n "${namespace}" -l "ai.splunk.com/platform=${platform_name}" 2>/dev/null || \
+    log "  (No pods found with label ai.splunk.com/platform=${platform_name})"
+
+  # Show access info if ready
+  if [[ "$ready_status" == "True" ]]; then
+    AI_PLATFORM_NAME="$platform_name" AI_NS="$namespace" show_platform_access_info
+  else
+    echo ""
+    log "💡 Platform is not ready yet. Use this command to monitor:"
+    log "   kubectl get events -n ${namespace} --watch --field-selector involvedObject.name=${platform_name}"
+  fi
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 install_ai_platform_cr() {
@@ -946,66 +1401,44 @@ spec:
   objectStorage:
     path: s3://${S3_BUCKET}
     region: ${REGION}
-  serviceAccountName: ray-head-sa
-  defaultAcceleratorType: L40S
+  serviceAccountName: ${RAY_HEAD_SA}
+  defaultAcceleratorType: ${DEFAULT_ACCELERATOR}
   features:
     - name: saia
       version: "1.1.0"
-      serviceAccountName: saia-service-sa
+      serviceAccountName: ${SAIA_SERVICE_SA}
   storage:
     vectorDB:
-      size: 50Gi
-      storageClassName: gp3
-  workerGroupSpec:
-    serviceAccountName: ray-worker-sa
-    gpuConfigs:
-      - tier: g6e.12xlarge-0-gpu
-        minReplicas: 0
-        maxReplicas: 10
-        gpusPerPod: 0
-        resources:
-          limits: { cpu: "16", memory: "32Gi", ephemeral-storage: "10Gi", nvidia.com/gpu: "0" }
-          requests: { cpu: "4" }
-      - tier: g6e.12xlarge-1-gpu
-        minReplicas: 0
-        maxReplicas: 10
-        gpusPerPod: 1
-        resources:
-          requests: { cpu: "4" }
-          limits: { cpu: "16", memory: "16Gi", ephemeral-storage: "50Gi", nvidia.com/gpu: "1" }
-      - tier: g6e.12xlarge-2-gpu
-        minReplicas: 0
-        maxReplicas: 10
-        gpusPerPod: 2
-        resources:
-          requests: { cpu: "1" }
-          limits: { cpu: "2", memory: "48Gi", ephemeral-storage: "100Gi", nvidia.com/gpu: "2" }
-      - tier: g6e.12xlarge-4-gpu
-        minReplicas: 0
-        maxReplicas: 10
-        gpusPerPod: 4
-        resources:
-          requests: { cpu: "1" }
-          limits: { cpu: "4", memory: "64Gi", ephemeral-storage: "200Gi", nvidia.com/gpu: "4" }
-  cpuScheduler: {}
+      size: ${VECTORDB_SIZE}
+      storageClassName: ${STORAGE_CLASS}
+  workerGroupConfig:
+    serviceAccountName: ${RAY_WORKER_SA}
+    imageRegistry: "${WORKER_IMAGE_REGISTRY}"
+  cpuScheduler:
+    nodeSelector: {}
+    tolerations: []
   gpuScheduler:
+    nodeSelector: {}
     tolerations:
       - key: "nvidia.com/gpu"
         operator: "Equal"
         value: "true"
         effect: "NoSchedule"
   ingress:
-    className: nginx
+    enabled: true
+    className: ${INGRESS_CLASS}
     hosts:
-      - host: ai.example.com
+      - host: ${INGRESS_HOST}
         paths: [ { path: "/", pathType: Prefix } ]
     tls:
-      - hosts: [ ai.example.com ]
-        secretName: ai-platform-tls
+      - hosts: [ ${INGRESS_HOST} ]
+        secretName: ${INGRESS_TLS_SECRET}
   splunkConfiguration:
-    endpoint: ${AI_STANDALONE_NAME}-standalone-service
-    secretRef: { name: ${secret_name} }
-  certificateRef: platform-issuer
+    endpoint: http://${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8089
+    secretRef:
+      name: ${secret_name}
+      namespace: ${AI_NS}
+  certificateRef: ${CERT_ISSUER}
 YAML
 
   wait_aiplatform_ready
@@ -1129,7 +1562,10 @@ purge_irsa_roles_by_oidc() {
     return 0
   fi
   log "Scanning IAM roles that trust OIDC provider: $oidc_arn"
-  mapfile -t roles < <(aws iam list-roles --query 'Roles[].RoleName' --output text | tr '\t' '\n')
+  local roles=()
+  while IFS= read -r role; do
+    [[ -n "$role" ]] && roles+=("$role")
+  done < <(aws iam list-roles --query 'Roles[].RoleName' --output text | tr '\t' '\n')
   local to_delete=()
   for r in "${roles[@]}"; do
     [[ -z "$r" ]] && continue
@@ -1163,7 +1599,10 @@ empty_and_delete_bucket() {
   fi
   log "Emptying versioned objects in s3://$bucket ..."
   while true; do
-    mapfile -t lines < <(aws s3api list-object-versions --bucket "$bucket" --query 'Versions[].join(`\t`, [Key, VersionId])' --output text 2>/dev/null || true)
+    local lines=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && lines+=("$line")
+    done < <(aws s3api list-object-versions --bucket "$bucket" --query 'Versions[].join(`\t`, [Key, VersionId])' --output text 2>/dev/null || true)
     [[ "${#lines[@]}" -eq 0 ]] && break
     for l in "${lines[@]}"; do
       local key="${l%%$'\t'*}"
@@ -1172,7 +1611,10 @@ empty_and_delete_bucket() {
     done
   done
   while true; do
-    mapfile -t lines < <(aws s3api list-object-versions --bucket "$bucket" --query 'DeleteMarkers[].join(`\t`, [Key, VersionId])' --output text 2>/dev/null || true)
+    local lines=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && lines+=("$line")
+    done < <(aws s3api list-object-versions --bucket "$bucket" --query 'DeleteMarkers[].join(`\t`, [Key, VersionId])' --output text 2>/dev/null || true)
     [[ "${#lines[@]}" -eq 0 ]] && break
     for l in "${lines[@]}"; do
       local key="${l%%$'\t'*}"
@@ -1186,51 +1628,153 @@ empty_and_delete_bucket() {
 
 # ---------- Minimal delete with comprehensive AWS cleanup ----------
 delete_cluster_minimal() {
-  log "Starting comprehensive cleanup for cluster ${CLUSTER_NAME} (${REGION})"
+  log "===================================================================="
+  log "  Starting comprehensive cleanup for cluster ${CLUSTER_NAME}"
+  log "===================================================================="
+  echo ""
+
+  # Store OIDC ARN before deleting cluster
   local OIDC_ARN=""; OIDC_ARN="$(get_oidc_provider_arn || true)"
+
+  log "Step 1: Deleting IRSA Service Accounts and their CloudFormation stacks..."
   delete_iamserviceaccount_if_exists "${AUTOSCALER_NS}" "${AUTOSCALER_SA}"
-  delete_iamserviceaccount_if_exists "${AI_NS}" "ray-head-sa"
-  delete_iamserviceaccount_if_exists "${AI_NS}" "ray-worker-sa"
-  delete_iamserviceaccount_if_exists "${AI_NS}" "saia-service-sa"
+  delete_iamserviceaccount_if_exists "${AI_NS}" "${RAY_HEAD_SA}"
+  delete_iamserviceaccount_if_exists "${AI_NS}" "${RAY_WORKER_SA}"
+  delete_iamserviceaccount_if_exists "${AI_NS}" "${SAIA_SERVICE_SA}"
+  delete_iamserviceaccount_if_exists "${EBS_NS}" "${EBS_SA}"
+  echo ""
+
+  log "Step 2: Deleting IAM roles..."
   delete_role_if_exists "${AUTOSCALER_ROLE_NAME}"
-  delete_role_if_exists "IRSA-${CLUSTER_NAME}-ray-head-sa"
-  delete_role_if_exists "IRSA-${CLUSTER_NAME}-ray-worker-sa"
-  delete_role_if_exists "IRSA-${CLUSTER_NAME}-saia-service-sa"
-  local assoc_id
-  assoc_id="$(aws eks list-pod-identity-associations \
-    --cluster-name "${CLUSTER_NAME}" \
-    --query "associations[?namespace=='${EBS_NS}' && serviceAccount=='${EBS_SA}'].associationId" \
-    --output text 2>/dev/null || true)"
-  if [[ -n "$assoc_id" && "$assoc_id" != "None" ]]; then
-    log "Deleting EBS Pod Identity association $assoc_id"
-    aws eks delete-pod-identity-association --cluster-name "${CLUSTER_NAME}" --association-id "$assoc_id" || true
+  delete_role_if_exists "IRSA-${CLUSTER_NAME}-${RAY_HEAD_SA}"
+  delete_role_if_exists "IRSA-${CLUSTER_NAME}-${RAY_WORKER_SA}"
+  delete_role_if_exists "IRSA-${CLUSTER_NAME}-${SAIA_SERVICE_SA}"
+  delete_role_if_exists "${EBS_IRSA_ROLE_NAME}"
+  echo ""
+
+  log "Step 3: Cleaning up any eksctl-created EBS CSI addon roles..."
+  local ebs_addon_roles=()
+  while IFS= read -r role; do
+    [[ -n "$role" ]] && ebs_addon_roles+=("$role")
+  done < <(aws iam list-roles --query "Roles[?contains(RoleName, 'eksctl-${CLUSTER_NAME}-addon-aws-ebs-csi-driver')].RoleName" --output text | tr '\t' '\n')
+
+  if [[ ${#ebs_addon_roles[@]} -gt 0 ]]; then
+    log "Found ${#ebs_addon_roles[@]} eksctl-created EBS CSI addon role(s) to delete..."
+    for role in "${ebs_addon_roles[@]}"; do
+      delete_role_if_exists "$role"
+    done
+  else
+    log "No eksctl-created EBS CSI addon roles found"
   fi
-  delete_role_if_exists "${EBS_PI_ROLE_NAME}"
+  echo ""
+
+  log "Step 4: Deleting EKS addons..."
   eksctl delete addon --cluster "${CLUSTER_NAME}" --name aws-ebs-csi-driver --region "${REGION}" || true
-  eksctl delete addon --cluster "${CLUSTER_NAME}" --name eks-pod-identity-agent --region "${REGION}" || true
-  log "Deleting EKS cluster ${CLUSTER_NAME} ..."
+  echo ""
+
+  log "Step 5: Deleting EKS cluster ${CLUSTER_NAME}..."
   eksctl delete cluster --name "${CLUSTER_NAME}" --region "${REGION}" --wait || true
-  aws cloudformation wait stack-delete-complete --stack-name "eksctl-${CLUSTER_NAME}-cluster" || true
-  for s in $(aws cloudformation list-stacks \
+  log "Waiting for cluster CloudFormation stack to delete..."
+  aws cloudformation wait stack-delete-complete --stack-name "eksctl-${CLUSTER_NAME}-cluster" --region "${REGION}" || true
+  echo ""
+
+  log "Step 6: Cleaning up lingering CloudFormation stacks..."
+  # Delete nodegroup stacks
+  local ng_stacks=()
+  while IFS= read -r stack; do
+    [[ -n "$stack" ]] && ng_stacks+=("$stack")
+  done < <(aws cloudformation list-stacks --region "${REGION}" \
       --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE ROLLBACK_COMPLETE DELETE_FAILED DELETE_IN_PROGRESS \
       --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-nodegroup-')].StackName" \
-      --output text 2>/dev/null || true); do
-    log "Deleting lingering nodegroup stack: $s"
-    aws cloudformation delete-stack --stack-name "$s" || true
-    aws cloudformation wait stack-delete-complete --stack-name "$s" || true
-  done
-  for s in $(aws cloudformation list-stacks \
+      --output text 2>/dev/null | tr '\t' '\n')
+
+  if [[ ${#ng_stacks[@]} -gt 0 ]]; then
+    log "Found ${#ng_stacks[@]} nodegroup stack(s) to delete..."
+    for s in "${ng_stacks[@]}"; do
+      log "Deleting nodegroup stack: $s"
+      aws cloudformation delete-stack --stack-name "$s" --region "${REGION}" || true
+      aws cloudformation wait stack-delete-complete --stack-name "$s" --region "${REGION}" || true
+    done
+  else
+    log "No lingering nodegroup stacks found"
+  fi
+
+  # Delete IAMServiceAccount stacks
+  local isa_stacks=()
+  while IFS= read -r stack; do
+    [[ -n "$stack" ]] && isa_stacks+=("$stack")
+  done < <(aws cloudformation list-stacks --region "${REGION}" \
       --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE ROLLBACK_COMPLETE DELETE_FAILED DELETE_IN_PROGRESS \
       --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-addon-iamserviceaccount-')].StackName" \
-      --output text 2>/dev/null || true); do
-    log "Deleting lingering IAMServiceAccount stack: $s"
-    aws cloudformation delete-stack --stack-name "$s" || true
-    aws cloudformation wait stack-delete-complete --stack-name "$s" || true
-  done
+      --output text 2>/dev/null | tr '\t' '\n')
+
+  if [[ ${#isa_stacks[@]} -gt 0 ]]; then
+    log "Found ${#isa_stacks[@]} IAMServiceAccount stack(s) to delete..."
+    for s in "${isa_stacks[@]}"; do
+      log "Deleting IAMServiceAccount stack: $s"
+      aws cloudformation delete-stack --stack-name "$s" --region "${REGION}" || true
+      aws cloudformation wait stack-delete-complete --stack-name "$s" --region "${REGION}" || true
+    done
+  else
+    log "No lingering IAMServiceAccount stacks found"
+  fi
+
+  # Delete addon stacks
+  local addon_stacks=()
+  while IFS= read -r stack; do
+    [[ -n "$stack" ]] && addon_stacks+=("$stack")
+  done < <(aws cloudformation list-stacks --region "${REGION}" \
+      --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE ROLLBACK_COMPLETE DELETE_FAILED DELETE_IN_PROGRESS \
+      --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-addon-')].StackName" \
+      --output text 2>/dev/null | tr '\t' '\n')
+
+  if [[ ${#addon_stacks[@]} -gt 0 ]]; then
+    log "Found ${#addon_stacks[@]} addon stack(s) to delete..."
+    for s in "${addon_stacks[@]}"; do
+      log "Deleting addon stack: $s"
+      aws cloudformation delete-stack --stack-name "$s" --region "${REGION}" || true
+      aws cloudformation wait stack-delete-complete --stack-name "$s" --region "${REGION}" || true
+    done
+  else
+    log "No lingering addon stacks found"
+  fi
+  echo ""
+
+  log "Step 7: Deleting IAM policies..."
   delete_policy_if_exists "${AI_BUCKET_POLICY_NAME}"
+  echo ""
+
+  log "Step 8: Purging all IRSA roles associated with this cluster's OIDC provider..."
   purge_irsa_roles_by_oidc
+  echo ""
+
+  log "Step 9: Deleting IAM OIDC provider..."
   delete_oidc_provider_if_exists "${OIDC_ARN}"
-  log "Comprehensive cleanup complete."
+  echo ""
+
+  log "===================================================================="
+  log "  Comprehensive cleanup complete for ${CLUSTER_NAME}"
+  log "===================================================================="
+  echo ""
+  log "Summary of deleted resources:"
+  log "  ✓ IAM Roles: Cluster Autoscaler, Ray (head/worker), SAIA, EBS Pod Identity"
+  log "  ✓ IAM Policies: S3 access policy for AI platform"
+  log "  ✓ Pod Identity: EBS CSI driver association"
+  log "  ✓ EKS Addons: EBS CSI driver, Pod Identity agent"
+  log "  ✓ CloudFormation Stacks: All eksctl-created stacks"
+  log "  ✓ OIDC Provider: IAM OIDC provider"
+  log "  ✓ EKS Cluster: ${CLUSTER_NAME}"
+  echo ""
+  log "Verification commands:"
+  echo "  # Check for remaining IAM roles:"
+  echo "  aws iam list-roles --query \"Roles[?contains(RoleName, '${CLUSTER_NAME}')].RoleName\""
+  echo ""
+  echo "  # Check for remaining policies:"
+  echo "  aws iam list-policies --scope Local --query \"Policies[?contains(PolicyName, '${CLUSTER_NAME}')].PolicyName\""
+  echo ""
+  echo "  # Check for remaining CloudFormation stacks:"
+  echo "  aws cloudformation list-stacks --query \"StackSummaries[?contains(StackName, 'eksctl-${CLUSTER_NAME}')].StackName\""
+  echo ""
 }
 
 # ---------- Optional full teardown ----------
@@ -1291,6 +1835,9 @@ s3_name_ok(){
 }
 
 preflight_env() {
+  pf_header "Configuration file"
+  [[ -f "${CONFIG_FILE}" ]] && pf_ok "Config file present: ${CONFIG_FILE}" || pf_fail "Config file missing: ${CONFIG_FILE}"
+
   pf_header "Environment & inputs"
   [[ -n "$REGION" ]] && pf_ok "REGION=${REGION}" || pf_fail "REGION is empty"
   [[ -n "$CLUSTER_NAME" ]] && pf_ok "CLUSTER_NAME=${CLUSTER_NAME}" || pf_fail "CLUSTER_NAME is empty"
@@ -1299,7 +1846,7 @@ preflight_env() {
   s3_name_ok "$S3_BUCKET" && pf_ok "S3 bucket name valid: ${S3_BUCKET}" || pf_fail "S3 bucket name invalid: ${S3_BUCKET}"
 
   pf_header "Required files"
-  [[ -f ./splunk-operator-cluster.yaml ]] && pf_ok "splunk-operator-cluster.yaml present" || pf_fail "splunk-operator-cluster.yaml missing"
+  [[ -f "${SPLUNK_OPERATOR_FILE}" ]] && pf_ok "SPLUNK_OPERATOR_FILE present: ${SPLUNK_OPERATOR_FILE}" || pf_fail "SPLUNK_OPERATOR_FILE missing: ${SPLUNK_OPERATOR_FILE}"
   [[ -f "${SPLUNK_AI_FILE}" ]] && pf_ok "SPLUNK_AI_FILE present: ${SPLUNK_AI_FILE}" || pf_fail "SPLUNK_AI_FILE missing: ${SPLUNK_AI_FILE}"
   if [[ -n "${SPLUNK_APP_LOCAL_PATH}" ]]; then
     [[ -f "${SPLUNK_APP_LOCAL_PATH}" ]] && pf_ok "Splunk app: ${SPLUNK_APP_LOCAL_PATH}" || pf_fail "SPLUNK_APP_LOCAL_PATH missing: ${SPLUNK_APP_LOCAL_PATH}"
@@ -1320,8 +1867,8 @@ preflight_env() {
   [[ -n "$region_id" ]] && pf_ok "CLI default region: ${region_id}" || pf_warn "No CLI default region; script uses REGION=${REGION}"
 
   pf_header "Subnets exist"
-  local subs=("$PRIVATE_2C" "$PRIVATE_2D" "$PUBLIC_2B" "$PUBLIC_2C" "$PUBLIC_2D")
-  for s in "${subs[@]}"; do
+  local all_subnets=("${PRIVATE_SUBNETS[@]}" "${PUBLIC_SUBNETS[@]}")
+  for s in "${all_subnets[@]}"; do
     if aws ec2 describe-subnets --subnet-ids "$s" --region "${REGION}" >/dev/null 2>&1; then
       pf_ok "Subnet ${s} exists"
     else
@@ -1330,8 +1877,17 @@ preflight_env() {
   done
 
   pf_header "AWS credentials available"
-  if resolve_aws_creds_for_secret; then
-    if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then pf_ok "Env creds OK (with session token)"; else pf_ok "Env creds OK"; fi
+  pf_warn "AWS credentials check: Only needed for Splunk Standalone's S3 secret (not for AI platform - uses IRSA)"
+  if resolve_aws_creds_for_secret 2>/dev/null; then
+    if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+      pf_ok "Env creds OK (with session token) - will create s3-secret for Splunk Standalone"
+    else
+      pf_ok "Env creds OK - will create s3-secret for Splunk Standalone"
+    fi
+  else
+    pf_warn "AWS credentials not available. Splunk Standalone deployment will fail if attempted."
+    pf_warn "To fix: export AWS_PROFILE=<your-profile> && aws sso login --profile <your-profile>"
+    pf_warn "Or set: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
   fi
 }
 
@@ -1369,6 +1925,44 @@ preflight_api_connectivity() {
   fi
 }
 
+# ---------- ECR Access for AI Platform ----------
+add_ecr_permissions_to_role() {
+  local role="$1"
+  log "Adding ECR read permissions to IAM role: ${role}"
+
+  # Check if inline policy already exists
+  local policy_exists
+  policy_exists="$(aws iam list-role-policies --role-name "${role}" \
+    --query "PolicyNames[?@=='ECRReadAccess'] | length(@)" --output text 2>/dev/null || echo 0)"
+
+  if [[ "$policy_exists" == "1" ]]; then
+    log "ECR policy already attached to ${role}"
+    return 0
+  fi
+
+  # Add inline policy for ECR read access
+  aws iam put-role-policy \
+    --role-name "${role}" \
+    --policy-name "ECRReadAccess" \
+    --policy-document '{
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "ecr:GetAuthorizationToken",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage"
+          ],
+          "Resource": "*"
+        }
+      ]
+    }'
+
+  log "✓ ECR permissions added to ${role}"
+}
+
 # ---------- Orchestrator for AI Platform setup ----------
 install_ai_platform_stack() {
   log "=== Setting up Splunk AI Platform stack ==="
@@ -1378,9 +1972,15 @@ install_ai_platform_stack() {
 
   local policy_arn; policy_arn="$(ensure_bucket_policy "${AI_BUCKET_POLICY_NAME}" "${S3_BUCKET}")"
 
-  ensure_irsa_for_sa ray-head-sa      "${AI_NS}" "${policy_arn}"
-  ensure_irsa_for_sa ray-worker-sa    "${AI_NS}" "${policy_arn}"
-  ensure_irsa_for_sa saia-service-sa  "${AI_NS}" "${policy_arn}"
+  ensure_irsa_for_sa "${RAY_HEAD_SA}"      "${AI_NS}" "${policy_arn}"
+  ensure_irsa_for_sa "${RAY_WORKER_SA}"    "${AI_NS}" "${policy_arn}"
+  ensure_irsa_for_sa "${SAIA_SERVICE_SA}"  "${AI_NS}" "${policy_arn}"
+
+  # Add ECR permissions for pulling container images from private ECR repos
+  log "Adding ECR permissions to AI platform service account roles..."
+  add_ecr_permissions_to_role "IRSA-${CLUSTER_NAME}-${RAY_HEAD_SA}"
+  add_ecr_permissions_to_role "IRSA-${CLUSTER_NAME}-${RAY_WORKER_SA}"
+  add_ecr_permissions_to_role "IRSA-${CLUSTER_NAME}-${SAIA_SERVICE_SA}"
 
   install_splunk_standalone
 
@@ -1400,9 +2000,8 @@ create_cluster_flow() { create_cluster_config; create_cluster; }
 
 reconcile_flow() {
   ensure_oidc
+  ensure_ebs_irsa_role
   install_ebs_csi_addon
-  ensure_ebs_pod_identity_role
-  ensure_ebs_pod_identity_association
   verify_ebs_csi_ready
   create_gp3_storageclass
   install_cluster_autoscaler
@@ -1416,12 +2015,16 @@ reconcile_flow() {
   install_splunk_ai_operator
   install_ai_platform_stack
   wait_splunk_ai_assistant_installed "Splunk_AI_Assistant_Cloud.tgz" 1200
-  push_saia_conf_into_pod
+  # push_saia_conf_into_pod
 }
 
 # ---------- MAIN ----------
 main_install() {
   for t in aws eksctl kubectl helm git jq; do need "$t"; done
+
+  # Load configuration from YAML file
+  load_config
+
   log "Region: ${REGION}, Account: ${ACCOUNT_ID}, Cluster: ${CLUSTER_NAME}"
 
   preflight_env
@@ -1453,8 +2056,16 @@ usage() {
 }
 
 case "${1:-install}" in
-  install)      main_install ;;
-  delete)       delete_cluster_minimal ;;
-  delete-full)  delete_everything ;;
+  install)
+    main_install
+    ;;
+  delete)
+    load_config
+    delete_cluster_minimal
+    ;;
+  delete-full)
+    load_config
+    delete_everything
+    ;;
   *) usage; exit 1 ;;
 esac

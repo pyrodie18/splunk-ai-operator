@@ -124,7 +124,6 @@ rules:
 - apiGroups:
   - ray.io
   resources:
-  - jobs
   - rayclusters
   - rayjobs
   - rayservices

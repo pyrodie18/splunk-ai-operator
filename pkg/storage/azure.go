@@ -26,6 +26,7 @@ type azureClient struct {
 // NewAzureClient optionally reads client ID/secret/tenant from SecretRef.
 // If SecretRef is empty, it uses DefaultAzureCredential (MSI/pod-identity).
 func NewAzureClient(
+	ctx context.Context,
 	k8sClient client.Client,
 	namespace, container, prefix string,
 	vs ai.ObjectStorageSpec,
@@ -35,7 +36,7 @@ func NewAzureClient(
 
 	if vs.SecretRef != "" {
 		secret := &corev1.Secret{}
-		if err := k8sClient.Get(context.TODO(),
+		if err := k8sClient.Get(ctx,
 			client.ObjectKey{Namespace: namespace, Name: vs.SecretRef},
 			secret,
 		); err != nil {
