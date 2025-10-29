@@ -1096,14 +1096,265 @@ update_splunk_secret_password_only() {
 
 # ---------- AIPlatform CR ----------
 wait_aiplatform_ready() {
-  local waited=0 max_wait=1800
-  log "Waiting for AIPlatform/${AI_PLATFORM_NAME} Ready condition (up to $((max_wait/60))m)..."
+  local waited=0 max_wait=1800 check_interval=15
+  local last_status="" shown_events=0
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "Monitoring AIPlatform/${AI_PLATFORM_NAME} deployment status..."
+  log "This may take 10-15 minutes for AI models to download and initialize"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
   while true; do
-    local cond; cond=$(kubectl -n "${AI_NS}" get aiplatforms.ai.splunk.com "${AI_PLATFORM_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-    if [[ "$cond" == "True" ]]; then log "AIPlatform is Ready"; return 0; fi
-    [[ $waited -ge $max_wait ]] && { warn "Timed out waiting for AIPlatform Ready (continuing)."; return 0; }
-    sleep 10; waited=$((waited+10))
+    # Get all status conditions as JSON
+    local conditions
+    conditions=$(kubectl -n "${AI_NS}" get aiplatforms.ai.splunk.com "${AI_PLATFORM_NAME}" \
+      -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
+
+    # Parse individual condition statuses
+    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+    ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
+    ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
+    ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
+    ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
+    weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
+    ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+
+    # Build status summary
+    local current_status="Ready:$ready_status Ray:$ray_service_status RayCluster:$ray_cluster_status RayServe:$ray_serve_status Weaviate:$weaviate_status"
+    [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
+
+    # Only show status update if it changed
+    if [[ "$current_status" != "$last_status" ]]; then
+      echo ""
+      log "📊 Component Status:"
+      log "  ├─ Platform Ready:     $(format_status "$ready_status")"
+      log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
+      log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
+      log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
+      log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+      [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+
+      # Show recent events since last check
+      log ""
+      log "📝 Recent Events:"
+      local events
+      events=$(kubectl get events -n "${AI_NS}" \
+        --field-selector involvedObject.name="${AI_PLATFORM_NAME}" \
+        --sort-by='.lastTimestamp' 2>/dev/null | tail -n +2 | tail -5)
+
+      if [[ -n "$events" ]]; then
+        while IFS= read -r event_line; do
+          local event_type event_reason event_message
+          event_type=$(echo "$event_line" | awk '{print $2}')
+          event_reason=$(echo "$event_line" | awk '{print $4}')
+          event_message=$(echo "$event_line" | cut -d' ' -f5-)
+
+          if [[ "$event_type" == "Warning" ]]; then
+            log "  ⚠️  $event_reason: $event_message"
+          else
+            log "  ✓  $event_reason: $event_message"
+          fi
+        done <<< "$events"
+      else
+        log "  (No events yet)"
+      fi
+
+      # Show any failure messages
+      local failure_msgs
+      failure_msgs=$(echo "$conditions" | jq -r '.[] | select(.status=="False") | "  ❌ \(.type): \(.message)"' 2>/dev/null || true)
+      if [[ -n "$failure_msgs" ]]; then
+        echo ""
+        log "⚠️  Components Not Ready:"
+        echo "$failure_msgs"
+      fi
+
+      last_status="$current_status"
+      shown_events=$((shown_events+1))
+    fi
+
+    # Check if platform is ready
+    if [[ "$ready_status" == "True" ]]; then
+      echo ""
+      log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      log "✅ AIPlatform is Ready!"
+      log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # Show final access information
+      show_platform_access_info
+      return 0
+    fi
+
+    # Check timeout
+    if [[ $waited -ge $max_wait ]]; then
+      echo ""
+      warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      warn "⏱️  Timeout waiting for AIPlatform Ready after $((max_wait/60)) minutes"
+      warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      warn "Current status: $current_status"
+      warn ""
+      warn "To check status manually:"
+      warn "  kubectl get aiplatform ${AI_PLATFORM_NAME} -n ${AI_NS}"
+      warn "  kubectl get events -n ${AI_NS} --field-selector involvedObject.name=${AI_PLATFORM_NAME}"
+      warn "  kubectl logs -n splunk-ai-operator-system deployment/splunk-ai-operator-controller-manager"
+      return 1
+    fi
+
+    # Wait before next check
+    echo -n "."
+    sleep "$check_interval"
+    waited=$((waited + check_interval))
   done
+}
+
+# Helper function to format status with colors/symbols
+format_status() {
+  local status="$1"
+  case "$status" in
+    "True")  echo "✅ Ready" ;;
+    "False") echo "❌ Not Ready" ;;
+    "Unknown") echo "⏳ Starting..." ;;
+    *) echo "❓ $status" ;;
+  esac
+}
+
+# Show access information after platform is ready
+show_platform_access_info() {
+  log ""
+  log "📍 Access Information:"
+
+  # Get service names
+  local ray_svc weaviate_svc
+  ray_svc=$(kubectl -n "${AI_NS}" get svc -l ray.io/cluster="${AI_PLATFORM_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  weaviate_svc=$(kubectl -n "${AI_NS}" get svc -l app="${AI_PLATFORM_NAME}-weaviate" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  # Ray Serve (AI API)
+  if [[ -n "$ray_svc" ]]; then
+    log "  🤖 AI Inference API (Ray Serve):"
+    log "     Internal: http://${ray_svc}.${AI_NS}.svc.cluster.local:8000"
+    log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${ray_svc} 8000:8000"
+    log "     Test: curl http://localhost:8000/v1/chat/completions"
+  fi
+
+  # Weaviate
+  if [[ -n "$weaviate_svc" ]]; then
+    log ""
+    log "  🗄️  Vector Database (Weaviate):"
+    log "     Internal: http://${weaviate_svc}.${AI_NS}.svc.cluster.local:80"
+    log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${weaviate_svc} 8080:80"
+  fi
+
+  # Ingress info
+  local ingress_host ingress_ip
+  ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
+  ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+  if [[ -n "$ingress_host" ]]; then
+    log ""
+    log "  🌐 External Access (Ingress):"
+    log "     Host: ${ingress_host}"
+    [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
+    log "     Update DNS: ${ingress_host} → ${ingress_ip}"
+    log "     Test: curl https://${ingress_host}/v1/chat/completions"
+  fi
+
+  log ""
+  log "📊 Monitoring Commands:"
+  log "  kubectl get aiplatform ${AI_PLATFORM_NAME} -n ${AI_NS}"
+  log "  kubectl get events -n ${AI_NS} --watch --field-selector involvedObject.name=${AI_PLATFORM_NAME}"
+  log "  kubectl get pods -n ${AI_NS} -l ai.splunk.com/platform=${AI_PLATFORM_NAME}"
+  log ""
+}
+
+# Quick status check function - can be called standalone
+check_aiplatform_status() {
+  local platform_name="${1:-${AI_PLATFORM_NAME}}"
+  local namespace="${2:-${AI_NS}}"
+
+  need jq
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "AIPlatform Status Check: ${namespace}/${platform_name}"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Check if resource exists
+  if ! kubectl -n "${namespace}" get aiplatforms.ai.splunk.com "${platform_name}" >/dev/null 2>&1; then
+    err "AIPlatform ${namespace}/${platform_name} not found"
+  fi
+
+  # Get all status conditions
+  local conditions
+  conditions=$(kubectl -n "${namespace}" get aiplatforms.ai.splunk.com "${platform_name}" \
+    -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
+
+  # Parse conditions
+  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+  ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
+  ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
+  ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
+  ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
+  weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
+  ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+
+  echo ""
+  log "📊 Component Status:"
+  log "  ├─ Platform Ready:     $(format_status "$ready_status")"
+  log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
+  log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
+  log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
+  log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+  [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+
+  # Show detailed messages for non-ready components
+  local not_ready
+  not_ready=$(echo "$conditions" | jq -r '.[] | select(.status=="False") | "  • \(.type): \(.message)"' 2>/dev/null || true)
+  if [[ -n "$not_ready" ]]; then
+    echo ""
+    log "⚠️  Components Not Ready:"
+    echo "$not_ready"
+  fi
+
+  # Show last 10 events
+  echo ""
+  log "📝 Recent Events (last 10):"
+  local events
+  events=$(kubectl get events -n "${namespace}" \
+    --field-selector involvedObject.name="${platform_name}" \
+    --sort-by='.lastTimestamp' 2>/dev/null | tail -n +2 | tail -10)
+
+  if [[ -n "$events" ]]; then
+    while IFS= read -r event_line; do
+      local event_type event_reason
+      event_type=$(echo "$event_line" | awk '{print $2}')
+      event_reason=$(echo "$event_line" | awk '{print $4}')
+
+      if [[ "$event_type" == "Warning" ]]; then
+        log "  ⚠️  $event_line"
+      else
+        log "  ✓  $event_line"
+      fi
+    done <<< "$events"
+  else
+    log "  (No events found)"
+  fi
+
+  # Show pod status
+  echo ""
+  log "📦 Pod Status:"
+  kubectl get pods -n "${namespace}" -l "ai.splunk.com/platform=${platform_name}" 2>/dev/null || \
+    log "  (No pods found with label ai.splunk.com/platform=${platform_name})"
+
+  # Show access info if ready
+  if [[ "$ready_status" == "True" ]]; then
+    AI_PLATFORM_NAME="$platform_name" AI_NS="$namespace" show_platform_access_info
+  else
+    echo ""
+    log "💡 Platform is not ready yet. Use this command to monitor:"
+    log "   kubectl get events -n ${namespace} --watch --field-selector involvedObject.name=${platform_name}"
+  fi
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 install_ai_platform_cr() {
