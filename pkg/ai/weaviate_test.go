@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	//"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
@@ -121,7 +122,8 @@ func TestReconcileWeaviateDatabase(t *testing.T) {
 
 	s := setupSchemeForTests()
 	fc := fake.NewClientBuilder().WithScheme(s).Build()
-	r := &AIPlatformReconciler{Client: fc, Scheme: s}
+	recorder := record.NewFakeRecorder(10)
+	r := &AIPlatformReconciler{Client: fc, Scheme: s, Recorder: recorder}
 
 	t.Run("fails when RELATED_IMAGE_WEAVIATE is missing", func(t *testing.T) {
 		os.Unsetenv("RELATED_IMAGE_WEAVIATE")
