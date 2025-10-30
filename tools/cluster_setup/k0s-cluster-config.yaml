@@ -1,0 +1,176 @@
+# k0s Cluster Configuration for Splunk AI Platform
+# ==================================================
+# This config supports two deployment modes:
+#   1. On-prem/Baremetal: Provide existingIPs with SSH access
+#   2. AWS EC2: Leave existingIPs empty to auto-create EC2 instances
+
+cluster:
+  # Cluster name (used for tagging and identification)
+  name: splunk-ai-k0s
+
+  # AWS region (only needed for EC2 mode)
+  region: us-west-2
+
+  # SSH configuration for accessing nodes
+  sshUser: ubuntu
+  sshKeyPath: ~/.ssh/k0s-key-pair.pem  # Path to SSH private key
+
+# Node configuration
+nodes:
+  # Number of controller nodes (1 or 3 recommended for HA)
+  controllers: 1
+
+  # Number of CPU worker nodes
+  cpuWorkers: 2
+
+  # Number of GPU worker nodes
+  gpuWorkers: 1
+
+  # ==================================================================
+  # OPTION 1: On-Prem/Baremetal - Provide existing IP addresses
+  # ==================================================================
+  # Requirements:
+  #   - Passwordless SSH access with sudo privileges
+  #   - Ubuntu 22.04 or similar Linux distribution
+  #   - Ports 6443, 2380, 10250, 30000-32767 open between nodes
+  # ==================================================================
+  existingIPs:
+    controllers: []
+      # Example:
+      # - 192.168.1.10
+    workers: []
+      # Example:
+      # - 192.168.1.20
+      # - 192.168.1.21
+      # - 192.168.1.22
+
+# ==================================================================
+# EC2 Configuration (only used if existingIPs are empty)
+# ==================================================================
+ec2:
+  # VPC ID where instances will be created
+  vpcId: vpc-0f6260eb0cb46374c
+
+  # Subnet ID (optional - will use first available if not provided)
+  subnetId: ""
+
+  # SSH key name that exists in AWS (must match sshKeyPath)
+  keyName: k0s-key-pair
+
+# Instance types for EC2 mode
+instanceTypes:
+  # Controller node - manages cluster state
+  # Recommended: t3.xlarge or larger
+  controller: t3.xlarge
+
+  # CPU worker - runs Ray head and CPU-intensive workloads
+  # Recommended: m5.4xlarge or larger for AI workloads
+  cpuWorker: m5.4xlarge
+
+  # GPU worker - runs GPU-accelerated AI workloads
+  # Must be GPU-enabled instance (g4dn, g5, p3, p4)
+  gpuWorker: g5.2xlarge
+
+# ==================================================================
+# MinIO Configuration (replaces S3 for on-prem)
+# ==================================================================
+minio:
+  # MinIO access credentials
+  # IMPORTANT: Change these for production deployments!
+  accessKey: minioadmin
+  secretKey: minioadmin123
+
+  # Default bucket for AI Platform data
+  bucket: ai-platform-data
+
+# ==================================================================
+# Kubernetes Configuration
+# ==================================================================
+kubernetes:
+  # Namespace where AI Platform will be deployed
+  namespace: ai-platform
+
+# ==================================================================
+# Splunk Configuration
+# ==================================================================
+splunk:
+  # Standalone instance name
+  standaloneName: splunk-standalone
+
+  # HEC endpoint (optional - for external Splunk)
+  hecEndpoint: ""
+
+  # HEC token (optional)
+  hecToken: ""
+
+  # Splunk index
+  index: ai-platform
+
+# ==================================================================
+# File Paths
+# ==================================================================
+files:
+  # Path to Splunk Operator manifest
+  splunkOperator: ./splunk-operator-cluster.yaml
+
+  # Path to AI Platform manifest
+  aiPlatform: ./artifacts.yaml
+
+# ==================================================================
+# AI Platform Configuration
+# ==================================================================
+aiplatform:
+  # Ray configuration
+  ray:
+    version: "2.9.0"
+    image: "rayproject/ray:2.9.0"
+
+  # Vector database (Weaviate) configuration
+  vectordb:
+    image: "semitechnologies/weaviate:1.28.0"
+    storageSize: "50Gi"
+
+  # Worker resource configuration
+  workers:
+    cpu:
+      minReplicas: 1
+      maxReplicas: 5
+      resourcesPerWorker:
+        cpu: "4"
+        memory: "16Gi"
+
+    gpu:
+      minReplicas: 0
+      maxReplicas: 2
+      resourcesPerWorker:
+        cpu: "8"
+        memory: "32Gi"
+        nvidia.com/gpu: "1"
+
+# ==================================================================
+# Example Configurations
+# ==================================================================
+
+# On-Prem Example:
+# ----------------
+# nodes:
+#   controllers: 1
+#   cpuWorkers: 0  # Not used when providing IPs
+#   gpuWorkers: 0  # Not used when providing IPs
+#   existingIPs:
+#     controllers:
+#       - 192.168.1.10
+#     workers:
+#       - 192.168.1.20  # CPU worker
+#       - 192.168.1.21  # CPU worker
+#       - 192.168.1.22  # GPU worker
+
+# EC2 Example:
+# ------------
+# nodes:
+#   controllers: 1
+#   cpuWorkers: 2
+#   gpuWorkers: 1
+#   existingIPs:
+#     controllers: []  # Empty = create EC2 instances
+#     workers: []
