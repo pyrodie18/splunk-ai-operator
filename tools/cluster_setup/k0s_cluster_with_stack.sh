@@ -259,7 +259,19 @@ EOF
   log "Creating ${CONTROLLER_COUNT} controller(s)..."
   for ((i=0; i<CONTROLLER_COUNT; i++)); do
     local instance_id
-    instance_id=$(aws ec2 run-instances --region "${REGION}" --image-id "${ami_id}" --instance-type "${CONTROLLER_INSTANCE_TYPE}" --key-name "${KEY_NAME}" --security-group-ids "${sg_id}" --subnet-id "${SUBNET_ID}" --user-data "file://${user_data_file}" --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"${CLUSTER_NAME}-controller-${i}"'},{Key=Cluster,Value='"${CLUSTER_NAME}"'},{Key=Role,Value=controller}]' --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3"}}]' --query 'Instances[0].InstanceId' --output text)
+    instance_id=$(aws ec2 run-instances \
+      --region "${REGION}" \
+      --image-id "${ami_id}" \
+      --instance-type "${CONTROLLER_INSTANCE_TYPE}" \
+      --key-name "${KEY_NAME}" \
+      --security-group-ids "${sg_id}" \
+      --subnet-id "${SUBNET_ID}" \
+      --associate-public-ip-address \
+      --user-data "file://${user_data_file}" \
+      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${CLUSTER_NAME}-controller-${i}},{Key=Cluster,Value=${CLUSTER_NAME}},{Key=Role,Value=controller}]" \
+      --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3"}}]' \
+      --query 'Instances[0].InstanceId' \
+      --output text)
 
     ALL_INSTANCE_IDS+=("${instance_id}")
     log "Created controller: ${instance_id}"
@@ -269,7 +281,19 @@ EOF
   log "Creating ${CPU_WORKER_COUNT} CPU worker(s)..."
   for ((i=0; i<CPU_WORKER_COUNT; i++)); do
     local instance_id
-    instance_id=$(aws ec2 run-instances --region "${REGION}" --image-id "${ami_id}" --instance-type "${CPU_WORKER_INSTANCE_TYPE}" --key-name "${KEY_NAME}" --security-group-ids "${sg_id}" --subnet-id "${SUBNET_ID}" --user-data "file://${user_data_file}" --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"${CLUSTER_NAME}-cpu-worker-${i}"'},{Key=Cluster,Value='"${CLUSTER_NAME}"'},{Key=Role,Value=cpu-worker}]' --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3"}}]' --query 'Instances[0].InstanceId' --output text)
+    instance_id=$(aws ec2 run-instances \
+      --region "${REGION}" \
+      --image-id "${ami_id}" \
+      --instance-type "${CPU_WORKER_INSTANCE_TYPE}" \
+      --key-name "${KEY_NAME}" \
+      --security-group-ids "${sg_id}" \
+      --subnet-id "${SUBNET_ID}" \
+      --associate-public-ip-address \
+      --user-data "file://${user_data_file}" \
+      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${CLUSTER_NAME}-cpu-worker-${i}},{Key=Cluster,Value=${CLUSTER_NAME}},{Key=Role,Value=cpu-worker}]" \
+      --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3"}}]' \
+      --query 'Instances[0].InstanceId' \
+      --output text)
 
     ALL_INSTANCE_IDS+=("${instance_id}")
     log "Created CPU worker: ${instance_id}"
@@ -280,7 +304,19 @@ EOF
     log "Creating ${GPU_WORKER_COUNT} GPU worker(s)..."
     for ((i=0; i<GPU_WORKER_COUNT; i++)); do
       local instance_id
-      instance_id=$(aws ec2 run-instances --region "${REGION}" --image-id "${ami_id}" --instance-type "${GPU_WORKER_INSTANCE_TYPE}" --key-name "${KEY_NAME}" --security-group-ids "${sg_id}" --subnet-id "${SUBNET_ID}" --user-data "file://${user_data_file}" --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"${CLUSTER_NAME}-gpu-worker-${i}"'},{Key=Cluster,Value='"${CLUSTER_NAME}"'},{Key=Role,Value=gpu-worker}]' --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":300,"VolumeType":"gp3"}}]' --query 'Instances[0].InstanceId' --output text)
+      instance_id=$(aws ec2 run-instances \
+        --region "${REGION}" \
+        --image-id "${ami_id}" \
+        --instance-type "${GPU_WORKER_INSTANCE_TYPE}" \
+        --key-name "${KEY_NAME}" \
+        --security-group-ids "${sg_id}" \
+        --subnet-id "${SUBNET_ID}" \
+        --associate-public-ip-address \
+        --user-data "file://${user_data_file}" \
+        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${CLUSTER_NAME}-gpu-worker-${i}},{Key=Cluster,Value=${CLUSTER_NAME}},{Key=Role,Value=gpu-worker}]" \
+        --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":300,"VolumeType":"gp3"}}]' \
+        --query 'Instances[0].InstanceId' \
+        --output text)
 
       ALL_INSTANCE_IDS+=("${instance_id}")
       log "Created GPU worker: ${instance_id}"
@@ -296,15 +332,23 @@ EOF
   log "Waiting additional time for SSH to be fully ready..."
   sleep 60
 
-  # Get IPs
+  # Get IPs - use public IPs for SSH access from outside VPC
   for id in "${ALL_INSTANCE_IDS[@]}"; do
     local role
     role=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
       --query 'Reservations[0].Instances[0].Tags[?Key==`Role`].Value' --output text)
 
+    # Get public IP for SSH access
     local ip
     ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
-      --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
+      --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+
+    # Fallback to private IP if no public IP (for VPC-internal access)
+    if [[ -z "${ip}" || "${ip}" == "None" ]]; then
+      ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
+        --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
+      log "Warning: Instance ${id} has no public IP, using private IP ${ip}"
+    fi
 
     if [[ "${role}" == "controller" ]]; then
       CONTROLLER_IPS+=("${ip}")
@@ -336,8 +380,9 @@ install_k0s_cluster() {
   log "Generating k0s configuration..."
   ssh_exec "${controller_ip}" "k0s config create > /tmp/k0s.yaml"
 
-  # Customize config for AI workloads
-  cat <<'EOF' > /tmp/k0s-config-patch.yaml
+  # Customize config for AI workloads - merge patch with base config
+  log "Applying configuration customizations for AI workloads..."
+  ssh_exec "${controller_ip}" "cat <<'PATCH_EOF' > /tmp/k0s-config-patch.yaml
 spec:
   storage:
     type: kine
@@ -350,9 +395,10 @@ spec:
       repositories:
       - name: stable
         url: https://charts.helm.sh/stable
-EOF
+PATCH_EOF"
 
-  scp_file "/tmp/k0s-config-patch.yaml" "${controller_ip}" "/tmp/k0s-config-patch.yaml"
+  # Merge patch with base config using yq if available, otherwise use the base config
+  ssh_exec "${controller_ip}" "if command -v yq >/dev/null 2>&1; then yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' /tmp/k0s.yaml /tmp/k0s-config-patch.yaml > /tmp/k0s-merged.yaml && mv /tmp/k0s-merged.yaml /tmp/k0s.yaml; else echo 'yq not found, using base config'; fi"
 
   # Install k0s controller
   log "Installing k0s controller on ${controller_ip}..."

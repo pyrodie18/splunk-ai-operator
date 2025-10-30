@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -67,6 +69,9 @@ func (d *AIServiceCustomDefaulter) Default(_ context.Context, obj runtime.Object
 		return fmt.Errorf("expected an AIService object but got %T", obj)
 	}
 	aiservicelog.Info("Defaulting for AIService", "name", aiservice.GetName())
+
+	// Clean ServiceTemplate metadata FIRST to prevent "unknown field" warnings
+	cleanServiceTemplateMetadata(&aiservice.Spec.ServiceTemplate)
 
 	// Default ClusterDomain
 	if aiservice.Spec.ClusterDomain == "" {
@@ -144,14 +149,18 @@ func (v *AIServiceCustomValidator) ValidateCreate(ctx context.Context, obj runti
 			"vectorDbUrl must be specified",
 		))
 	} else {
-		// Validate URL format
-		if !strings.HasPrefix(aiservice.Spec.VectorDbUrl, "http://") && !strings.HasPrefix(aiservice.Spec.VectorDbUrl, "https://") {
-			allErrs = append(allErrs, field.Invalid(
-				field.NewPath("spec").Child("vectorDbUrl"),
-				aiservice.Spec.VectorDbUrl,
-				"vectorDbUrl must start with http:// or https://",
-			))
-		}
+		// TODO: Temporarily disabled - allow service names without http:// prefix
+		// This validation was preventing valid Kubernetes service names from being used
+		// We may want to add smarter validation later that distinguishes between URLs and service names
+		/*
+			if !strings.HasPrefix(aiservice.Spec.VectorDbUrl, "http://") && !strings.HasPrefix(aiservice.Spec.VectorDbUrl, "https://") {
+				allErrs = append(allErrs, field.Invalid(
+					field.NewPath("spec").Child("vectorDbUrl"),
+					aiservice.Spec.VectorDbUrl,
+					"vectorDbUrl must start with http:// or https://",
+				))
+			}
+		*/
 	}
 
 	// Validate TaskVolume
@@ -265,27 +274,29 @@ func (v *AIServiceCustomValidator) validateTaskVolume(taskVolume *aiv1.ObjectSto
 		allErrs = append(allErrs, field.Required(fldPath.Child("path"), "taskVolume.path must be specified"))
 	} else {
 		// Validate path format
-		validPrefixes := []string{"s3://", "gs://", "azure://", "minio://"}
-		hasValidPrefix := false
-		for _, prefix := range validPrefixes {
-			if strings.HasPrefix(taskVolume.Path, prefix) {
-				hasValidPrefix = true
-				break
+		/*
+			validPrefixes := []string{"s3://", "gs://", "azure://", "minio://"}
+			hasValidPrefix := false
+			for _, prefix := range validPrefixes {
+				if strings.HasPrefix(taskVolume.Path, prefix) {
+					hasValidPrefix = true
+					break
+				}
 			}
-		}
-		if !hasValidPrefix {
-			allErrs = append(allErrs, field.Invalid(
-				fldPath.Child("path"),
-				taskVolume.Path,
-				"path must start with s3://, gs://, azure://, or minio://",
-			))
-		}
+			if !hasValidPrefix {
+				allErrs = append(allErrs, field.Invalid(
+					fldPath.Child("path"),
+					taskVolume.Path,
+					"path must start with s3://, gs://, azure://, or minio://",
+				))
+			}
+		*/
 	}
 
 	// Region is required for AWS S3
-	if strings.HasPrefix(taskVolume.Path, "s3://") && taskVolume.Region == "" {
-		allErrs = append(allErrs, field.Required(fldPath.Child("region"), "region is required for S3 storage"))
-	}
+	//if strings.HasPrefix(taskVolume.Path, "s3://") && taskVolume.Region == "" {
+	//	allErrs = append(allErrs, field.Required(fldPath.Child("region"), "region is required for S3 storage"))
+	//}
 
 	return allErrs
 }
@@ -305,14 +316,18 @@ func (v *AIServiceCustomValidator) validateSplunkConfigurationForService(splunkC
 		))
 	}
 
-	// If using endpoint, validate it's a valid URL format
-	if hasEndpoint && !strings.HasPrefix(splunkConfig.Endpoint, "http://") && !strings.HasPrefix(splunkConfig.Endpoint, "https://") {
-		allErrs = append(allErrs, field.Invalid(
-			fldPath.Child("endpoint"),
-			splunkConfig.Endpoint,
-			"endpoint must start with http:// or https://",
-		))
-	}
+	// TODO: Temporarily disabled - allow service names without http:// prefix
+	// This validation was preventing valid Kubernetes service names from being used
+	// We may want to add smarter validation later that distinguishes between URLs and service names
+	/*
+		if hasEndpoint && !strings.HasPrefix(splunkConfig.Endpoint, "http://") && !strings.HasPrefix(splunkConfig.Endpoint, "https://") {
+			allErrs = append(allErrs, field.Invalid(
+				fldPath.Child("endpoint"),
+				splunkConfig.Endpoint,
+				"endpoint must start with http:// or https://",
+			))
+		}
+	*/
 
 	// If using secret, validate SecretRef is set
 	if hasEndpoint && splunkConfig.SecretRef.Name == "" {
@@ -386,4 +401,25 @@ func (v *AIServiceCustomValidator) validateMetrics(metrics *aiv1.MetricsConfig, 
 	}
 
 	return allErrs
+}
+
+// cleanServiceTemplateMetadata removes server-generated metadata fields from ServiceTemplate
+// to prevent "unknown field" warnings during validation
+func cleanServiceTemplateMetadata(template *corev1.Service) {
+	if template == nil {
+		return
+	}
+
+	// Clear server-generated metadata fields
+	template.ObjectMeta.CreationTimestamp = metav1.Time{}
+	template.ObjectMeta.DeletionTimestamp = nil
+	template.ObjectMeta.DeletionGracePeriodSeconds = nil
+	template.ObjectMeta.UID = ""
+	template.ObjectMeta.ResourceVersion = ""
+	template.ObjectMeta.Generation = 0
+	template.ObjectMeta.SelfLink = ""
+	template.ObjectMeta.ManagedFields = nil
+
+	// Clear status - it's not used in templates
+	template.Status = corev1.ServiceStatus{}
 }

@@ -90,7 +90,8 @@ type AIServiceReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *AIServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	log.Info("Reconciling AIService", "name", req.Name, "namespace", req.Namespace)
+	// Use V(1) for verbose logging - reduces noise in production
+	log.V(1).Info("Reconciling AIService", "name", req.Name, "namespace", req.Namespace)
 
 	// telemetry scope
 	scope := telemetry.Scope{
@@ -206,14 +207,15 @@ func (r *AIServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aiv1.AIService{}).
 		Named("aiservice").
-		Owns(&corev1.ServiceAccount{}).
-		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Secret{}).
-		Owns(&certmanagerv1.Certificate{}).
-		Owns(&batchv1.Job{}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&corev1.Service{}).
-		Owns(&monitoringv1.ServiceMonitor{}).
+		// Owned resources with specific predicates to avoid reconciliation loops
+		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(common.ConfigMapChangedPredicate())).
+		Owns(&corev1.Secret{}, builder.WithPredicates(common.SecretChangedPredicate())).
+		Owns(&certmanagerv1.Certificate{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&batchv1.Job{}, builder.WithPredicates(common.JobChangedPredicate())).
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(common.DeploymentChangedPredicate())).
+		Owns(&corev1.Service{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Watch referenced AIPlatform (not owned by AIService)
 		Watches(
 			&aiv1.AIPlatform{},

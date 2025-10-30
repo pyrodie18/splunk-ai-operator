@@ -105,6 +105,9 @@ func (r *SaiaReconciler) validateAIService(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
+	// Clean ServiceTemplate at the start to remove any server-generated fields
+	cleanServiceTemplate(&ai.Spec.ServiceTemplate)
+
 	if os.Getenv("RELATED_IMAGE_POST_INSTALL_HOOK") == "" {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "RELATED_IMAGE_POST_INSTALL_HOOK must be set")
 		return fmt.Errorf("RELATED_IMAGE_POST_INSTALL_HOOK must be set")
@@ -261,6 +264,8 @@ func (r *SaiaReconciler) reconcileServiceAccount(
 	ai *aiv1.AIService,
 ) error {
 	if ai.Spec.ServiceAccountName == "" {
+		// Clean ServiceTemplate before updating the spec
+		cleanServiceTemplate(&ai.Spec.ServiceTemplate)
 
 		ai.Spec.ServiceAccountName = ai.Name + "-sa"
 		if err := r.Update(ctx, ai); err != nil {
@@ -523,7 +528,8 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
 		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
 		// SAIA uses /tasks subdirectory within its feature path
-		{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path},
+		// Extract just the bucket name from the full path (e.g., "s3://bucket-name" -> "bucket-name")
+		{Name: "S3_BUCKET", Value: extractBucketName(ai.Spec.TaskVolume.Path)},
 	}
 
 	// MinIO support: Add MinIO-specific environment variables if endpoint is configured
@@ -694,6 +700,10 @@ func (r *SaiaReconciler) reconcileSAIAService(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
+	// Clean the ServiceTemplate to remove server-generated fields
+	serviceTemplate := ai.Spec.ServiceTemplate.DeepCopy()
+	cleanServiceTemplate(serviceTemplate)
+
 	ports := []corev1.ServicePort{
 		{Name: "http", Port: 8080, TargetPort: intstr.FromInt(8080)},
 		{Name: "metrics", Port: 8088, TargetPort: intstr.FromInt(8088)},
@@ -728,14 +738,14 @@ func (r *SaiaReconciler) reconcileSAIAService(
 		svc.ObjectMeta.Annotations[k] = v
 	}
 
-	switch ai.Spec.ServiceTemplate.Spec.Type {
+	switch serviceTemplate.Spec.Type {
 	case corev1.ServiceTypeLoadBalancer:
 		svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 	case corev1.ServiceTypeNodePort:
 		svc.Spec.Type = corev1.ServiceTypeNodePort
 		// If NodePort values are specified, set them
 		for i, port := range svc.Spec.Ports {
-			for _, tplPort := range ai.Spec.ServiceTemplate.Spec.Ports {
+			for _, tplPort := range serviceTemplate.Spec.Ports {
 				if port.Name == tplPort.Name && tplPort.NodePort != 0 {
 					svc.Spec.Ports[i].NodePort = tplPort.NodePort
 				}
@@ -753,7 +763,7 @@ func (r *SaiaReconciler) reconcileSAIAService(
 		// Update mutable fields
 		svc.Spec.Selector = map[string]string{"app": ai.Name, "component": ai.Name}
 		svc.Spec.Ports = ports
-		svc.Spec.Type = svc.Spec.Type // Type is already set above based on ServiceTemplate
+		// Type is already set above based on ServiceTemplate
 		return nil
 	}); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Service failed")
@@ -830,4 +840,49 @@ func (r *SaiaReconciler) createOrUpdateConfigMap(
 		return r.Update(ctx, found)
 	}
 	return nil
+}
+
+// extractBucketName extracts the bucket name from an object storage path.
+// Supports s3://, minio://, gs://, and azure:// prefixes.
+// Examples:
+//   - "s3://my-bucket/path/to/dir" -> "my-bucket"
+//   - "minio://bucket-name" -> "bucket-name"
+//   - "gs://my-bucket" -> "my-bucket"
+func extractBucketName(path string) string {
+	// Remove supported prefixes
+	prefixes := []string{"s3://", "minio://", "gs://", "azure://"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) {
+			path = strings.TrimPrefix(path, prefix)
+			break
+		}
+	}
+
+	// Extract just the bucket name (first part before any slash)
+	if idx := strings.Index(path, "/"); idx > 0 {
+		return path[:idx]
+	}
+
+	return path
+}
+
+// cleanServiceTemplate removes server-generated metadata fields that shouldn't be set during updates.
+// This prevents "unknown field" warnings in logs.
+func cleanServiceTemplate(template *corev1.Service) {
+	if template == nil {
+		return
+	}
+
+	// Clear server-generated metadata fields
+	template.ObjectMeta.CreationTimestamp = metav1.Time{}
+	template.ObjectMeta.DeletionTimestamp = nil
+	template.ObjectMeta.DeletionGracePeriodSeconds = nil
+	template.ObjectMeta.UID = ""
+	template.ObjectMeta.ResourceVersion = ""
+	template.ObjectMeta.Generation = 0
+	template.ObjectMeta.SelfLink = ""
+	template.ObjectMeta.ManagedFields = nil
+
+	// Clear status - it's not used in templates
+	template.Status = corev1.ServiceStatus{}
 }

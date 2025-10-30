@@ -126,11 +126,11 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 			// Validation guarantees value >= 1
 			multiplier = *feature.ScaleFactor
 		}
-		logger.Info("test:", "yamlData", string(yamlData))
+		// Use V(1) for verbose debug logging - only shown with --zap-log-level=debug
+		logger.V(1).Info("Loaded feature configuration", "feature", feature.Name, "scaleFactor", multiplier)
 
 		// Generate map from product of values and feature's Replicas setting
 		for appName, baseReplicas := range featureConfig.ApplicationScale {
-			logger.Info("test:", "appName", appName, "replicas", baseReplicas*multiplier)
 			replicasMap[appName] = baseReplicas * multiplier
 		}
 	}
@@ -209,6 +209,9 @@ func (b *Builder) ReconcileRayService(ctx context.Context, p *enterpriseApi.AIPl
 		logger.Error(err, "Failed to create/update serve config ConfigMap")
 		// Don't fail the reconciliation for ConfigMap creation failure
 	}
+
+	// Clean server-generated metadata from RayService spec to avoid "unknown field" warnings
+	cleanRayServiceSpec(&rs.Spec)
 
 	rayService.Spec = rs.Spec
 	key := types.NamespacedName{Namespace: rayService.Namespace, Name: rayService.Name}
@@ -956,4 +959,42 @@ func boolToCond(b bool) metav1.ConditionStatus {
 		return metav1.ConditionTrue
 	}
 	return metav1.ConditionFalse
+}
+
+// cleanRayServiceSpec removes server-generated metadata fields from RayService spec
+// to prevent "unknown field" warnings when updating RayService resources.
+func cleanRayServiceSpec(spec *rayv1.RayServiceSpec) {
+	if spec == nil {
+		return
+	}
+
+	// Clean headGroupSpec
+	if spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta.CreationTimestamp != (metav1.Time{}) {
+		spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta.CreationTimestamp = metav1.Time{}
+	}
+	if spec.RayClusterSpec.HeadGroupSpec.HeadService != nil {
+		cleanServiceMetadata(&spec.RayClusterSpec.HeadGroupSpec.HeadService.ObjectMeta)
+	}
+
+	// Clean workerGroupSpecs
+	for i := range spec.RayClusterSpec.WorkerGroupSpecs {
+		if spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta.CreationTimestamp != (metav1.Time{}) {
+			spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta.CreationTimestamp = metav1.Time{}
+		}
+	}
+}
+
+// cleanServiceMetadata removes server-generated fields from ObjectMeta
+func cleanServiceMetadata(meta *metav1.ObjectMeta) {
+	if meta == nil {
+		return
+	}
+	meta.CreationTimestamp = metav1.Time{}
+	meta.DeletionTimestamp = nil
+	meta.DeletionGracePeriodSeconds = nil
+	meta.UID = ""
+	meta.ResourceVersion = ""
+	meta.Generation = 0
+	meta.SelfLink = ""
+	meta.ManagedFields = nil
 }

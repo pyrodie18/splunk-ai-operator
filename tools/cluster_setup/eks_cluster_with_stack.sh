@@ -1112,17 +1112,18 @@ wait_aiplatform_ready() {
       -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
 
     # Parse individual condition statuses
-    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status # ingress_status
     ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
     ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
     ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
     ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
     weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
-    ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+    # TODO: Ingress validation - revisit later
+    # ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
 
     # Build status summary
     local current_status="Ready:$ready_status Ray:$ray_service_status RayCluster:$ray_cluster_status RayServe:$ray_serve_status Weaviate:$weaviate_status"
-    [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
+    # [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
 
     # Only show status update if it changed
     if [[ "$current_status" != "$last_status" ]]; then
@@ -1132,8 +1133,9 @@ wait_aiplatform_ready() {
       log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
       log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
       log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
-      log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
-      [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+      log "  └─ Weaviate Database:  $(format_status "$weaviate_status")"
+      # TODO: Ingress validation - revisit later
+      # [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
 
       # Show recent events since last check
       log ""
@@ -1244,20 +1246,20 @@ show_platform_access_info() {
     log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${weaviate_svc} 8080:80"
   fi
 
-  # Ingress info
-  local ingress_host ingress_ip
-  ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
-  ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-  [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-
-  if [[ -n "$ingress_host" ]]; then
-    log ""
-    log "  🌐 External Access (Ingress):"
-    log "     Host: ${ingress_host}"
-    [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
-    log "     Update DNS: ${ingress_host} → ${ingress_ip}"
-    log "     Test: curl https://${ingress_host}/v1/chat/completions"
-  fi
+  # TODO: Ingress info - revisit later
+  # local ingress_host ingress_ip
+  # ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
+  # ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  # [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  #
+  # if [[ -n "$ingress_host" ]]; then
+  #   log ""
+  #   log "  🌐 External Access (Ingress):"
+  #   log "     Host: ${ingress_host}"
+  #   [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
+  #   log "     Update DNS: ${ingress_host} → ${ingress_ip}"
+  #   log "     Test: curl https://${ingress_host}/v1/chat/completions"
+  # fi
 
   log ""
   log "📊 Monitoring Commands:"
@@ -1289,13 +1291,14 @@ check_aiplatform_status() {
     -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
 
   # Parse conditions
-  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
+  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status # ingress_status
   ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
   ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
   ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
   ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
   weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
-  ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+  # TODO: Ingress validation - revisit later
+  # ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
 
   echo ""
   log "📊 Component Status:"
@@ -1303,8 +1306,9 @@ check_aiplatform_status() {
   log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
   log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
   log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
-  log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
-  [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+  log "  └─ Weaviate Database:  $(format_status "$weaviate_status")"
+  # TODO: Ingress validation - revisit later
+  # [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
 
   # Show detailed messages for non-ready components
   local not_ready
@@ -1424,15 +1428,16 @@ spec:
         operator: "Equal"
         value: "true"
         effect: "NoSchedule"
-  ingress:
-    enabled: true
-    className: ${INGRESS_CLASS}
-    hosts:
-      - host: ${INGRESS_HOST}
-        paths: [ { path: "/", pathType: Prefix } ]
-    tls:
-      - hosts: [ ${INGRESS_HOST} ]
-        secretName: ${INGRESS_TLS_SECRET}
+  # TODO: Ingress configuration - revisit later
+  # ingress:
+  #   enabled: true
+  #   className: ${INGRESS_CLASS}
+  #   hosts:
+  #     - host: ${INGRESS_HOST}
+  #       paths: [ { path: "/", pathType: Prefix } ]
+  #   tls:
+  #     - hosts: [ ${INGRESS_HOST} ]
+  #       secretName: ${INGRESS_TLS_SECRET}
   splunkConfiguration:
     endpoint: http://${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8089
     secretRef:
