@@ -57,6 +57,7 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 		{"Validate", r.validateAIService},
 		{"ServiceAccount", r.reconcileServiceAccount},
 		{"SAIAConfigMap", r.reconcileSAIAConfigMap},
+		{"FeatureConfigMap", r.reconcileFeatureConfigMap},
 		{"Certificate", r.reconcileCertificate},
 		{"PostInstallHook", r.reconcilePostInstallHook},
 		{"SAIADeployment", r.reconcileSAIADeployment},
@@ -344,6 +345,89 @@ func (r *SaiaReconciler) reconcileSAIAConfigMap(
 	return nil
 }
 
+// reconcileFeatureConfigMap manages the feature-config ConfigMap with default content.
+// This ConfigMap is used by SAIA deployment for feature flags and customization.
+// If the ConfigMap doesn't exist, it creates it with default values.
+// If it exists, it preserves user modifications.
+func (r *SaiaReconciler) reconcileFeatureConfigMap(
+	ctx context.Context,
+	ai *aiv1.AIService,
+) error {
+	cmName := fmt.Sprintf("splunk-%s-feature-config", ai.Name)
+
+	// Check if ConfigMap already exists
+	found := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: ai.Namespace}, found)
+
+	if err == nil {
+		// ConfigMap exists - check if it has owner reference
+		if !hasOwnerReference(found, ai) {
+			// Add owner reference to existing ConfigMap
+			if err := controllerutil.SetControllerReference(ai, found, r.Scheme); err != nil {
+				r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+					fmt.Sprintf("Failed to set owner reference on ConfigMap %q", cmName))
+				return fmt.Errorf("failed to set owner reference on ConfigMap %q: %w", cmName, err)
+			}
+			if err := r.Update(ctx, found); err != nil {
+				return fmt.Errorf("failed to update owner reference on ConfigMap %q: %w", cmName, err)
+			}
+			r.Recorder.Event(ai, corev1.EventTypeNormal, "FeatureConfigMapUpdated",
+				fmt.Sprintf("Added owner reference to existing ConfigMap %q", cmName))
+		}
+		// ConfigMap exists and has owner reference - preserve user modifications
+		return nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to retrieve ConfigMap %q", cmName))
+		return fmt.Errorf("failed to get ConfigMap %q: %w", cmName, err)
+	}
+
+	// ConfigMap doesn't exist - create it with default content
+	defaultData := map[string]string{
+		"customization.yaml": `customization:
+  enabled_by_default: true
+`,
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmName,
+			Namespace: ai.Namespace,
+		},
+		Data: defaultData,
+	}
+
+	// Set owner reference so it gets deleted with AIService
+	if err := controllerutil.SetControllerReference(ai, cm, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to set owner reference on ConfigMap %q", cmName))
+		return fmt.Errorf("failed to set owner reference on ConfigMap %q: %w", cmName, err)
+	}
+
+	if err := r.Create(ctx, cm); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to create ConfigMap %q", cmName))
+		return fmt.Errorf("failed to create ConfigMap %q: %w", cmName, err)
+	}
+
+	r.Recorder.Event(ai, corev1.EventTypeNormal, "FeatureConfigMapCreated",
+		fmt.Sprintf("Created feature-config ConfigMap %q with default content", cmName))
+
+	return nil
+}
+
+// hasOwnerReference checks if the object has an owner reference to the given owner
+func hasOwnerReference(obj metav1.Object, owner metav1.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() {
+			return true
+		}
+	}
+	return false
+}
+
 // reconcileCertificate manages cert-manager Certificate for mTLS.
 func (r *SaiaReconciler) reconcileCertificate(
 	ctx context.Context,
@@ -480,6 +564,8 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 					},
 					Tolerations: ai.Spec.Tolerations,
 					Affinity:    &ai.Spec.Affinity,
+					// Propagate imagePullSecrets from AIService spec
+					ImagePullSecrets: ai.Spec.ImagePullSecrets,
 				},
 			},
 		},
@@ -501,14 +587,15 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
-	optional := true
+	// Use standardized ConfigMap name: splunk-<aiservice-name>-feature-config
+	featureConfigName := fmt.Sprintf("splunk-%s-feature-config", ai.Name)
+
 	volumes := []corev1.Volume{
 		{
 			Name: "config-volume",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: "features-config"},
-					Optional:             &optional,
+					LocalObjectReference: corev1.LocalObjectReference{Name: featureConfigName},
 				},
 			},
 		},
@@ -685,6 +772,8 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 				Volumes:     volumes,
 				Affinity:    &ai.Spec.Affinity,
 				Tolerations: ai.Spec.Tolerations,
+				// Propagate imagePullSecrets from AIService spec
+				ImagePullSecrets: ai.Spec.ImagePullSecrets,
 			},
 		}
 		return nil

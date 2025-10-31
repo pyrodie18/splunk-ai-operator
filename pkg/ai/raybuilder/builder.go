@@ -748,6 +748,8 @@ func (b *Builder) makeHeadTemplate() corev1.PodTemplateSpec {
 	spec.Tolerations = b.ai.Spec.CPUSchedulingSpec.Tolerations
 	spec.Affinity = b.ai.Spec.CPUSchedulingSpec.Affinity
 	spec.ServiceAccountName = b.ai.Spec.ServiceAccountName
+	// Propagate imagePullSecrets from AIPlatform spec
+	spec.ImagePullSecrets = b.ai.Spec.Images.ImagePullSecrets
 	// FIXME need to find better way to add sidecars
 	return corev1.PodTemplateSpec{Spec: spec}
 }
@@ -837,6 +839,9 @@ func (b *Builder) makeWorkerTemplate(cfg InstanceDetail) corev1.PodTemplateSpec 
 	spec.NodeSelector = b.ai.Spec.GPUSchedulingSpec.NodeSelector
 	spec.Tolerations = b.ai.Spec.GPUSchedulingSpec.Tolerations
 	spec.Affinity = b.ai.Spec.GPUSchedulingSpec.Affinity
+
+	// Propagate imagePullSecrets from AIPlatform spec
+	spec.ImagePullSecrets = b.ai.Spec.Images.ImagePullSecrets
 
 	found := false
 	for _, vol := range spec.Volumes {

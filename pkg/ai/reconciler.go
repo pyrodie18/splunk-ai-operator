@@ -227,6 +227,8 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 				Path:    "/metrics",
 			},
 			MTLS: platform.Spec.MTLS,
+			// Propagate imagePullSecrets from AIPlatform to AIService
+			ImagePullSecrets: platform.Spec.Images.ImagePullSecrets,
 		},
 	}
 }

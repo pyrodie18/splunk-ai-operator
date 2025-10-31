@@ -128,6 +128,8 @@ func (r *AIPlatformReconciler) ReconcileWeaviateDatabase(ctx context.Context, in
 		sts.Spec.Template.Spec.Affinity = instance.Spec.CPUSchedulingSpec.Affinity
 		sts.Spec.Template.Spec.Tolerations = instance.Spec.CPUSchedulingSpec.Tolerations
 		sts.Spec.Template.Spec.NodeSelector = instance.Spec.CPUSchedulingSpec.NodeSelector
+		// Propagate imagePullSecrets from AIPlatform spec
+		sts.Spec.Template.Spec.ImagePullSecrets = instance.Spec.Images.ImagePullSecrets
 
 		// Determine PVC configuration
 		volumeMounts := []corev1.VolumeMount{}

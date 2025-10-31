@@ -8,6 +8,13 @@ cluster:
   # Cluster name (used for tagging and identification)
   name: splunk-ai-k0s
 
+  # Use existing Kubernetes cluster instead of creating new k0s cluster
+  # Options:
+  #   auto    - Auto-detect: use existing cluster if accessible via KUBECONFIG
+  #   force   - Force use existing cluster (fail if not found)
+  #   never   - Never use existing cluster, always create new k0s cluster
+  useExisting: auto
+
   # AWS region (only needed for EC2 mode)
   region: us-west-2
 
@@ -20,11 +27,11 @@ nodes:
   # Number of controller nodes (1 or 3 recommended for HA)
   controllers: 1
 
-  # Number of CPU worker nodes
-  cpuWorkers: 2
+  # Number of CPU worker nodes (8 total nodes: 1 controller + 4 CPU + 3 GPU)
+  cpuWorkers: 4
 
   # Number of GPU worker nodes
-  gpuWorkers: 1
+  gpuWorkers: 3
 
   # ==================================================================
   # OPTION 1: On-Prem/Baremetal - Provide existing IP addresses
@@ -49,7 +56,7 @@ nodes:
 # ==================================================================
 ec2:
   # VPC ID where instances will be created
-  vpcId: vpc-0f6260eb0cb46374c
+  vpcId: vpc-0xxxxxxxxxxxx
 
   # Subnet ID (optional - will use first available if not provided)
   subnetId: ""
@@ -105,6 +112,71 @@ splunk:
 
   # Splunk index
   index: ai-platform
+
+# ==================================================================
+# ECR Configuration (for private Docker images)
+# ==================================================================
+# If AI Platform uses private images from AWS ECR, configure this section
+# The script will automatically:
+#   1. Create ECR image pull secrets with credentials
+#   2. Add imagePullSecrets to AIPlatform CR
+# ==================================================================
+ecr:
+  # ECR account ID (optional - will auto-detect from AWS credentials)
+  # Example: 667741767953
+  account: "6xxxxxxxx"
+
+  # If left empty, the script will use the current AWS account ID
+
+# ==================================================================
+# Image Pull Secrets Configuration
+# ==================================================================
+# The script will CREATE Kubernetes secrets from this configuration
+# and pass them to AIPlatform CR spec.images.imagePullSecrets
+# ==================================================================
+imagePullSecrets:
+  # AWS ECR Configuration
+  # If enabled, script will create 'ecr-registry-secret' in ai-platform namespace
+  ecr:
+    enabled: true                    # Set to true to create ECR secret
+    # account: ""                    # Optional: ECR account ID (auto-detects if empty)
+    # region: "us-west-2"            # Optional: defaults to cluster region
+    # AWS credentials are read from environment (AWS CLI must be configured)
+
+  # Docker Hub Configuration
+  # If enabled, script will create 'docker-hub-secret' in ai-platform namespace
+  dockerHub:
+    enabled: false                   # Set to true to create Docker Hub secret
+    username: ""                     # Docker Hub username
+    password: ""                     # Docker Hub password or access token
+    email: ""                        # Optional: Docker Hub email
+
+  # Google Container Registry (GCR) Configuration
+  # If enabled, script will create 'gcr-secret' in ai-platform namespace
+  gcr:
+    enabled: false                   # Set to true to create GCR secret
+    # jsonKeyFile: ""                # Path to GCR service account JSON key file
+    # Or provide credentials directly:
+    username: "_json_key"            # Always use "_json_key" for GCR
+    jsonKey: ""                      # Service account JSON key (as string)
+
+  # Azure Container Registry (ACR) Configuration
+  # If enabled, script will create 'acr-secret' in ai-platform namespace
+  acr:
+    enabled: false                   # Set to true to create ACR secret
+    registry: ""                     # ACR registry URL (e.g., myregistry.azurecr.io)
+    username: ""                     # ACR username (service principal)
+    password: ""                     # ACR password (service principal password)
+
+  # Custom Registry Configuration
+  # If enabled, script will create 'custom-registry-secret' in ai-platform namespace
+  custom:
+    enabled: false                   # Set to true to create custom registry secret
+    name: "custom-registry-secret"   # Name of the secret to create
+    server: ""                       # Registry server (e.g., my-registry.com)
+    username: ""                     # Registry username
+    password: ""                     # Registry password
+    email: ""                        # Optional: email
 
 # ==================================================================
 # File Paths

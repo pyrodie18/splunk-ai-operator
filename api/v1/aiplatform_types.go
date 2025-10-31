@@ -135,6 +135,13 @@ type Images struct {
 	// Ray worker group image, e.g. "rayproject/ray-worker:latest"
 	// +kubebuilder:validation:Optional
 	RayWorkerGroupImage string `json:"rayWorkerGroupImage,omitempty"`
+	// ImagePullSecrets is a list of secret names for pulling container images from private registries
+	// If specified, these secrets will be added to ALL pods created by the operator
+	// (Ray head, Ray workers, Weaviate, SAIA, jobs, etc.)
+	// Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+	// Kubernetes will gracefully handle the case where imagePullSecrets are provided but images are public
+	// +kubebuilder:validation:Optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // StorageSpec defines persistent storage configuration for platform components
