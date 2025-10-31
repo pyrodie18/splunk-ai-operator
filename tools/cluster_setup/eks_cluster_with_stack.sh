@@ -1361,6 +1361,58 @@ check_aiplatform_status() {
   log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# ====== CREATE IMAGE PULL SECRETS ======
+create_image_pull_secrets() {
+  local ns="$1"
+  ensure_namespace "${ns}"
+
+  log "============================================"
+  log "Creating Image Pull Secrets"
+  log "============================================"
+
+  local secrets_created=()
+
+  # Create ECR secret
+  log "Creating ECR secret for private images..."
+
+  # Check if AWS credentials are available
+  if ! aws sts get-caller-identity &>/dev/null; then
+    warn "AWS credentials not available - skipping ECR secret creation"
+    warn "If using private ECR images, pods will fail to pull images"
+    return 0
+  fi
+
+  local ecr_account ecr_region
+  ecr_account=$(aws sts get-caller-identity --query Account --output text)
+  ecr_region="${REGION:-us-west-2}"
+
+  log "ECR Account: ${ecr_account}, Region: ${ecr_region}"
+
+  # Get ECR authorization token
+  local ecr_password
+  if ecr_password=$(aws ecr get-login-password --region "${ecr_region}" 2>/dev/null); then
+    # Create docker-registry secret
+    kubectl create secret docker-registry ecr-registry-secret \
+      --docker-server="${ecr_account}.dkr.ecr.${ecr_region}.amazonaws.com" \
+      --docker-username=AWS \
+      --docker-password="${ecr_password}" \
+      --namespace="${ns}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+    log "✓ ECR secret created: ecr-registry-secret"
+    log "  Registry: ${ecr_account}.dkr.ecr.${ecr_region}.amazonaws.com"
+    log "  Note: ECR tokens expire after 12 hours"
+    secrets_created+=("ecr-registry-secret")
+  else
+    warn "Failed to get ECR token - skipping ECR secret"
+  fi
+
+  # Return created secrets as space-separated string
+  if [[ ${#secrets_created[@]} -gt 0 ]]; then
+    echo "${secrets_created[@]}"
+  fi
+}
+
 install_ai_platform_cr() {
   local secret_name="${1:-}"
   if [[ -z "$secret_name" ]]; then
@@ -1368,6 +1420,32 @@ install_ai_platform_cr() {
   fi
   log "Installing AIPlatform CR (${AI_PLATFORM_NAME}) in ${AI_NS} using secretRef.name=${secret_name}"
   ensure_namespace "${AI_NS}"
+
+  # Create image pull secrets
+  log "Creating image pull secrets for private container registries..."
+  create_image_pull_secrets "${AI_NS}"
+
+  # Build imagePullSecrets YAML from created secrets
+  local image_pull_secrets=""
+  local secrets_yaml=""
+
+  # Check for all possible secrets and add to YAML if they exist
+  for secret_name_check in ecr-registry-secret docker-hub-secret gcr-secret acr-secret custom-registry-secret; do
+    if kubectl get secret "${secret_name_check}" -n "${AI_NS}" &>/dev/null 2>&1; then
+      secrets_yaml+="      - name: ${secret_name_check}"$'\n'
+    fi
+  done
+
+  if [[ -n "${secrets_yaml}" ]]; then
+    log "ImagePullSecrets found, adding to AIPlatform CR"
+    image_pull_secrets=$(cat <<EOF
+    imagePullSecrets:
+${secrets_yaml}
+EOF
+)
+  else
+    log "No imagePullSecrets found, using public images only"
+  fi
 
   cat <<YAML | kubectl -n "${AI_NS}" apply --server-side --force-conflicts -f -
 apiVersion: cert-manager.io/v1
@@ -1405,6 +1483,11 @@ spec:
   objectStorage:
     path: s3://${S3_BUCKET}
     region: ${REGION}
+
+  # Image configuration (including pull secrets for private registries)
+  images:
+${image_pull_secrets}
+
   serviceAccountName: ${RAY_HEAD_SA}
   defaultAcceleratorType: ${DEFAULT_ACCELERATOR}
   features:

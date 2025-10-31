@@ -145,7 +145,7 @@ load_config() {
   fi
 
   # ImagePullSecrets configuration - read which registries are enabled
-  IMAGE_PULL_SECRETS_ECR_ENABLED=$(yq eval '.imagePullSecrets.ecr.enabled' "${CONFIG_FILE}" 2>/dev/null || echo "false")
+  IMAGE_PULL_SECRETS_ECR_ENABLED=$(yq eval '.imagePullSecrets.autoCreateECR' "${CONFIG_FILE}" 2>/dev/null || echo "false")
   IMAGE_PULL_SECRETS_DOCKERHUB_ENABLED=$(yq eval '.imagePullSecrets.dockerHub.enabled' "${CONFIG_FILE}" 2>/dev/null || echo "false")
   IMAGE_PULL_SECRETS_GCR_ENABLED=$(yq eval '.imagePullSecrets.gcr.enabled' "${CONFIG_FILE}" 2>/dev/null || echo "false")
   IMAGE_PULL_SECRETS_ACR_ENABLED=$(yq eval '.imagePullSecrets.acr.enabled' "${CONFIG_FILE}" 2>/dev/null || echo "false")
@@ -292,6 +292,11 @@ create_security_group() {
     --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
   log "  ✓ Ports 30000-32767 (NodePort): PUBLIC - for Kubernetes services"
 
+  # Konnectivity agent port - allow from anywhere (agents connect via public IP)
+  aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
+    --protocol tcp --port 8132 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
+  log "  ✓ Port 8132 (Konnectivity): PUBLIC - for konnectivity-agent connections"
+
   # === INTERNAL CLUSTER COMMUNICATION (within security group only) ===
   # All internal traffic - etcd (2380), kubelet (10250), CNI, pod networking, etc.
   aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
@@ -365,7 +370,10 @@ EOF
 
   # Create instances (arrays already declared globally at top of script)
   CONTROLLER_IPS=()
+  CONTROLLER_PRIVATE_IPS=()
+  CONTROLLER_PUBLIC_IPS=()
   WORKER_IPS=()
+  WORKER_PRIVATE_IPS=()
   ALL_INSTANCE_IDS=()
 
   # Add existing instances to tracking arrays
@@ -486,30 +494,33 @@ EOF
   log "Waiting additional time for SSH to be fully ready..."
   sleep 60
 
-  # Get IPs - use public IPs for SSH access from outside VPC
+  # Get IPs - collect BOTH public and private IPs
+  # Use public IPs for SSH from local machine, private IPs for k0s internal communication
   for id in "${ALL_INSTANCE_IDS[@]}"; do
     local role
     role=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
       --query 'Reservations[0].Instances[0].Tags[?Key==`Role`].Value' --output text)
 
-    # Get public IP for SSH access
-    local ip
-    ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
+    # Get public IP for SSH access from local machine
+    local public_ip
+    public_ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
       --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
 
-    # Fallback to private IP if no public IP (for VPC-internal access)
-    if [[ -z "${ip}" || "${ip}" == "None" ]]; then
-      ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
-        --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
-      log "Warning: Instance ${id} has no public IP, using private IP ${ip}"
-    fi
+    # Get private IP for k0s internal communication
+    local private_ip
+    private_ip=$(aws ec2 describe-instances --region "${REGION}" --instance-ids "${id}" \
+      --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
 
+    # Use public IP for SSH, but store private IP for k0s config
     if [[ "${role}" == "controller" ]]; then
-      CONTROLLER_IPS+=("${ip}")
-      log "Controller IP: ${ip}"
+      CONTROLLER_IPS+=("${public_ip}")  # For SSH from local machine
+      CONTROLLER_PRIVATE_IPS+=("${private_ip}")  # For k0s internal communication
+      CONTROLLER_PUBLIC_IPS+=("${public_ip}")  # For kubectl access and certificates
+      log "Controller - Public IP: ${public_ip}, Private IP: ${private_ip}"
     else
-      WORKER_IPS+=("${ip}")
-      log "Worker IP: ${ip} (${role})"
+      WORKER_IPS+=("${public_ip}")  # For SSH from local machine
+      WORKER_PRIVATE_IPS+=("${private_ip}")  # For k0s internal communication
+      log "Worker - Public IP: ${public_ip}, Private IP: ${private_ip} (${role})"
     fi
   done
 
@@ -527,30 +538,41 @@ install_k0s_cluster() {
     IFS=' ' read -ra WORKER_IPS <<< "${EXISTING_WORKER_IPS}"
   fi
 
-  local controller_ip="${CONTROLLER_IPS[0]}"
-  log "Primary controller: ${controller_ip}"
+  local controller_ip="${CONTROLLER_IPS[0]}"  # Public IP for SSH
+  local controller_private_ip="${CONTROLLER_PRIVATE_IPS[0]}"  # Private IP for k0s
+  local controller_public_ip="${CONTROLLER_PUBLIC_IPS[0]}"  # Public IP for kubectl access
+
+  log "Primary controller - Public IP: ${controller_public_ip}, Private IP: ${controller_private_ip}"
 
   # Generate k0s config
   log "Generating k0s configuration..."
   ssh_exec "${controller_ip}" "k0s config create > /tmp/k0s.yaml"
 
-  # Add public IP to API server certificate SANs using Python
-  log "Adding public IP ${controller_ip} to API server certificate..."
-  ssh_exec "${controller_ip}" "python3 > /tmp/k0s-config-update.py <<'PYSCRIPT'
+  # Configure k0s to use private IP for internal communication, add public IP to SANs for external access
+  log "Configuring k0s: Private IP ${controller_private_ip} for internal, Public IP ${controller_public_ip} for external access..."
+  ssh_exec "${controller_ip}" "cat > /tmp/k0s-config-update.py <<'PYSCRIPT'
 import yaml
 
 # Read the k0s config
 with open('/tmp/k0s.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
-# Add SANs to API section
+# Add SANs to API section - include BOTH private and public IPs
 if 'spec' not in config:
     config['spec'] = {}
 if 'api' not in config['spec']:
     config['spec']['api'] = {}
 if 'sans' not in config['spec']['api']:
     config['spec']['api']['sans'] = []
-config['spec']['api']['sans'].append('${controller_ip}')
+
+# Add private IP (for internal cluster communication)
+config['spec']['api']['sans'].append('${controller_private_ip}')
+# Add public IP (for kubectl access from outside)
+config['spec']['api']['sans'].append('${controller_public_ip}')
+
+# CRITICAL: Use public IP for externalAddress so konnectivity-agents can connect
+# konnectivity-agents run in pods and need to reach API server via routable address
+config['spec']['api']['externalAddress'] = '${controller_public_ip}'
 
 # Set Calico as network provider
 if 'network' not in config['spec']:
@@ -588,20 +610,90 @@ PYSCRIPT"
   local worker_token
   worker_token=$(ssh_exec "${controller_ip}" "sudo k0s token create --role=worker")
 
-  # Install workers
-  for worker_ip in "${WORKER_IPS[@]}"; do
-    log "Installing k0s worker on ${worker_ip}..."
-    ssh_exec "${worker_ip}" "echo '${worker_token}' | sudo k0s install worker --token-file=-" &
-  done
-  wait
+  # Install workers (with error checking)
+  log "Installing k0s on ${#WORKER_IPS[@]} worker nodes..."
+  local failed_workers=()
 
   for worker_ip in "${WORKER_IPS[@]}"; do
-    ssh_exec "${worker_ip}" "sudo k0s start" &
+    log "  Installing k0s worker on ${worker_ip}..."
+    # Write token to temp file first (stdin pipe doesn't work reliably over SSH)
+    # Note: Token file must remain until worker bootstraps, so we don't delete it here
+    if ssh_exec "${worker_ip}" "echo '${worker_token}' | sudo tee /tmp/k0s-token >/dev/null && sudo k0s install worker --token-file=/tmp/k0s-token"; then
+      log "  ✓ k0s installed on ${worker_ip}"
+    else
+      warn "  ✗ Failed to install k0s on ${worker_ip}"
+      failed_workers+=("${worker_ip}")
+    fi
   done
-  wait
+
+  # Start workers
+  log "Starting k0s workers..."
+  for worker_ip in "${WORKER_IPS[@]}"; do
+    # Skip workers that failed installation
+    local skip=false
+    if [[ ${#failed_workers[@]} -gt 0 ]]; then
+      for failed_ip in "${failed_workers[@]}"; do
+        if [[ "${failed_ip}" == "${worker_ip}" ]]; then
+          skip=true
+          break
+        fi
+      done
+    fi
+    if [[ "${skip}" == "true" ]]; then
+      continue
+    fi
+
+    log "  Starting k0s worker on ${worker_ip}..."
+    if ssh_exec "${worker_ip}" "sudo k0s start"; then
+      log "  ✓ k0s started on ${worker_ip}"
+    else
+      warn "  ✗ Failed to start k0s on ${worker_ip}"
+      failed_workers+=("${worker_ip}")
+    fi
+  done
+
+  if [[ ${#failed_workers[@]} -gt 0 ]]; then
+    warn "Some workers failed to install/start: ${failed_workers[*]}"
+  fi
 
   log "Waiting for workers to join (60s)..."
   sleep 60
+
+  # Verify workers actually joined
+  log "Verifying worker nodes joined the cluster..."
+  local expected_nodes=$((${#CONTROLLER_IPS[@]} + ${#WORKER_IPS[@]}))
+  local actual_nodes
+  actual_nodes=$(ssh_exec "${controller_ip}" "sudo k0s kubectl get nodes --no-headers | wc -l")
+
+  log "Expected nodes: ${expected_nodes}, Actual nodes: ${actual_nodes}"
+
+  if [[ ${actual_nodes} -lt ${expected_nodes} ]]; then
+    warn "Not all workers joined! Expected ${expected_nodes} nodes, but only ${actual_nodes} joined."
+    log "Current nodes:"
+    ssh_exec "${controller_ip}" "sudo k0s kubectl get nodes -o wide"
+
+    log ""
+    warn "Possible issues:"
+    warn "  1. Workers cannot reach controller's API server"
+    warn "  2. Network connectivity issues between nodes"
+    warn "  3. k0s worker process failed to start"
+    warn ""
+    warn "Checking worker logs..."
+
+    # Check first worker's k0s logs
+    if [[ ${#WORKER_IPS[@]} -gt 0 ]]; then
+      local first_worker="${WORKER_IPS[0]}"
+      log "Checking k0s status on worker ${first_worker}..."
+      ssh_exec "${first_worker}" "sudo k0s status || sudo journalctl -u k0sworker -n 20 --no-pager" || true
+    fi
+
+    warn ""
+    warn "Continuing installation with ${actual_nodes} nodes..."
+    warn "You can manually join workers later using: ./k0s_cluster_with_stack.sh join-workers"
+    warn ""
+  else
+    log "✓ All ${expected_nodes} nodes joined successfully!"
+  fi
 
   # Install local-path storage provisioner for persistent volumes
   log "Installing local-path storage provisioner..."
@@ -627,8 +719,9 @@ PYSCRIPT"
   mkdir -p "${HOME}/.kube"
   ssh_exec "${controller_ip}" "sudo cat /var/lib/k0s/pki/admin.conf" > "${HOME}/.kube/k0s-${CLUSTER_NAME}"
 
-  # Update server address
-  sed -i.bak "s|server: .*|server: https://${controller_ip}:6443|" "${HOME}/.kube/k0s-${CLUSTER_NAME}"
+  # Update server address to use public IP for kubectl access from local machine
+  log "Configuring kubeconfig to use public IP for external access..."
+  sed -i.bak "s|server: .*|server: https://${controller_public_ip}:6443|" "${HOME}/.kube/k0s-${CLUSTER_NAME}"
 
   export KUBECONFIG="${HOME}/.kube/k0s-${CLUSTER_NAME}"
 
@@ -991,6 +1084,49 @@ install_cert_manager() {
   wait_for_crd certificates.cert-manager.io 300
   kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=300s
 
+  # Wait for webhook to be fully operational
+  log "Waiting for cert-manager webhooks to be ready..."
+
+  # First, ensure webhook pods are running
+  kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=webhook -n cert-manager --timeout=120s || warn "Webhook pods may not be ready"
+
+  # Wait for webhook endpoint to have addresses
+  local retries=0
+  local max_retries=60
+  while (( retries < max_retries )); do
+    local webhook_ip
+    webhook_ip=$(kubectl -n cert-manager get endpoints cert-manager-webhook -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+    if [[ -n "${webhook_ip}" ]]; then
+      log "cert-manager webhook endpoint found: ${webhook_ip}"
+      break
+    fi
+    sleep 2
+    retries=$((retries + 1))
+  done
+
+  if (( retries >= max_retries )); then
+    warn "cert-manager webhook endpoint not found after ${max_retries} retries"
+  fi
+
+  # Give webhooks extra time to stabilize and register with API server
+  log "Waiting for webhooks to stabilize (30s)..."
+  sleep 30
+
+  # Test webhook by creating a test Certificate resource
+  log "Testing cert-manager webhook functionality..."
+  cat <<EOF | kubectl apply -f - || warn "Webhook test failed, but continuing..."
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: test-selfsigned
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+EOF
+
+  # Clean up test issuer
+  kubectl delete issuer test-selfsigned -n cert-manager --ignore-not-found=true 2>/dev/null || true
+
   log "cert-manager installed successfully"
 }
 
@@ -1038,9 +1174,11 @@ install_otel_operator_and_contrib_collector() {
   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts || true
   helm repo update
 
+  # Use cert-manager for webhook certificates (now that konnectivity is fixed)
   helm_retry 3 upgrade --install opentelemetry-operator open-telemetry/opentelemetry-operator \
     --namespace opentelemetry-operator-system --create-namespace \
     --set manager.collectorImage.repository=otel/opentelemetry-collector-contrib \
+    --set admissionWebhooks.certManager.enabled=true \
     --wait --timeout=10m
 
   wait_for_crd opentelemetrycollectors.opentelemetry.io 300
@@ -1392,7 +1530,9 @@ create_image_pull_secrets() {
   fi
 
   # Return created secrets as space-separated string
-  echo "${secrets_created[@]}"
+  if [[ ${#secrets_created[@]} -gt 0 ]]; then
+    echo "${secrets_created[@]}"
+  fi
 }
 
 # ====== CREATE ECR IMAGE PULL SECRET (Legacy - kept for compatibility) ======
@@ -2100,67 +2240,23 @@ main_delete() {
   log "Starting cleanup of k0s cluster: ${CLUSTER_NAME}"
   log "============================================"
 
-  # Set kubeconfig if cluster is still accessible
-  export KUBECONFIG="${HOME}/.kube/k0s-${CLUSTER_NAME}"
-
-  log "Checking if cluster is accessible..."
-  if [[ -f "${KUBECONFIG}" ]] && timeout 10 kubectl cluster-info &>/dev/null; then
-    log "Cluster is accessible, performing graceful cleanup..."
-
-    # Delete AI Platform resources
-    log "Deleting AI Platform resources..."
-    kubectl delete aiplatform --all -n "${AI_NS}" --timeout=120s || true
-    kubectl delete aiservice --all -n "${AI_NS}" --timeout=120s || true
-
-    # Delete Splunk resources
-    log "Deleting Splunk Standalone..."
-    kubectl delete standalone --all -n "${AI_NS}" --timeout=120s || true
-
-    # Delete Ray resources
-    log "Deleting Ray services..."
-    kubectl delete rayservice --all -n "${AI_NS}" --timeout=120s || true
-    kubectl delete raycluster --all -n "${AI_NS}" --timeout=120s || true
-
-    # Delete namespace (this will cleanup remaining resources)
-    log "Deleting namespace: ${AI_NS}..."
-    kubectl delete namespace "${AI_NS}" --timeout=180s || true
-
-    # Delete operators
-    log "Deleting Splunk AI Operator..."
-    kubectl delete namespace splunk-ai-operator-system --timeout=120s || true
-
-    log "Deleting monitoring stack..."
-    helm uninstall kube-prometheus-stack -n monitoring || true
-    kubectl delete namespace monitoring --timeout=120s || true
-
-    log "Deleting OpenTelemetry Operator..."
-    helm uninstall opentelemetry-operator -n opentelemetry-operator-system || true
-    kubectl delete namespace opentelemetry-operator-system --timeout=120s || true
-
-    log "Deleting Ray Operator..."
-    helm uninstall kuberay-operator -n ray-system || true
-    kubectl delete namespace ray-system --timeout=120s || true
-
-    log "Deleting GPU Operator..."
-    helm uninstall gpu-operator -n gpu-operator --timeout=300s || true
-    kubectl delete namespace gpu-operator --timeout=120s || true
-
-    log "Deleting cert-manager..."
-    kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml --timeout=120s || true
-
-    log "Deleting MinIO..."
-    kubectl delete namespace minio-system --timeout=120s || true
-
-    log "Waiting for resource cleanup (30s)..."
-    sleep 30
-  else
-    warn "Cluster not accessible or kubeconfig missing, skipping Kubernetes resource cleanup"
-  fi
-
-  # Stop and reset k0s on all nodes
-  log "Stopping k0s on all nodes..."
+  # For EC2 mode: Just delete AWS resources (instances, security groups)
+  # Kubernetes resources will be destroyed when instances are terminated
+  # This is much faster and avoids stuck namespace deletion issues
 
   if [[ -n "${EXISTING_CONTROLLER_IPS}" ]]; then
+    # On-prem mode: Need to clean Kubernetes resources gracefully
+    log "On-prem mode detected - performing graceful Kubernetes cleanup..."
+
+    export KUBECONFIG="${HOME}/.kube/k0s-${CLUSTER_NAME}"
+
+    if [[ -f "${KUBECONFIG}" ]] && timeout 10 kubectl cluster-info &>/dev/null; then
+      log "Deleting Kubernetes resources..."
+      kubectl delete aiplatform --all -n "${AI_NS}" --timeout=60s || true
+      kubectl delete namespace "${AI_NS}" --timeout=120s || true
+      kubectl delete namespace splunk-ai-operator-system --timeout=60s || true
+      kubectl delete namespace monitoring --timeout=60s || true
+    fi
     # On-prem: Stop k0s on existing infrastructure
     IFS=' ' read -ra CONTROLLER_IPS <<< "${EXISTING_CONTROLLER_IPS}"
     IFS=' ' read -ra WORKER_IPS <<< "${EXISTING_WORKER_IPS}"
@@ -2452,14 +2548,15 @@ clean_all() {
 # ====== USAGE ======
 usage() {
   cat <<EOF
-Usage: $0 [install|delete|clean-all]
+Usage: $0 [install|delete|clean-all|join-workers]
 
 Deploys Splunk AI Platform on k0s cluster (on-prem or EC2)
 
 Commands:
-  install    - Install k0s cluster and AI Platform stack
-  delete     - Delete cluster and all resources (graceful)
-  clean-all  - Aggressive cleanup including node-level cleanup (on-prem)
+  install       - Install k0s cluster and AI Platform stack
+  join-workers  - Join/rejoin worker nodes to existing cluster (resume after failure)
+  delete        - Delete cluster and all resources (graceful)
+  clean-all     - Aggressive cleanup including node-level cleanup (on-prem)
 
 Environment:
   CONFIG_FILE  - Path to k0s config YAML (default: ./k0s-cluster-config.yaml)
@@ -2472,6 +2569,9 @@ Examples:
   # EC2 simulation
   CONFIG_FILE=./ec2-config.yaml $0 install
 
+  # Join worker nodes (if install failed or was interrupted)
+  CONFIG_FILE=./ec2-config.yaml $0 join-workers
+
   # Delete cluster (with confirmation prompt)
   CONFIG_FILE=./config.yaml $0 delete
 
@@ -2482,6 +2582,12 @@ Examples:
   CONFIG_FILE=./config.yaml $0 clean-all
 
 Notes:
+  - 'install' performs full cluster setup including worker joins
+  - 'join-workers' is useful for:
+    * Resuming after installation was interrupted
+    * Retrying failed worker joins
+    * Adding workers to existing cluster
+    * Fixing missing node labels
   - 'delete' performs comprehensive cleanup:
     * Shows preview of all resources to be deleted
     * Requires confirmation (type 'yes') unless AUTO_APPROVE=true
@@ -2496,8 +2602,189 @@ Notes:
     * Flushes iptables rules
   - For EC2 mode, 'delete' terminates all instances and cleans AWS resources
   - For on-prem mode, machines remain running but k0s is stopped and reset
-  - Both commands are idempotent and safe to run multiple times
+  - All commands are idempotent and safe to run multiple times
 EOF
+}
+
+# ====== JOIN WORKERS (Resume/Retry Worker Joins) ======
+join_workers() {
+  log "============================================"
+  log "Joining Worker Nodes to k0s Cluster"
+  log "============================================"
+
+  load_config
+
+  # Set proper kubeconfig
+  export KUBECONFIG="${HOME}/.kube/k0s-${CLUSTER_NAME}"
+
+  if [[ ! -f "${KUBECONFIG}" ]]; then
+    err "Kubeconfig not found at ${KUBECONFIG}. Please run 'install' first."
+  fi
+
+  # Get controller IP from existing cluster
+  log "Detecting cluster configuration..."
+
+  # Option 1: Get from EC2 instances
+  if [[ -z "${EXISTING_CONTROLLER_IPS}" ]]; then
+    log "Discovering EC2 instances for cluster: ${CLUSTER_NAME}..."
+
+    # Get controller IPs
+    local controller_ips
+    controller_ips=$(aws ec2 describe-instances --region "${REGION}" \
+      --filters "Name=tag:Cluster,Values=${CLUSTER_NAME}" \
+                "Name=tag:Role,Values=controller" \
+                "Name=instance-state-name,Values=running" \
+      --query 'Reservations[*].Instances[*].PublicIpAddress' \
+      --output text)
+
+    if [[ -z "${controller_ips}" ]]; then
+      err "No running controller instances found for cluster ${CLUSTER_NAME}"
+    fi
+
+    # Convert newlines and tabs to spaces, then split into array
+    controller_ips=$(echo "${controller_ips}" | tr '\n\t' ' ')
+    IFS=' ' read -ra CONTROLLER_IPS <<< "${controller_ips}"
+
+    # Get worker IPs
+    local worker_ips
+    worker_ips=$(aws ec2 describe-instances --region "${REGION}" \
+      --filters "Name=tag:Cluster,Values=${CLUSTER_NAME}" \
+                "Name=tag:Role,Values=cpu-worker,gpu-worker" \
+                "Name=instance-state-name,Values=running" \
+      --query 'Reservations[*].Instances[*].PublicIpAddress' \
+      --output text)
+
+    if [[ -z "${worker_ips}" ]]; then
+      warn "No worker instances found for cluster ${CLUSTER_NAME}"
+      log "Nothing to join, exiting."
+      return 0
+    fi
+
+    # Convert newlines and tabs to spaces, then split into array
+    worker_ips=$(echo "${worker_ips}" | tr '\n\t' ' ')
+    IFS=' ' read -ra WORKER_IPS <<< "${worker_ips}"
+    SSH_KEY_PATH="${HOME}/.ssh/${KEY_NAME}.pem"
+  else
+    # Option 2: Use existing IPs from config
+    IFS=' ' read -ra CONTROLLER_IPS <<< "${EXISTING_CONTROLLER_IPS}"
+    IFS=' ' read -ra WORKER_IPS <<< "${EXISTING_WORKER_IPS}"
+  fi
+
+  local controller_ip="${CONTROLLER_IPS[0]}"
+  log "Controller IP: ${controller_ip}"
+  log "Worker IPs: ${WORKER_IPS[*]}"
+
+  # Check which workers are already joined
+  log "Checking current cluster nodes..."
+  kubectl get nodes -o wide || true
+
+  local already_joined_ips=()
+  for worker_ip in "${WORKER_IPS[@]}"; do
+    # Check if node with this IP already exists in cluster
+    local node_exists
+    node_exists=$(kubectl get nodes -o json | jq -r ".items[] | select(.status.addresses[]? | select(.type==\"InternalIP\" and .address==\"${worker_ip}\")) | .metadata.name" 2>/dev/null || echo "")
+
+    if [[ -n "${node_exists}" ]]; then
+      log "  ✓ Worker ${worker_ip} already joined as ${node_exists}"
+      already_joined_ips+=("${worker_ip}")
+    else
+      log "  ✗ Worker ${worker_ip} not joined yet"
+    fi
+  done
+
+  # Generate worker token from controller
+  log "Generating worker join token..."
+  local worker_token
+  worker_token=$(ssh_exec "${controller_ip}" "sudo k0s token create --role=worker" 2>/dev/null)
+
+  if [[ -z "${worker_token}" ]]; then
+    err "Failed to generate worker token from controller"
+  fi
+
+  log "Worker token generated successfully"
+
+  # Install and join workers that aren't already joined
+  local workers_joined=0
+  for worker_ip in "${WORKER_IPS[@]}"; do
+    # Skip if already joined
+    local skip_worker=false
+    if [[ ${#already_joined_ips[@]} -gt 0 ]]; then
+      for joined_ip in "${already_joined_ips[@]}"; do
+        if [[ "${joined_ip}" == "${worker_ip}" ]]; then
+          skip_worker=true
+          break
+        fi
+      done
+    fi
+
+    if [[ "${skip_worker}" == "true" ]]; then
+      continue
+    fi
+
+    log "============================================"
+    log "Joining worker: ${worker_ip}"
+    log "============================================"
+
+    # Check if k0s is installed
+    log "  Checking if k0s is installed..."
+    if ! ssh_exec "${worker_ip}" "command -v k0s >/dev/null 2>&1"; then
+      log "  Installing k0s..."
+      if ! ssh_exec "${worker_ip}" "curl -sSLf https://get.k0s.sh | sudo sh"; then
+        warn "  Failed to install k0s on ${worker_ip}, skipping..."
+        continue
+      fi
+    else
+      log "  ✓ k0s already installed"
+    fi
+
+    # Stop k0s if it's running (to rejoin cleanly)
+    log "  Stopping any existing k0s worker process..."
+    ssh_exec "${worker_ip}" "sudo k0s stop 2>/dev/null || true"
+    ssh_exec "${worker_ip}" "sudo k0s reset 2>/dev/null || true"
+
+    # Install worker
+    log "  Installing k0s worker configuration..."
+    # Write token to temp file first (stdin pipe doesn't work reliably over SSH)
+    # Note: Token file must remain until worker bootstraps, so we don't delete it here
+    if ssh_exec "${worker_ip}" "echo '${worker_token}' | sudo tee /tmp/k0s-token >/dev/null && sudo k0s install worker --token-file=/tmp/k0s-token"; then
+      log "  ✓ Worker configuration installed"
+    else
+      warn "  Failed to install worker configuration on ${worker_ip}"
+      continue
+    fi
+
+    # Start worker
+    log "  Starting k0s worker..."
+    if ssh_exec "${worker_ip}" "sudo k0s start"; then
+      log "  ✓ Worker started successfully"
+      workers_joined=$((workers_joined + 1))
+    else
+      warn "  Failed to start k0s worker on ${worker_ip}"
+      continue
+    fi
+  done
+
+  if [[ ${workers_joined} -gt 0 ]]; then
+    log ""
+    log "Waiting for workers to join cluster (60s)..."
+    sleep 60
+
+    log "Current cluster nodes:"
+    kubectl get nodes -o wide
+
+    # Label the newly joined nodes
+    log ""
+    log "Labeling worker nodes..."
+    label_nodes
+
+    log ""
+    log "============================================"
+    log "✓ Successfully joined ${workers_joined} worker(s)"
+    log "============================================"
+  else
+    log ""
+    log "All workers already joined or no new workers to join"
+  fi
 }
 
 # ====== MAIN ======
@@ -2510,6 +2797,9 @@ case "${1:-install}" in
     ;;
   clean-all)
     clean_all
+    ;;
+  join-workers)
+    join_workers
     ;;
   *)
     usage
