@@ -386,7 +386,7 @@ func (r *SaiaReconciler) reconcileFeatureConfigMap(
 
 	// ConfigMap doesn't exist - create it with default content
 	defaultData := map[string]string{
-		"customization.yaml": `customization:
+		"features_config.yaml": `customization:
   enabled_by_default: true
 `,
 	}
