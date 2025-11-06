@@ -977,7 +977,8 @@ resolve_aws_creds_for_secret() {
       warn "Tried to export credentials from AWS_PROFILE='${AWS_PROFILE}' but failed. Are you logged in? (aws sso login --profile ${AWS_PROFILE})"
     fi
   fi
-  err "AWS credentials not set. Either set env vars or use AWS_PROFILE with a logged-in profile."
+  # Return error code instead of calling err() so preflight checks can handle this gracefully
+  return 1
 }
 
 install_splunk_standalone() {
@@ -1965,17 +1966,20 @@ preflight_env() {
   done
 
   pf_header "AWS credentials available"
-  pf_warn "AWS credentials check: Only needed for Splunk Standalone's S3 secret (not for AI platform - uses IRSA)"
   if resolve_aws_creds_for_secret 2>/dev/null; then
     if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
-      pf_ok "Env creds OK (with session token) - will create s3-secret for Splunk Standalone"
+      pf_ok "AWS credentials found (with session token) - will create s3-secret for Splunk Standalone"
     else
-      pf_ok "Env creds OK - will create s3-secret for Splunk Standalone"
+      pf_ok "AWS credentials found - will create s3-secret for Splunk Standalone"
     fi
   else
-    pf_warn "AWS credentials not available. Splunk Standalone deployment will fail if attempted."
-    pf_warn "To fix: export AWS_PROFILE=<your-profile> && aws sso login --profile <your-profile>"
-    pf_warn "Or set: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
+    pf_fail "AWS credentials NOT found - required for Splunk Standalone's S3 secret"
+    echo -e "  \033[1;33m[FIX]\033[0m Set AWS credentials using one of these methods:"
+    echo -e "       1. AWS Profile:  export AWS_PROFILE=<your-profile>"
+    echo -e "       2. Environment:  export AWS_ACCESS_KEY_ID=<key>"
+    echo -e "                        export AWS_SECRET_ACCESS_KEY=<secret>"
+    echo -e "       3. AWS SSO:      aws sso login --profile <your-profile>"
+    echo -e "                        export AWS_PROFILE=<your-profile>"
   fi
 }
 

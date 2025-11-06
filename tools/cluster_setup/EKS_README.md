@@ -237,56 +237,164 @@ aws --version
 
 ## Quick Start
 
-### 1. Clone the Repository
+**Time to complete:** ~45 minutes
+
+### 1. Navigate to Cluster Setup Directory
 
 ```bash
-git clone https://github.com/splunk/splunk-ai-operator.git
-cd splunk-ai-operator/tools/cluster_setup
+cd /path/to/splunk-ai-operator/tools/cluster_setup
 ```
 
-### 2. Set Configuration Variables
+### 2. Prepare AWS Prerequisites
 
-The EKS script uses inline configuration. Edit the script or set environment variables:
+**✅ Ensure you have:**
+- AWS CLI installed and configured (`aws --version`)
+- Valid AWS credentials with appropriate permissions
+- Existing VPC with public and private subnets in multiple AZs
+- Required tools installed: `eksctl`, `kubectl`, `helm`, `jq`, `yq`
 
+**🔐 Set AWS Credentials:**
 ```bash
-# Required: Set these before running
-export CLUSTER_NAME="splunk-ai-eks"
-export REGION="us-west-2"
-export VPC_ID="vpc-xxxxxxxxxxxxx"      # Your VPC ID
-export SUBNET_IDS="subnet-xxx,subnet-yyy"  # Your subnet IDs (comma-separated)
+# Option 1: Use AWS Profile (recommended)
+export AWS_PROFILE=your-profile-name
+aws sts get-caller-identity  # Verify you're in the correct account
 
-# Optional: Customize these (or use defaults)
-export CPU_NODE_COUNT=2
-export GPU_NODE_COUNT=1
-export CPU_INSTANCE_TYPE="m5.4xlarge"
-export GPU_INSTANCE_TYPE="g5.2xlarge"
+# Option 2: Use environment variables
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+export AWS_SESSION_TOKEN=your-token  # if using temporary credentials
+
+# Verify your AWS account ID
+aws sts get-caller-identity --query Account --output text
 ```
 
-Or create a shell script with your settings:
+**⚠️ Important:** The script requires valid AWS credentials to pass preflight checks. You'll get a clear error message if credentials are missing.
+
+### 3. Find Your VPC and Subnets
 
 ```bash
-cat > my-eks-config.sh <<'EOF'
-#!/bin/bash
-export CLUSTER_NAME="my-ai-platform"
-export REGION="us-west-2"
-export VPC_ID="vpc-0a1b2c3d4e5f6g7h8"
-export SUBNET_IDS="subnet-111111,subnet-222222"
-export CPU_NODE_COUNT=3
-export GPU_NODE_COUNT=2
-EOF
+# List all VPCs in your region
+aws ec2 describe-vpcs --region us-west-2 \
+  --query 'Vpcs[*].[VpcId,CidrBlock,Tags[?Key==`Name`].Value|[0]]' \
+  --output table
 
-chmod +x my-eks-config.sh
-source my-eks-config.sh
+# Get subnets for your VPC
+VPC_ID=vpc-xxxxx  # Replace with your VPC ID
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --region us-west-2 \
+  --query 'Subnets[*].[SubnetId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch,Tags[?Key==`Name`].Value|[0]]' \
+  --output table
+
+# Find private subnets (MapPublicIpOnLaunch = False)
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" \
+  "Name=map-public-ip-on-launch,Values=false" --region us-west-2 \
+  --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output table
+
+# Find public subnets (MapPublicIpOnLaunch = True)
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" \
+  "Name=map-public-ip-on-launch,Values=true" --region us-west-2 \
+  --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output table
 ```
 
-### 3. Deploy the Cluster
+### 4. Configure Your Deployment
+
+The script uses a YAML configuration file for all settings.
+
+**Copy the template:**
+```bash
+cp cluster-config.yaml my-cluster-config.yaml
+```
+
+**Edit the configuration file:**
+```bash
+vi my-cluster-config.yaml
+```
+
+**Minimum required changes:**
+
+```yaml
+cluster:
+  name: "vivek-ai-cluster"        # ← CHANGE: Your unique cluster name
+  region: "us-west-2"             # ← CHANGE: Your AWS region
+
+  subnets:
+    private:                      # ← CHANGE: Your private subnet IDs
+      - id: "subnet-0f4af6..."    #           (at least 2, different AZs)
+        az: "us-west-2c"
+      - id: "subnet-024d4e..."
+        az: "us-west-2d"
+    public:                       # ← CHANGE: Your public subnet IDs
+      - id: "subnet-0439b4..."    #           (at least 2, different AZs)
+        az: "us-west-2b"
+      - id: "subnet-06aef8..."
+        az: "us-west-2c"
+
+storage:
+  s3Bucket: "my-ai-platform-bucket"  # ← CHANGE: Globally unique S3 bucket name
+```
+
+**What each section configures:**
+
+| Section | What It Does | Required Changes |
+|---------|--------------|------------------|
+| `cluster.name` | EKS cluster name | ✅ Change to your cluster name |
+| `cluster.region` | AWS region | ✅ Change to your region |
+| `cluster.subnets` | VPC subnets for nodes | ✅ Replace with your subnet IDs |
+| `storage.s3Bucket` | S3 bucket for AI artifacts | ✅ Choose unique name |
+| `nodeGroups.cpu` | CPU node group settings | ⚙️ Optional: adjust size/type |
+| `nodeGroups.gpu` | GPU node group settings | ⚙️ Optional: adjust size/type |
+| `aiPlatform` | AI Platform configuration | ⚙️ Optional: customize features |
+
+**Optional customizations:**
+
+```yaml
+nodeGroups:
+  cpu:
+    instanceType: "m5.xlarge"      # ← Change for different CPU capacity
+    desiredCapacity: 4             # ← Adjust number of CPU nodes
+    volumeSize: 500                # ← Adjust disk size (GB)
+
+  gpu:
+    enabled: true                  # ← Set false to skip GPU nodes
+    instanceType: "g6e.12xlarge"   # ← Change for different GPU type
+    desiredCapacity: 2             # ← Adjust number of GPU nodes
+```
+
+### 5. Deploy the Cluster
 
 ```bash
-# Run the installation
-./eks_cluster_with_stack.sh install
+# Run the installation with your configuration file
+CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
 
 # Installation takes approximately 30-45 minutes
+# The script will show progress for each step
 ```
+
+**📋 Script performs these steps:**
+1. **Preflight Checks** (1 min)
+   - ✓ Validates configuration file
+   - ✓ Checks AWS credentials
+   - ✓ Verifies subnets exist
+   - ✓ Checks required tools
+2. **Create EKS Cluster** (10-15 min)
+   - ✓ Creates managed control plane
+   - ✓ Sets up node groups (CPU + GPU)
+3. **Install Infrastructure** (10-15 min)
+   - ✓ EBS CSI Driver (for persistent volumes)
+   - ✓ Cluster Autoscaler (for node scaling)
+   - ✓ VPC CNI (for pod networking)
+4. **Install Platform Components** (15-20 min)
+   - ✓ Cert Manager (certificates)
+   - ✓ Prometheus + Grafana (monitoring)
+   - ✓ OpenTelemetry (tracing)
+   - ✓ NVIDIA GPU Operator (GPU support)
+   - ✓ KubeRay Operator (Ray clusters)
+   - ✓ Splunk Operator (Splunk management)
+5. **Deploy AI Platform** (5-10 min)
+   - ✓ Creates S3 bucket
+   - ✓ Sets up IAM roles (IRSA)
+   - ✓ Installs Splunk AI Operator
+   - ✓ Creates AIPlatform CR
+   - ✓ Deploys AI services
 
 **What Happens During Installation:**
 1. ✓ Creates EKS cluster with control plane (5-10 minutes)
@@ -1605,6 +1713,126 @@ EOF
 ---
 
 ## Troubleshooting
+
+### Script Execution Issues
+
+#### Issue: Script Exits Silently Without Error Message
+
+**Symptom:**
+```bash
+CONFIG_FILE=./cluster-config.yaml ./eks_cluster_with_stack.sh install
+# Script exits immediately with no output or unclear error
+```
+
+**Root Cause:**
+The script has strict preflight checks that fail silently. The most common causes are:
+1. ❌ **AWS credentials not set** - No AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or AWS_PROFILE
+2. ❌ **Wrong AWS account** - Using Bedrock/Claude credentials instead of your AWS dev account
+3. ❌ **Subnets don't exist** - Subnet IDs in cluster-config.yaml don't exist in your AWS account
+4. ❌ **Missing tools** - eksctl, kubectl, helm, jq, or yq not installed
+
+**Solution 1: Check AWS Credentials**
+```bash
+# Verify you have AWS credentials set
+echo "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:+SET}"
+echo "AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:+SET}"
+echo "AWS_PROFILE: ${AWS_PROFILE:-NOT SET}"
+
+# Check which AWS account you're using
+aws sts get-caller-identity
+
+# If wrong account or no credentials, set them:
+export AWS_PROFILE=your-dev-profile
+# OR
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+```
+
+**Solution 2: Run with Debug Mode**
+```bash
+# See exactly where the script fails
+bash -x ./eks_cluster_with_stack.sh install 2>&1 | grep -E "(FAIL|ERROR|✖)" | head -20
+
+# Or save full debug output
+bash -x ./eks_cluster_with_stack.sh install 2>&1 | tee debug.log
+```
+
+**Solution 3: Check Preflight Manually**
+The script shows detailed preflight checks. Look for `✖` (failure) markers:
+```bash
+./eks_cluster_with_stack.sh install
+
+# You should see:
+# [CHECK] Configuration file
+#   ✔ Config file present: ./cluster-config.yaml
+# [CHECK] AWS credentials available
+#   ✖ AWS credentials NOT found - required for Splunk Standalone's S3 secret  ← ERROR HERE
+#   [FIX] Set AWS credentials using one of these methods:
+#        1. AWS Profile:  export AWS_PROFILE=<your-profile>
+#        2. Environment:  export AWS_ACCESS_KEY_ID=<key>
+```
+
+**Solution 4: Verify Subnets Exist**
+```bash
+# Check if your subnets exist in your AWS account
+aws ec2 describe-subnets --subnet-ids subnet-0f4af6... --region us-west-2
+
+# If they don't exist, update cluster-config.yaml with correct subnet IDs
+# See "Quick Start > Step 3: Find Your VPC and Subnets"
+```
+
+**Solution 5: Verify All Tools Installed**
+```bash
+# Check required tools
+command -v eksctl || echo "❌ eksctl not found"
+command -v kubectl || echo "❌ kubectl not found"
+command -v helm || echo "❌ helm not found"
+command -v jq || echo "❌ jq not found"
+command -v yq || echo "❌ yq not found"
+command -v aws || echo "❌ aws cli not found"
+
+# Install missing tools (macOS)
+brew install eksctl kubectl helm jq yq awscli
+```
+
+#### Issue: "AWS credentials NOT found" Error
+
+**Symptom:**
+```
+[CHECK] AWS credentials available
+  ✖ AWS credentials NOT found - required for Splunk Standalone's S3 secret
+[ERROR] Preflight failed; please fix the above and rerun.
+```
+
+**Solution:**
+```bash
+# Option 1: Set AWS Profile (recommended for long-term use)
+export AWS_PROFILE=your-dev-profile
+aws sts get-caller-identity  # Verify it works
+
+# Option 2: Set credentials directly (for temporary use)
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=xyz...
+export AWS_SESSION_TOKEN=IQo...  # if using temporary credentials
+
+# Option 3: Use AWS SSO
+aws sso login --profile your-dev-profile
+export AWS_PROFILE=your-dev-profile
+
+# Verify credentials work
+aws sts get-caller-identity
+# Should show your AWS account ID (not 387769110234 - that's Bedrock)
+
+# Re-run installation
+CONFIG_FILE=./cluster-config.yaml ./eks_cluster_with_stack.sh install
+```
+
+**Why This Matters:**
+The script needs AWS credentials to:
+- Create IAM roles and policies (IRSA)
+- Create S3 buckets for Splunk and AI artifacts
+- Create secrets for Splunk Standalone to access S3
+- Validate that subnets exist in your AWS account
 
 ### Cluster Creation Issues
 
