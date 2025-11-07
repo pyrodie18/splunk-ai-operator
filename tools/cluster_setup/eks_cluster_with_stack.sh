@@ -79,16 +79,23 @@ load_config() {
     RAY_VERSION="$(yq eval '.operators.ray.version' "$cfg")"
     NVIDIA_VERSION="$(yq eval '.operators.nvidia.devicePluginVersion' "$cfg")"
 
-    # Subnets - read as arrays (Bash 3.2 compatible)
+    # Subnets - read as arrays with AZ information (Bash 3.2 compatible)
     PRIVATE_SUBNETS=()
-    while IFS= read -r subnet; do
+    PRIVATE_SUBNETS_AZ=()
+    local OLD_IFS="$IFS"
+    while IFS='|' read -r subnet az; do
       [[ -n "$subnet" ]] && PRIVATE_SUBNETS+=("$subnet")
-    done < <(yq eval '.cluster.subnets.private[].id' "$cfg")
+      [[ -n "$az" ]] && PRIVATE_SUBNETS_AZ+=("$az")
+    done < <(yq eval '.cluster.subnets.private[] | .id + "|" + .az' "$cfg")
+    IFS="$OLD_IFS"
 
     PUBLIC_SUBNETS=()
-    while IFS= read -r subnet; do
+    PUBLIC_SUBNETS_AZ=()
+    while IFS='|' read -r subnet az; do
       [[ -n "$subnet" ]] && PUBLIC_SUBNETS+=("$subnet")
-    done < <(yq eval '.cluster.subnets.public[].id' "$cfg")
+      [[ -n "$az" ]] && PUBLIC_SUBNETS_AZ+=("$az")
+    done < <(yq eval '.cluster.subnets.public[] | .id + "|" + .az' "$cfg")
+    IFS="$OLD_IFS"
   else
     # Fallback: simple grep-based parsing (less robust but works without yq)
     CLUSTER_NAME="$(grep 'name:' "$cfg" | head -1 | sed 's/.*name: *"\(.*\)".*/\1/')"
@@ -418,49 +425,47 @@ generate_node_groups() {
 create_cluster_config() {
   log "Generating cluster config..."
 
-  # Build subnet configuration dynamically
-  local private_subnets="" public_subnets=""
+  # Build subnet configuration dynamically using AZ information from config
+  local private_subnets="" public_subnets="" vpc_config=""
 
-  # Private subnets
-  for subnet in "${PRIVATE_SUBNETS[@]}"; do
-    # Extract AZ from subnet (assumes format like subnet-xxx or we use index)
-    # For now, we'll just use a generic index-based approach
-    local az_suffix
-    if [[ ${#PRIVATE_SUBNETS[@]} -eq 2 ]]; then
-      # Assume us-west-2c and us-west-2d for 2 subnets
-      if [[ "$subnet" == "${PRIVATE_SUBNETS[0]}" ]]; then az_suffix="c"; else az_suffix="d"; fi
-    else
-      # For more subnets, use sequential letters
+  # Check if subnets are provided
+  if [[ ${#PRIVATE_SUBNETS[@]} -gt 0 || ${#PUBLIC_SUBNETS[@]} -gt 0 ]]; then
+    # Private subnets - use actual AZ from config
+    if [[ ${#PRIVATE_SUBNETS[@]} -gt 0 ]]; then
       local idx=0
-      for s in "${PRIVATE_SUBNETS[@]}"; do
-        if [[ "$s" == "$subnet" ]]; then
-          az_suffix=$(printf "\\$(printf '%03o' $((99+idx)))"); break
-        fi
+      for subnet in "${PRIVATE_SUBNETS[@]}"; do
+        local az="${PRIVATE_SUBNETS_AZ[$idx]}"
+        private_subnets+="      ${az}: { id: ${subnet} }"$'\n'
         ((idx++))
       done
     fi
-    private_subnets+="      ${REGION}${az_suffix}: { id: ${subnet} }"$'\n'
-  done
 
-  # Public subnets
-  for subnet in "${PUBLIC_SUBNETS[@]}"; do
-    local az_suffix
-    if [[ ${#PUBLIC_SUBNETS[@]} -eq 3 ]]; then
-      # Assume us-west-2b, 2c, 2d for 3 subnets
-      if [[ "$subnet" == "${PUBLIC_SUBNETS[0]}" ]]; then az_suffix="b"
-      elif [[ "$subnet" == "${PUBLIC_SUBNETS[1]}" ]]; then az_suffix="c"
-      else az_suffix="d"; fi
-    else
+    # Public subnets - use actual AZ from config
+    if [[ ${#PUBLIC_SUBNETS[@]} -gt 0 ]]; then
       local idx=0
-      for s in "${PUBLIC_SUBNETS[@]}"; do
-        if [[ "$s" == "$subnet" ]]; then
-          az_suffix=$(printf "\\$(printf '%03o' $((98+idx)))"); break
-        fi
+      for subnet in "${PUBLIC_SUBNETS[@]}"; do
+        local az="${PUBLIC_SUBNETS_AZ[$idx]}"
+        public_subnets+="      ${az}: { id: ${subnet} }"$'\n'
         ((idx++))
       done
     fi
-    public_subnets+="      ${REGION}${az_suffix}: { id: ${subnet} }"$'\n'
-  done
+
+    # Build VPC config with subnets
+    vpc_config="vpc:
+  subnets:"
+    if [[ -n "$private_subnets" ]]; then
+      vpc_config+="
+    private:
+${private_subnets}"
+    fi
+    if [[ -n "$public_subnets" ]]; then
+      vpc_config+="
+    public:
+${public_subnets}"
+    fi
+  else
+    log "No subnets specified - eksctl will create new subnets automatically"
+  fi
 
   cat <<EOF > eks-cluster-config.yaml
 apiVersion: eksctl.io/v1alpha5
@@ -476,16 +481,179 @@ addons:
   - name: kube-proxy
   - name: coredns
   - name: eks-pod-identity-agent
-vpc:
-  subnets:
-    private:
-${private_subnets}    public:
-${public_subnets}managedNodeGroups:
+${vpc_config}
+managedNodeGroups:
 $(generate_node_groups)
 EOF
 }
 
-create_cluster() { log "Creating EKS cluster..."; eksctl create cluster -f eks-cluster-config.yaml; ensure_kubeconfig; }
+wait_for_node_groups() {
+  log "Verifying node groups are ready..."
+
+  # List expected node groups
+  local expected_node_groups=()
+  [[ "$ENABLE_CPU" == "true" ]] && expected_node_groups+=("cpu-nodes")
+  [[ "$ENABLE_GPU" == "true" ]] && expected_node_groups+=("gpu-nodes")
+
+  if [[ ${#expected_node_groups[@]} -eq 0 ]]; then
+    warn "No node groups configured. Cluster has no worker nodes!"
+    return 0
+  fi
+
+  log "Waiting for node groups: ${expected_node_groups[*]}"
+
+  # Wait for each node group
+  for ng in "${expected_node_groups[@]}"; do
+    log "Checking node group: ${ng}..."
+
+    # Check if node group exists
+    local max_wait=600  # 10 minutes
+    local waited=0
+    local ng_status=""
+
+    while [[ $waited -lt $max_wait ]]; do
+      # Get node group status
+      ng_status=$(aws eks describe-nodegroup \
+        --cluster-name "${CLUSTER_NAME}" \
+        --nodegroup-name "${ng}" \
+        --region "${REGION}" \
+        --query 'nodegroup.status' \
+        --output text 2>/dev/null || echo "NOT_FOUND")
+
+      if [[ "$ng_status" == "ACTIVE" ]]; then
+        log "✓ Node group ${ng} is ACTIVE"
+        break
+      elif [[ "$ng_status" == "CREATE_FAILED" ]] || [[ "$ng_status" == "DELETE_FAILED" ]]; then
+        # Get CloudFormation stack details for error
+        log "Node group ${ng} status: ${ng_status}"
+        log "Checking CloudFormation stack for details..."
+
+        local cf_stack="eksctl-${CLUSTER_NAME}-nodegroup-${ng}"
+        local cf_status=$(aws cloudformation describe-stacks \
+          --stack-name "${cf_stack}" \
+          --region "${REGION}" \
+          --query 'Stacks[0].StackStatus' \
+          --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+
+        log "CloudFormation stack ${cf_stack}: ${cf_status}"
+
+        # Get stack failure reason
+        if [[ "$cf_status" == *"FAILED"* ]]; then
+          log "CloudFormation failure details:"
+          aws cloudformation describe-stack-events \
+            --stack-name "${cf_stack}" \
+            --region "${REGION}" \
+            --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+            --output table 2>/dev/null || log "Could not fetch stack events"
+        fi
+
+        err "Node group ${ng} failed to create. Status: ${ng_status}, CloudFormation: ${cf_status}. Check AWS Console > CloudFormation > ${cf_stack} for details."
+      elif [[ "$ng_status" == "CREATING" ]]; then
+        log "  Node group ${ng} is still CREATING... (waited ${waited}s / ${max_wait}s)"
+
+        # Check CloudFormation stack status too
+        local cf_stack="eksctl-${CLUSTER_NAME}-nodegroup-${ng}"
+        local cf_status=$(aws cloudformation describe-stacks \
+          --stack-name "${cf_stack}" \
+          --region "${REGION}" \
+          --query 'Stacks[0].StackStatus' \
+          --output text 2>/dev/null || echo "UNKNOWN")
+
+        if [[ "$cf_status" != "UNKNOWN" ]]; then
+          log "  CloudFormation stack ${cf_stack}: ${cf_status}"
+        fi
+
+        sleep 15
+        waited=$((waited + 15))
+      elif [[ "$ng_status" == "NOT_FOUND" ]]; then
+        log "  Node group ${ng} not found yet, waiting for creation to start... (waited ${waited}s)"
+        sleep 10
+        waited=$((waited + 10))
+      else
+        log "  Node group ${ng} status: ${ng_status} (waited ${waited}s)"
+        sleep 15
+        waited=$((waited + 15))
+      fi
+    done
+
+    # Timeout check
+    if [[ $waited -ge $max_wait ]]; then
+      local final_status=$(aws eks describe-nodegroup \
+        --cluster-name "${CLUSTER_NAME}" \
+        --nodegroup-name "${ng}" \
+        --region "${REGION}" \
+        --query 'nodegroup.status' \
+        --output text 2>/dev/null || echo "NOT_FOUND")
+
+      err "Timeout waiting for node group ${ng}. Final status: ${final_status}. Check: aws eks describe-nodegroup --cluster-name ${CLUSTER_NAME} --nodegroup-name ${ng} --region ${REGION}"
+    fi
+  done
+
+  # Verify nodes are actually registered in Kubernetes
+  log "Verifying nodes are registered in Kubernetes..."
+  local expected_nodes=0
+  [[ "$ENABLE_CPU" == "true" ]] && expected_nodes=$((expected_nodes + CPU_DESIRED))
+  [[ "$ENABLE_GPU" == "true" ]] && expected_nodes=$((expected_nodes + GPU_DESIRED))
+
+  local actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
+  actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
+
+  log "Expected nodes: ${expected_nodes}, Found: ${actual_nodes}"
+
+  if [[ "$actual_nodes" -lt "$expected_nodes" ]]; then
+    warn "Found fewer nodes (${actual_nodes}) than expected (${expected_nodes}). Waiting up to 2 more minutes..."
+    local wait_nodes=0
+    while [[ $wait_nodes -lt 120 ]]; do
+      actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
+      actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
+      if [[ "$actual_nodes" -ge "$expected_nodes" ]]; then
+        log "✓ All ${actual_nodes} nodes are registered"
+        break
+      fi
+      sleep 10
+      wait_nodes=$((wait_nodes + 10))
+    done
+
+    # Final check
+    actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
+    actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
+    if [[ "$actual_nodes" -lt "$expected_nodes" ]]; then
+      warn "Still missing nodes. Expected: ${expected_nodes}, Found: ${actual_nodes}"
+      log "Current nodes:"
+      kubectl get nodes -o wide || true
+    fi
+  fi
+
+  # Show node status
+  log "Node group verification complete. Current nodes:"
+  kubectl get nodes -o wide
+
+  log "✓ All node groups are ready"
+}
+
+create_cluster() {
+  log "Creating EKS cluster with node groups..."
+  log "This may take 15-25 minutes. CloudFormation stacks will be created for:"
+  log "  - EKS control plane"
+  [[ "$ENABLE_CPU" == "true" ]] && log "  - CPU node group (${CPU_DESIRED} x ${CPU_INSTANCE_TYPE})"
+  [[ "$ENABLE_GPU" == "true" ]] && log "  - GPU node group (${GPU_DESIRED} x ${GPU_INSTANCE_TYPE})"
+
+  # Create cluster and node groups
+  if ! eksctl create cluster -f eks-cluster-config.yaml; then
+    err "eksctl create cluster failed. Check CloudFormation stacks in AWS Console or run: aws cloudformation describe-stacks --region ${REGION}"
+  fi
+
+  ensure_kubeconfig
+
+  # Verify cluster is accessible
+  log "Verifying cluster is accessible..."
+  if ! kubectl get nodes &>/dev/null; then
+    err "Cluster created but kubectl cannot connect. Check kubeconfig: kubectl config current-context"
+  fi
+
+  # Wait for and verify node groups are created
+  wait_for_node_groups
+}
 
 ensure_oidc() {
   log "Ensuring IAM OIDC provider is associated..."
@@ -977,6 +1145,19 @@ resolve_aws_creds_for_secret() {
       warn "Tried to export credentials from AWS_PROFILE='${AWS_PROFILE}' but failed. Are you logged in? (aws sso login --profile ${AWS_PROFILE})"
     fi
   fi
+
+  # Try to get credentials from default credential chain (config files, IAM role, etc.)
+  if aws sts get-caller-identity &>/dev/null; then
+    local tmpf; tmpf="$(mktemp)"; TMP_FILES+=("$tmpf")
+    if aws configure export-credentials --format env > "$tmpf" 2>/dev/null; then
+      # shellcheck disable=SC1090
+      source "$tmpf"
+      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+      log "Exported credentials from default credential chain for S3 secret."
+      return 0
+    fi
+  fi
+
   # Return error code instead of calling err() so preflight checks can handle this gracefully
   return 1
 }
@@ -1956,14 +2137,20 @@ preflight_env() {
   [[ -n "$region_id" ]] && pf_ok "CLI default region: ${region_id}" || pf_warn "No CLI default region; script uses REGION=${REGION}"
 
   pf_header "Subnets exist"
-  local all_subnets=("${PRIVATE_SUBNETS[@]}" "${PUBLIC_SUBNETS[@]}")
-  for s in "${all_subnets[@]}"; do
-    if aws ec2 describe-subnets --subnet-ids "$s" --region "${REGION}" >/dev/null 2>&1; then
-      pf_ok "Subnet ${s} exists"
-    else
-      pf_fail "Subnet ${s} not found in ${REGION}"
-    fi
-  done
+  # Check if subnets are provided (arrays may be empty)
+  local subnet_count=$((${#PRIVATE_SUBNETS[@]} + ${#PUBLIC_SUBNETS[@]}))
+  if [[ $subnet_count -eq 0 ]]; then
+    pf_ok "No subnets specified - eksctl will create new subnets automatically"
+  else
+    local all_subnets=("${PRIVATE_SUBNETS[@]}" "${PUBLIC_SUBNETS[@]}")
+    for s in "${all_subnets[@]}"; do
+      if aws ec2 describe-subnets --subnet-ids "$s" --region "${REGION}" >/dev/null 2>&1; then
+        pf_ok "Subnet ${s} exists"
+      else
+        pf_fail "Subnet ${s} not found in ${REGION}"
+      fi
+    done
+  fi
 
   pf_header "AWS credentials available"
   if resolve_aws_creds_for_secret 2>/dev/null; then
