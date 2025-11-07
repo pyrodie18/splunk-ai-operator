@@ -192,12 +192,12 @@ func (r *AIPlatformReconciler) ReconcileFeatures(ctx context.Context, platform *
 func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiApi.AIPlatform, feature aiApi.FeatureSpec, name string) *aiApi.AIService {
 	vectorDbUrl := platform.Status.VectorDbServiceName
 
-	// Preserve the S3 bucket path and append feature-specific directory
-	// Feature implementation will append its own subdirectories (e.g., /tasks, /models, /artifacts)
+	// Pass the bucket path as-is to the AIService
+	// The feature implementation is responsible for creating its own subdirectories
+	// (e.g., /tasks, /models, /artifacts) as needed
 	taskObjectStorage := platform.Spec.ObjectStorage
-	basePath := platform.Spec.ObjectStorage.Path
-	// Append only feature name: s3://bucket -> s3://bucket/saia
-	taskObjectStorage.Path = fmt.Sprintf("%s/%s", basePath, feature.Name)
+	// Don't append feature name - just pass the bucket path directly
+	// taskObjectStorage.Path is already set from platform.Spec.ObjectStorage
 	return &aiApi.AIService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -227,6 +227,8 @@ func (r *AIPlatformReconciler) buildAIService(ctx context.Context, platform *aiA
 				Path:    "/metrics",
 			},
 			MTLS: platform.Spec.MTLS,
+			// Propagate imagePullSecrets from AIPlatform to AIService
+			ImagePullSecrets: platform.Spec.Images.ImagePullSecrets,
 		},
 	}
 }
@@ -265,6 +267,7 @@ func (r *AIPlatformReconciler) CheckAIServiceStatus(ctx context.Context, platfor
 		}
 	}
 
-	log.Info("All AIService children have successful conditions", "count", len(children.Items))
+	// Use V(1) for verbose logging - only errors are important at info level
+	log.V(1).Info("All AIService children have successful conditions", "count", len(children.Items))
 	return nil
 }

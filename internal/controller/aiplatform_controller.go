@@ -65,6 +65,7 @@ const aiPlatformFinalizer = "ai.splunk.com/aiplatform-protect"
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 // AIPlatformReconciler reconciles a AIPlatform
 type AIPlatformReconciler struct {
@@ -176,22 +177,25 @@ func (r *AIPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("aiplatform").
 		For(&aiv1.AIPlatform{}).
-		// AIPlatform owns its AIService children
-		Owns(&aiv1.AIService{}).
+		// AIPlatform owns its AIService children - reconcile on generation changes
+		Owns(&aiv1.AIService{}, builder.WithPredicates(predicate.Or(
+			common.GenerationChangedPredicate(),
+			common.AnnotationChangedPredicate(),
+		))).
 		// Infra owned by AIPlatform itself - with specific predicates
 		// Ray resources - only reconcile on generation changes
 		Owns(&rayv1.RayService{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&rayv1.RayCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Weaviate pieces - whatever we create at the platform level
-		Owns(&appsv1.StatefulSet{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})). // if platform creates Weaviate as a StatefulSet
-		Owns(&appsv1.Deployment{}, builder.WithPredicates(common.DeploymentChangedPredicate())).     // or a Deployment, if that's how we run it
-		Owns(&corev1.Service{}).
-		Owns(&corev1.ServiceAccount{}). // for Weaviate service account
+		Owns(&appsv1.StatefulSet{}, builder.WithPredicates(common.StatefulSetChangedPredicate())). // if platform creates Weaviate as a StatefulSet
+		Owns(&appsv1.Deployment{}, builder.WithPredicates(common.DeploymentChangedPredicate())).   // or a Deployment, if that's how we run it
+		Owns(&corev1.Service{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&corev1.ServiceAccount{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})). // for Weaviate service account
 		Owns(&corev1.ConfigMap{}, builder.WithPredicates(common.ConfigMapChangedPredicate())).
 		Owns(&corev1.Secret{}, builder.WithPredicates(common.SecretChangedPredicate())).
 		// RBAC resources for Ray autoscaler
-		Owns(&rbacv1.Role{}).
-		Owns(&rbacv1.RoleBinding{}).
+		Owns(&rbacv1.Role{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&rbacv1.RoleBinding{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Keep platform predicates light and scoped to the primary resource
 		WithEventFilter(predicate.Or(
 			common.GenerationChangedPredicate(),

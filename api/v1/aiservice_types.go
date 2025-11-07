@@ -71,6 +71,12 @@ type AIServiceSpec struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
+	// ImagePullSecrets is a list of secret names for pulling container images from private registries
+	// If specified, these secrets will be added to ALL pods created for this AIService
+	// Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+	// +kubebuilder:validation:Optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
 	// Port specifies the service port
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=80

@@ -2053,6 +2053,30 @@ spec:
               images:
                 description: Images defines custom container images for platform components
                 properties:
+                  imagePullSecrets:
+                    description: |-
+                      ImagePullSecrets is a list of secret names for pulling container images from private registries
+                      If specified, these secrets will be added to ALL pods created by the operator
+                      (Ray head, Ray workers, Weaviate, SAIA, jobs, etc.)
+                      Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+                      Kubernetes will gracefully handle the case where imagePullSecrets are provided but images are public
+                    items:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    type: array
                   rayHeadGroupImage:
                     description: Ray head group image, e.g. "rayproject/ray-head:latest"
                     type: string

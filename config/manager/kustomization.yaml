@@ -25,4 +25,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: docker.io/vivekrsplunk/splunk-ai-operator
-  newTag: FRC-11
+  newTag: FRC-24

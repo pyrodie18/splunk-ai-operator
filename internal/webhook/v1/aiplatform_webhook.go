@@ -69,6 +69,8 @@ func (d *AIPlatformCustomDefaulter) Default(_ context.Context, obj runtime.Objec
 	}
 	aiplatformlog.Info("Defaulting for AIPlatform", "name", aiplatform.GetName())
 
+	// Note: RayService spec cleaning is done in raybuilder since it's constructed dynamically
+
 	// Default ClusterDomain
 	if aiplatform.Spec.ClusterDomain == "" {
 		aiplatform.Spec.ClusterDomain = "cluster.local"
@@ -273,14 +275,18 @@ func (v *AIPlatformCustomValidator) validateSplunkConfiguration(splunkConfig *ai
 		))
 	}
 
-	// If using endpoint, validate it's a valid URL format
-	if hasEndpoint && !strings.HasPrefix(splunkConfig.Endpoint, "http://") && !strings.HasPrefix(splunkConfig.Endpoint, "https://") {
-		allErrs = append(allErrs, field.Invalid(
-			fldPath.Child("endpoint"),
-			splunkConfig.Endpoint,
-			"endpoint must start with http:// or https://",
-		))
-	}
+	// TODO: Temporarily disabled - allow service names without http:// prefix
+	// This validation was preventing valid Kubernetes service names from being used
+	// We may want to add smarter validation later that distinguishes between URLs and service names
+	/*
+		if hasEndpoint && !strings.HasPrefix(splunkConfig.Endpoint, "http://") && !strings.HasPrefix(splunkConfig.Endpoint, "https://") {
+			allErrs = append(allErrs, field.Invalid(
+				fldPath.Child("endpoint"),
+				splunkConfig.Endpoint,
+				"endpoint must start with http:// or https://",
+			))
+		}
+	*/
 
 	// If using secret, validate SecretRef is set
 	if hasEndpoint && splunkConfig.SecretRef.Name == "" {

@@ -171,7 +171,8 @@ func (s *Builder) reconcileOpenTelemetryCollector(ctx context.Context, p *aiApi.
 // If the user edits the ConfigMap later, those changes are preserved.
 func (s *Builder) reconcileOtelConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling OpenTelemetry ConfigMap")
+	// Use V(1) for verbose logging - reduces noise
+	logger.V(1).Info("Reconciling OpenTelemetry ConfigMap")
 
 	cmName := fmt.Sprintf("%s-otel-config", p.Name)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: p.Namespace}}
