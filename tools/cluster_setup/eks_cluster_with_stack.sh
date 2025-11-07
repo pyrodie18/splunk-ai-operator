@@ -657,9 +657,28 @@ create_cluster() {
 
 ensure_oidc() {
   log "Ensuring IAM OIDC provider is associated..."
+
+  # First check if cluster has OIDC issuer configured
   local issuer; issuer=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null || true)
   if [[ -z "$issuer" || "$issuer" == "None" ]]; then
+    log "Cluster does not have OIDC issuer configured. Creating cluster with OIDC enabled..."
     eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
+  else
+    log "Cluster has OIDC issuer: $issuer"
+
+    # Check if IAM OIDC provider is actually associated
+    local oidc_arn; oidc_arn="$(get_oidc_provider_arn || true)"
+    if [[ -n "$oidc_arn" ]]; then
+      if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$oidc_arn" >/dev/null 2>&1; then
+        log "IAM OIDC provider already exists: $oidc_arn"
+      else
+        log "IAM OIDC provider not found in IAM. Associating now..."
+        eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
+      fi
+    else
+      log "OIDC provider ARN not found. Associating now..."
+      eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
+    fi
   fi
 
   # Verify OIDC provider is ready before proceeding with IRSA creation
