@@ -12,7 +12,7 @@ export KUBE_EDITOR=cat
 export LANG=C LC_ALL=C
 
 # Force all aws invocations in this script to skip the pager
-aws() { command /usr/bin/env aws --no-cli-pager "$@"; }
+aws() { command /usr/bin/env aws "$@"; }
 
 # ====== CONFIG FILE LOCATION ======
 CONFIG_FILE="${CONFIG_FILE:-$(dirname "$0")/cluster-config.yaml}"
@@ -2211,7 +2211,7 @@ preflight_api_connectivity() {
   fi
 
   if command -v nc >/dev/null 2>&1; then
-    if nc -z "${host}" 443 timeout 5; then pf_ok "TCP 443 reachable"; else pf_fail "Cannot reach ${host}:443 (TCP test failed)"; fi
+    if nc -z -w 5 "${host}" 443; then pf_ok "TCP 443 reachable"; else pf_fail "Cannot reach ${host}:443 (TCP test failed)"; fi
   else
     if bash -lc "cat < /dev/null > /dev/tcp/${host}/443" timeout 10 2>/dev/null; then pf_ok "TCP 443 reachable"; else pf_fail "Cannot reach ${host}:443"; fi
   fi
