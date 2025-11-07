@@ -5523,9 +5523,9 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         - name: RELATED_IMAGE_RAY_HEAD
-          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-head:build-19
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-head:build-21
         - name: RELATED_IMAGE_RAY_WORKER
-          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-19
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-21
         - name: RELATED_IMAGE_WEAVIATE
           value: semitechnologies/weaviate:stable-v1.28-007846a
         - name: RELATED_IMAGE_SAIA_API
