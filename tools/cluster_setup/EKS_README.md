@@ -223,14 +223,14 @@ chmod +x /usr/local/bin/yq
 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
 sudo mv /tmp/eksctl /usr/local/bin
 
-# Verify installations
-kubectl version --client
-helm version
-git --version
-jq --version
-yq --version
-eksctl version
-aws --version
+# Verify installations and check minimum versions
+kubectl version --client    # Minimum: v1.28+
+helm version               # Minimum: v3.12+
+git --version             # Minimum: v2.30+
+jq --version              # Minimum: v1.6+
+yq --version              # Minimum: v4.30+ (mikefarah/yq, NOT Python yq)
+eksctl version            # Minimum: v0.150+
+aws --version             # Minimum: AWS CLI v2.13+
 ```
 
 ---

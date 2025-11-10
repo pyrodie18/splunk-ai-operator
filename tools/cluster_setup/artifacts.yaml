@@ -5523,22 +5523,22 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         - name: RELATED_IMAGE_RAY_HEAD
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-15
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-head:build-21
         - name: RELATED_IMAGE_RAY_WORKER
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-15
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-21
         - name: RELATED_IMAGE_WEAVIATE
           value: semitechnologies/weaviate:stable-v1.28-007846a
         - name: RELATED_IMAGE_SAIA_API
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-13
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/saia/saia-api:build-1
         - name: RELATED_IMAGE_POST_INSTALL_HOOK
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10
+          value: 658391232643.dkr.ecr.us-east-2.amazonaws.com/ml-platform/saia/saia-data-loader:build-1
         - name: RELATED_IMAGE_FLUENT_BIT
           value: fluent/fluent-bit:1.9.6
         - name: MODEL_VERSION
           value: v0.3.14-36-g1549f5a
         - name: RAY_VERSION
           value: 2.44.0
-        image: docker.io/vivekrsplunk/splunk-ai-operator:FRC-27
+        image: docker.io/vivekrsplunk/splunk-ai-operator:FRC-29
         livenessProbe:
           httpGet:
             path: /healthz
