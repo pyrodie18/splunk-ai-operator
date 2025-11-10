@@ -2,7 +2,7 @@ L40S:
   - tier: l40s-0-gpu
     gpusPerPod: 0
     env:
-      NVIDIA_VISIBLE_DEVICES: none
+      NVIDIA_VISIBLE_DEVICES: void
     resources:
       limits:
         cpu: "16"
