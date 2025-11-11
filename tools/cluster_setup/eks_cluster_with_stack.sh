@@ -85,10 +85,20 @@ load_config() {
       [[ -n "$subnet" ]] && PRIVATE_SUBNETS+=("$subnet")
     done < <(yq eval '.cluster.subnets.private[].id' "$cfg")
 
+    PRIVATE_SUBNETS_AZ=()
+    while IFS= read -r az; do
+      [[ -n "$az" ]] && PRIVATE_SUBNETS_AZ+=("$az")
+    done < <(yq eval '.cluster.subnets.private[].az' "$cfg")
+
     PUBLIC_SUBNETS=()
     while IFS= read -r subnet; do
       [[ -n "$subnet" ]] && PUBLIC_SUBNETS+=("$subnet")
     done < <(yq eval '.cluster.subnets.public[].id' "$cfg")
+
+    PUBLIC_SUBNETS_AZ=()
+    while IFS= read -r az; do
+      [[ -n "$az" ]] && PUBLIC_SUBNETS_AZ+=("$az")
+    done < <(yq eval '.cluster.subnets.public[].az' "$cfg")
   else
     # Fallback: simple grep-based parsing (less robust but works without yq)
     CLUSTER_NAME="$(grep 'name:' "$cfg" | head -1 | sed 's/.*name: *"\(.*\)".*/\1/')"
