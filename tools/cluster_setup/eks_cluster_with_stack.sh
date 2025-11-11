@@ -79,23 +79,16 @@ load_config() {
     RAY_VERSION="$(yq eval '.operators.ray.version' "$cfg")"
     NVIDIA_VERSION="$(yq eval '.operators.nvidia.devicePluginVersion' "$cfg")"
 
-    # Subnets - read as arrays with AZ information (Bash 3.2 compatible)
+    # Subnets - read as arrays (Bash 3.2 compatible)
     PRIVATE_SUBNETS=()
-    PRIVATE_SUBNETS_AZ=()
-    local OLD_IFS="$IFS"
-    while IFS='|' read -r subnet az; do
+    while IFS= read -r subnet; do
       [[ -n "$subnet" ]] && PRIVATE_SUBNETS+=("$subnet")
-      [[ -n "$az" ]] && PRIVATE_SUBNETS_AZ+=("$az")
-    done < <(yq eval '.cluster.subnets.private[] | .id + "|" + .az' "$cfg")
-    IFS="$OLD_IFS"
+    done < <(yq eval '.cluster.subnets.private[].id' "$cfg")
 
     PUBLIC_SUBNETS=()
-    PUBLIC_SUBNETS_AZ=()
-    while IFS='|' read -r subnet az; do
+    while IFS= read -r subnet; do
       [[ -n "$subnet" ]] && PUBLIC_SUBNETS+=("$subnet")
-      [[ -n "$az" ]] && PUBLIC_SUBNETS_AZ+=("$az")
-    done < <(yq eval '.cluster.subnets.public[] | .id + "|" + .az' "$cfg")
-    IFS="$OLD_IFS"
+    done < <(yq eval '.cluster.subnets.public[].id' "$cfg")
   else
     # Fallback: simple grep-based parsing (less robust but works without yq)
     CLUSTER_NAME="$(grep 'name:' "$cfg" | head -1 | sed 's/.*name: *"\(.*\)".*/\1/')"
@@ -487,213 +480,58 @@ $(generate_node_groups)
 EOF
 }
 
-wait_for_node_groups() {
-  log "Verifying node groups are ready..."
-
-  # List expected node groups
-  local expected_node_groups=()
-  [[ "$ENABLE_CPU" == "true" ]] && expected_node_groups+=("cpu-nodes")
-  [[ "$ENABLE_GPU" == "true" ]] && expected_node_groups+=("gpu-nodes")
-
-  if [[ ${#expected_node_groups[@]} -eq 0 ]]; then
-    warn "No node groups configured. Cluster has no worker nodes!"
-    return 0
-  fi
-
-  log "Waiting for node groups: ${expected_node_groups[*]}"
-
-  # Wait for each node group
-  for ng in "${expected_node_groups[@]}"; do
-    log "Checking node group: ${ng}..."
-
-    # Check if node group exists
-    local max_wait=600  # 10 minutes
-    local waited=0
-    local ng_status=""
-
-    while [[ $waited -lt $max_wait ]]; do
-      # Get node group status
-      ng_status=$(aws eks describe-nodegroup \
-        --cluster-name "${CLUSTER_NAME}" \
-        --nodegroup-name "${ng}" \
-        --region "${REGION}" \
-        --query 'nodegroup.status' \
-        --output text 2>/dev/null || echo "NOT_FOUND")
-
-      if [[ "$ng_status" == "ACTIVE" ]]; then
-        log "✓ Node group ${ng} is ACTIVE"
-        break
-      elif [[ "$ng_status" == "CREATE_FAILED" ]] || [[ "$ng_status" == "DELETE_FAILED" ]]; then
-        # Get CloudFormation stack details for error
-        log "Node group ${ng} status: ${ng_status}"
-        log "Checking CloudFormation stack for details..."
-
-        local cf_stack="eksctl-${CLUSTER_NAME}-nodegroup-${ng}"
-        local cf_status=$(aws cloudformation describe-stacks \
-          --stack-name "${cf_stack}" \
-          --region "${REGION}" \
-          --query 'Stacks[0].StackStatus' \
-          --output text 2>/dev/null || echo "STACK_NOT_FOUND")
-
-        log "CloudFormation stack ${cf_stack}: ${cf_status}"
-
-        # Get stack failure reason
-        if [[ "$cf_status" == *"FAILED"* ]]; then
-          log "CloudFormation failure details:"
-          aws cloudformation describe-stack-events \
-            --stack-name "${cf_stack}" \
-            --region "${REGION}" \
-            --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
-            --output table 2>/dev/null || log "Could not fetch stack events"
-        fi
-
-        err "Node group ${ng} failed to create. Status: ${ng_status}, CloudFormation: ${cf_status}. Check AWS Console > CloudFormation > ${cf_stack} for details."
-      elif [[ "$ng_status" == "CREATING" ]]; then
-        log "  Node group ${ng} is still CREATING... (waited ${waited}s / ${max_wait}s)"
-
-        # Check CloudFormation stack status too
-        local cf_stack="eksctl-${CLUSTER_NAME}-nodegroup-${ng}"
-        local cf_status=$(aws cloudformation describe-stacks \
-          --stack-name "${cf_stack}" \
-          --region "${REGION}" \
-          --query 'Stacks[0].StackStatus' \
-          --output text 2>/dev/null || echo "UNKNOWN")
-
-        if [[ "$cf_status" != "UNKNOWN" ]]; then
-          log "  CloudFormation stack ${cf_stack}: ${cf_status}"
-        fi
-
-        sleep 15
-        waited=$((waited + 15))
-      elif [[ "$ng_status" == "NOT_FOUND" ]]; then
-        log "  Node group ${ng} not found yet, waiting for creation to start... (waited ${waited}s)"
-        sleep 10
-        waited=$((waited + 10))
-      else
-        log "  Node group ${ng} status: ${ng_status} (waited ${waited}s)"
-        sleep 15
-        waited=$((waited + 15))
-      fi
-    done
-
-    # Timeout check
-    if [[ $waited -ge $max_wait ]]; then
-      local final_status=$(aws eks describe-nodegroup \
-        --cluster-name "${CLUSTER_NAME}" \
-        --nodegroup-name "${ng}" \
-        --region "${REGION}" \
-        --query 'nodegroup.status' \
-        --output text 2>/dev/null || echo "NOT_FOUND")
-
-      err "Timeout waiting for node group ${ng}. Final status: ${final_status}. Check: aws eks describe-nodegroup --cluster-name ${CLUSTER_NAME} --nodegroup-name ${ng} --region ${REGION}"
-    fi
-  done
-
-  # Verify nodes are actually registered in Kubernetes
-  log "Verifying nodes are registered in Kubernetes..."
-  local expected_nodes=0
-  [[ "$ENABLE_CPU" == "true" ]] && expected_nodes=$((expected_nodes + CPU_DESIRED))
-  [[ "$ENABLE_GPU" == "true" ]] && expected_nodes=$((expected_nodes + GPU_DESIRED))
-
-  local actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
-  actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
-
-  log "Expected nodes: ${expected_nodes}, Found: ${actual_nodes}"
-
-  if [[ "$actual_nodes" -lt "$expected_nodes" ]]; then
-    warn "Found fewer nodes (${actual_nodes}) than expected (${expected_nodes}). Waiting up to 2 more minutes..."
-    local wait_nodes=0
-    while [[ $wait_nodes -lt 120 ]]; do
-      actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
-      actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
-      if [[ "$actual_nodes" -ge "$expected_nodes" ]]; then
-        log "✓ All ${actual_nodes} nodes are registered"
-        break
-      fi
-      sleep 10
-      wait_nodes=$((wait_nodes + 10))
-    done
-
-    # Final check
-    actual_nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
-    actual_nodes=$(echo "$actual_nodes" | tr -d ' ')
-    if [[ "$actual_nodes" -lt "$expected_nodes" ]]; then
-      warn "Still missing nodes. Expected: ${expected_nodes}, Found: ${actual_nodes}"
-      log "Current nodes:"
-      kubectl get nodes -o wide || true
-    fi
-  fi
-
-  # Show node status
-  log "Node group verification complete. Current nodes:"
-  kubectl get nodes -o wide
-
-  log "✓ All node groups are ready"
-}
-
-create_cluster() {
-  log "Creating EKS cluster with node groups..."
-  log "This may take 15-25 minutes. CloudFormation stacks will be created for:"
-  log "  - EKS control plane"
-  [[ "$ENABLE_CPU" == "true" ]] && log "  - CPU node group (${CPU_DESIRED} x ${CPU_INSTANCE_TYPE})"
-  [[ "$ENABLE_GPU" == "true" ]] && log "  - GPU node group (${GPU_DESIRED} x ${GPU_INSTANCE_TYPE})"
-
-  # Create cluster and node groups
-  if ! eksctl create cluster -f eks-cluster-config.yaml; then
-    err "eksctl create cluster failed. Check CloudFormation stacks in AWS Console or run: aws cloudformation describe-stacks --region ${REGION}"
-  fi
-
-  ensure_kubeconfig
-
-  # Verify cluster is accessible
-  log "Verifying cluster is accessible..."
-  if ! kubectl get nodes &>/dev/null; then
-    err "Cluster created but kubectl cannot connect. Check kubeconfig: kubectl config current-context"
-  fi
-
-  # Wait for and verify node groups are created
-  wait_for_node_groups
-}
+create_cluster() { log "Creating EKS cluster..."; eksctl create cluster -f eks-cluster-config.yaml; ensure_kubeconfig; }
 
 ensure_oidc() {
   log "Ensuring IAM OIDC provider is associated..."
 
   # First check if cluster has OIDC issuer configured
-  local issuer; issuer=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null || true)
+  local issuer; issuer=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${REGION}" --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null || true)
   if [[ -z "$issuer" || "$issuer" == "None" ]]; then
-    log "Cluster does not have OIDC issuer configured. Creating cluster with OIDC enabled..."
-    eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
-  else
-    log "Cluster has OIDC issuer: $issuer"
-
-    # Check if IAM OIDC provider is actually associated
-    local oidc_arn; oidc_arn="$(get_oidc_provider_arn || true)"
-    if [[ -n "$oidc_arn" ]]; then
-      if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$oidc_arn" >/dev/null 2>&1; then
-        log "IAM OIDC provider already exists: $oidc_arn"
-      else
-        log "IAM OIDC provider not found in IAM. Associating now..."
-        eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
-      fi
-    else
-      log "OIDC provider ARN not found. Associating now..."
-      eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve
+    log "Cluster does not have OIDC issuer configured. Associating OIDC provider..."
+    if ! eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve; then
+      err "Failed to associate OIDC provider with cluster"
     fi
+    # Re-fetch issuer after association
+    issuer=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${REGION}" --query 'cluster.identity.oidc.issuer' --output text 2>/dev/null || true)
   fi
 
-  # Verify OIDC provider is ready before proceeding with IRSA creation
-  log "Verifying OIDC provider is ready..."
+  log "Cluster OIDC issuer: ${issuer}"
+
+  # Check if IAM OIDC provider actually exists
+  log "Checking if IAM OIDC provider exists..."
   local oidc_arn; oidc_arn="$(get_oidc_provider_arn || true)"
+
   if [[ -z "$oidc_arn" ]]; then
-    err "OIDC provider not ready after association. Cannot proceed with IRSA creation."
+    log "OIDC provider ARN not found. Creating IAM OIDC provider..."
+    if ! eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve; then
+      err "Failed to create IAM OIDC provider"
+    fi
+    # Re-fetch ARN after creation
+    oidc_arn="$(get_oidc_provider_arn || true)"
   fi
 
   # Verify OIDC provider exists in IAM
+  log "Verifying IAM OIDC provider exists: ${oidc_arn}"
+  if [[ -z "$oidc_arn" ]]; then
+    err "OIDC provider ARN still not found after association. Cannot proceed with IRSA creation."
+  fi
+
   if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$oidc_arn" >/dev/null 2>&1; then
-    err "OIDC provider ARN $oidc_arn not found in IAM. Cannot proceed with IRSA creation."
+    log "IAM OIDC provider not found in IAM. Creating it now..."
+    if ! eksctl utils associate-iam-oidc-provider --region "${REGION}" --cluster "${CLUSTER_NAME}" --approve; then
+      err "Failed to create IAM OIDC provider even after retry"
+    fi
+
+    # Final verification
+    sleep 5  # Give IAM a moment to propagate
+    if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$oidc_arn" >/dev/null 2>&1; then
+      err "OIDC provider ARN $oidc_arn not found in IAM after creation. IAM propagation may be delayed."
+    fi
   fi
 
   log "✓ OIDC provider is ready: $oidc_arn"
+  log "✓ IAM OIDC provider verified in IAM"
 }
 
 # ---------- EBS CSI via IRSA ----------
@@ -723,24 +561,68 @@ install_ebs_csi_addon() {
     fi
   fi
 
-  # Wait for addon to become ACTIVE
-  log "Waiting for EBS CSI addon to become ACTIVE (max 5 minutes)..."
+  # Wait for addon to become ACTIVE and pods to be ready
+  log "Waiting for EBS CSI addon to become ACTIVE (max 10 minutes)..."
   local waited=0
-  while [[ $waited -lt 300 ]]; do
+  local max_wait=600  # 10 minutes
+  while [[ $waited -lt $max_wait ]]; do
     local addon_status; addon_status="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text 2>/dev/null || echo "UNKNOWN")"
+
     if [[ "$addon_status" == "ACTIVE" ]]; then
-      log "✓ EBS CSI addon is ACTIVE"; break
+      log "✓ EBS CSI addon is ACTIVE"
+      break
     elif [[ "$addon_status" == "CREATE_FAILED" ]]; then
       err "Addon creation failed! Check: aws eks describe-addon --cluster-name ${CLUSTER_NAME} --addon-name aws-ebs-csi-driver"
+    elif [[ "$addon_status" == "CREATING" ]]; then
+      # Check if pods are running even if addon status is still CREATING
+      local controller_ready
+      controller_ready=$(kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+
+      if [[ $controller_ready -ge 2 ]]; then
+        log "✓ EBS CSI controller pods are running (${controller_ready} replicas), addon status: ${addon_status}"
+        log "Continuing with installation (addon may still be finalizing)"
+        break
+      fi
+
+      log "EBS CSI addon status: ${addon_status}, waiting for pods to be ready (${controller_ready} running)..."
     fi
-    sleep 5; waited=$((waited+5))
+
+    sleep 10; waited=$((waited+10))
   done
 
   # Check if we timed out
-  if [[ $waited -ge 300 ]]; then
+  if [[ $waited -ge $max_wait ]]; then
     local final_status; final_status="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text 2>/dev/null || echo "UNKNOWN")"
-    err "Timeout waiting for EBS CSI addon to become ACTIVE. Current status: ${final_status}. Check: kubectl get pods -n kube-system -l app=ebs-csi-controller"
+    warn "Timeout waiting for EBS CSI addon to become ACTIVE. Current status: ${final_status}"
+
+    # Check if pods are healthy despite addon status
+    local controller_ready
+    controller_ready=$(kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w | tr -d ' ')
+
+    if [[ $controller_ready -ge 2 ]]; then
+      log "✓ EBS CSI controller pods are running (${controller_ready} replicas), continuing despite addon status"
+      warn "Addon status may take longer to update, but functionality should work"
+    else
+      err "EBS CSI addon timeout and pods not ready. Check: kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver"
+    fi
   fi
+
+  # Final verification - check pods are actually ready
+  log "Verifying EBS CSI controller pods are ready..."
+  local retries=0
+  while [[ $retries -lt 30 ]]; do
+    local ready_count
+    ready_count=$(kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -o "True" | wc -l | tr -d ' ')
+
+    if [[ $ready_count -ge 2 ]]; then
+      log "✓ EBS CSI controller has ${ready_count} ready pods"
+      break
+    fi
+
+    log "Waiting for EBS CSI pods to become ready (${ready_count}/2)..."
+    sleep 5
+    ((retries++))
+  done
 }
 
 ensure_ebs_irsa_role() {
@@ -1164,21 +1046,7 @@ resolve_aws_creds_for_secret() {
       warn "Tried to export credentials from AWS_PROFILE='${AWS_PROFILE}' but failed. Are you logged in? (aws sso login --profile ${AWS_PROFILE})"
     fi
   fi
-
-  # Try to get credentials from default credential chain (config files, IAM role, etc.)
-  if aws sts get-caller-identity &>/dev/null; then
-    local tmpf; tmpf="$(mktemp)"; TMP_FILES+=("$tmpf")
-    if aws configure export-credentials --format env > "$tmpf" 2>/dev/null; then
-      # shellcheck disable=SC1090
-      source "$tmpf"
-      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-      log "Exported credentials from default credential chain for S3 secret."
-      return 0
-    fi
-  fi
-
-  # Return error code instead of calling err() so preflight checks can handle this gracefully
-  return 1
+  err "AWS credentials not set. Either set env vars or use AWS_PROFILE with a logged-in profile."
 }
 
 install_splunk_standalone() {
@@ -1297,7 +1165,7 @@ update_splunk_secret_password_only() {
 
 # ---------- AIPlatform CR ----------
 wait_aiplatform_ready() {
-  local waited=0 max_wait=1800 check_interval=15
+  local waited=0 max_wait=2400 check_interval=15
   local last_status="" shown_events=0
 
   log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1313,18 +1181,17 @@ wait_aiplatform_ready() {
       -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
 
     # Parse individual condition statuses
-    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status # ingress_status
+    local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
     ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
     ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
     ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
     ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
     weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
-    # TODO: Ingress validation - revisit later
-    # ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+    ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
 
     # Build status summary
     local current_status="Ready:$ready_status Ray:$ray_service_status RayCluster:$ray_cluster_status RayServe:$ray_serve_status Weaviate:$weaviate_status"
-    # [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
+    [[ "$ingress_status" != "Unknown" ]] && current_status="$current_status Ingress:$ingress_status"
 
     # Only show status update if it changed
     if [[ "$current_status" != "$last_status" ]]; then
@@ -1334,9 +1201,8 @@ wait_aiplatform_ready() {
       log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
       log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
       log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
-      log "  └─ Weaviate Database:  $(format_status "$weaviate_status")"
-      # TODO: Ingress validation - revisit later
-      # [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+      log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+      [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
 
       # Show recent events since last check
       log ""
@@ -1447,20 +1313,20 @@ show_platform_access_info() {
     log "     Port-forward: kubectl port-forward -n ${AI_NS} svc/${weaviate_svc} 8080:80"
   fi
 
-  # TODO: Ingress info - revisit later
-  # local ingress_host ingress_ip
-  # ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
-  # ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-  # [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-  #
-  # if [[ -n "$ingress_host" ]]; then
-  #   log ""
-  #   log "  🌐 External Access (Ingress):"
-  #   log "     Host: ${ingress_host}"
-  #   [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
-  #   log "     Update DNS: ${ingress_host} → ${ingress_ip}"
-  #   log "     Test: curl https://${ingress_host}/v1/chat/completions"
-  # fi
+  # Ingress info
+  local ingress_host ingress_ip
+  ingress_host=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)
+  ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  [[ -z "$ingress_ip" ]] && ingress_ip=$(kubectl -n "${AI_NS}" get ingress "${AI_PLATFORM_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+  if [[ -n "$ingress_host" ]]; then
+    log ""
+    log "  🌐 External Access (Ingress):"
+    log "     Host: ${ingress_host}"
+    [[ -n "$ingress_ip" ]] && log "     LoadBalancer: ${ingress_ip}"
+    log "     Update DNS: ${ingress_host} → ${ingress_ip}"
+    log "     Test: curl https://${ingress_host}/v1/chat/completions"
+  fi
 
   log ""
   log "📊 Monitoring Commands:"
@@ -1492,14 +1358,13 @@ check_aiplatform_status() {
     -o jsonpath='{.status.conditions}' 2>/dev/null || echo "[]")
 
   # Parse conditions
-  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status # ingress_status
+  local ready_status ray_service_status ray_cluster_status ray_serve_status weaviate_status ingress_status
   ready_status=$(echo "$conditions" | jq -r '.[] | select(.type=="Ready") | .status' 2>/dev/null || echo "Unknown")
   ray_service_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServiceReady") | .status' 2>/dev/null || echo "Unknown")
   ray_cluster_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayClusterReady") | .status' 2>/dev/null || echo "Unknown")
   ray_serve_status=$(echo "$conditions" | jq -r '.[] | select(.type=="RayServeRouteReady") | .status' 2>/dev/null || echo "Unknown")
   weaviate_status=$(echo "$conditions" | jq -r '.[] | select(.type=="WeaviateDatabaseReady") | .status' 2>/dev/null || echo "Unknown")
-  # TODO: Ingress validation - revisit later
-  # ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
+  ingress_status=$(echo "$conditions" | jq -r '.[] | select(.type=="IngressReady") | .status' 2>/dev/null || echo "Unknown")
 
   echo ""
   log "📊 Component Status:"
@@ -1507,9 +1372,8 @@ check_aiplatform_status() {
   log "  ├─ Ray Service:        $(format_status "$ray_service_status")"
   log "  ├─ Ray Cluster:        $(format_status "$ray_cluster_status")"
   log "  ├─ Ray Serve (AI API): $(format_status "$ray_serve_status")"
-  log "  └─ Weaviate Database:  $(format_status "$weaviate_status")"
-  # TODO: Ingress validation - revisit later
-  # [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
+  log "  ├─ Weaviate Database:  $(format_status "$weaviate_status")"
+  [[ "$ingress_status" != "Unknown" ]] && log "  └─ Ingress:            $(format_status "$ingress_status")"
 
   # Show detailed messages for non-ready components
   local not_ready
@@ -1562,58 +1426,6 @@ check_aiplatform_status() {
   log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
-# ====== CREATE IMAGE PULL SECRETS ======
-create_image_pull_secrets() {
-  local ns="$1"
-  ensure_namespace "${ns}"
-
-  log "============================================"
-  log "Creating Image Pull Secrets"
-  log "============================================"
-
-  local secrets_created=()
-
-  # Create ECR secret
-  log "Creating ECR secret for private images..."
-
-  # Check if AWS credentials are available
-  if ! aws sts get-caller-identity &>/dev/null; then
-    warn "AWS credentials not available - skipping ECR secret creation"
-    warn "If using private ECR images, pods will fail to pull images"
-    return 0
-  fi
-
-  local ecr_account ecr_region
-  ecr_account=$(aws sts get-caller-identity --query Account --output text)
-  ecr_region="${REGION:-us-west-2}"
-
-  log "ECR Account: ${ecr_account}, Region: ${ecr_region}"
-
-  # Get ECR authorization token
-  local ecr_password
-  if ecr_password=$(aws ecr get-login-password --region "${ecr_region}" 2>/dev/null); then
-    # Create docker-registry secret
-    kubectl create secret docker-registry ecr-registry-secret \
-      --docker-server="${ecr_account}.dkr.ecr.${ecr_region}.amazonaws.com" \
-      --docker-username=AWS \
-      --docker-password="${ecr_password}" \
-      --namespace="${ns}" \
-      --dry-run=client -o yaml | kubectl apply -f -
-
-    log "✓ ECR secret created: ecr-registry-secret"
-    log "  Registry: ${ecr_account}.dkr.ecr.${ecr_region}.amazonaws.com"
-    log "  Note: ECR tokens expire after 12 hours"
-    secrets_created+=("ecr-registry-secret")
-  else
-    warn "Failed to get ECR token - skipping ECR secret"
-  fi
-
-  # Return created secrets as space-separated string
-  if [[ ${#secrets_created[@]} -gt 0 ]]; then
-    echo "${secrets_created[@]}"
-  fi
-}
-
 install_ai_platform_cr() {
   local secret_name="${1:-}"
   if [[ -z "$secret_name" ]]; then
@@ -1621,32 +1433,6 @@ install_ai_platform_cr() {
   fi
   log "Installing AIPlatform CR (${AI_PLATFORM_NAME}) in ${AI_NS} using secretRef.name=${secret_name}"
   ensure_namespace "${AI_NS}"
-
-  # Create image pull secrets
-  log "Creating image pull secrets for private container registries..."
-  create_image_pull_secrets "${AI_NS}"
-
-  # Build imagePullSecrets YAML from created secrets
-  local image_pull_secrets=""
-  local secrets_yaml=""
-
-  # Check for all possible secrets and add to YAML if they exist
-  for secret_name_check in ecr-registry-secret docker-hub-secret gcr-secret acr-secret custom-registry-secret; do
-    if kubectl get secret "${secret_name_check}" -n "${AI_NS}" &>/dev/null 2>&1; then
-      secrets_yaml+="      - name: ${secret_name_check}"$'\n'
-    fi
-  done
-
-  if [[ -n "${secrets_yaml}" ]]; then
-    log "ImagePullSecrets found, adding to AIPlatform CR"
-    image_pull_secrets=$(cat <<EOF
-    imagePullSecrets:
-${secrets_yaml}
-EOF
-)
-  else
-    log "No imagePullSecrets found, using public images only"
-  fi
 
   cat <<YAML | kubectl -n "${AI_NS}" apply --server-side --force-conflicts -f -
 apiVersion: cert-manager.io/v1
@@ -1684,11 +1470,6 @@ spec:
   objectStorage:
     path: s3://${S3_BUCKET}
     region: ${REGION}
-
-  # Image configuration (including pull secrets for private registries)
-  images:
-${image_pull_secrets}
-
   serviceAccountName: ${RAY_HEAD_SA}
   defaultAcceleratorType: ${DEFAULT_ACCELERATOR}
   features:
@@ -1712,16 +1493,15 @@ ${image_pull_secrets}
         operator: "Equal"
         value: "true"
         effect: "NoSchedule"
-  # TODO: Ingress configuration - revisit later
-  # ingress:
-  #   enabled: true
-  #   className: ${INGRESS_CLASS}
-  #   hosts:
-  #     - host: ${INGRESS_HOST}
-  #       paths: [ { path: "/", pathType: Prefix } ]
-  #   tls:
-  #     - hosts: [ ${INGRESS_HOST} ]
-  #       secretName: ${INGRESS_TLS_SECRET}
+  ingress:
+    enabled: true
+    className: ${INGRESS_CLASS}
+    hosts:
+      - host: ${INGRESS_HOST}
+        paths: [ { path: "/", pathType: Prefix } ]
+    tls:
+      - hosts: [ ${INGRESS_HOST} ]
+        secretName: ${INGRESS_TLS_SECRET}
   splunkConfiguration:
     endpoint: http://${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8089
     secretRef:
@@ -2159,33 +1939,150 @@ preflight_env() {
   # Check if subnets are provided (arrays may be empty)
   local subnet_count=$((${#PRIVATE_SUBNETS[@]} + ${#PUBLIC_SUBNETS[@]}))
   if [[ $subnet_count -eq 0 ]]; then
-    pf_ok "No subnets specified - eksctl will create new subnets automatically"
+    pf_ok "No subnets specified - eksctl will create new VPC and subnets automatically"
   else
     local all_subnets=("${PRIVATE_SUBNETS[@]}" "${PUBLIC_SUBNETS[@]}")
+    local vpc_id=""
     for s in "${all_subnets[@]}"; do
       if aws ec2 describe-subnets --subnet-ids "$s" --region "${REGION}" >/dev/null 2>&1; then
         pf_ok "Subnet ${s} exists"
+        # Get VPC ID from first subnet
+        if [[ -z "$vpc_id" ]]; then
+          vpc_id=$(aws ec2 describe-subnets --subnet-ids "$s" --region "${REGION}" --query 'Subnets[0].VpcId' --output text)
+        fi
       else
         pf_fail "Subnet ${s} not found in ${REGION}"
       fi
     done
+
+    # Validate VPC networking if subnets are provided
+    if [[ -n "$vpc_id" ]]; then
+      pf_header "VPC networking validation"
+      pf_ok "VPC ID: ${vpc_id}"
+
+      # Check for NAT Gateway(s) in the VPC
+      local nat_gateways
+      nat_gateways=$(aws ec2 describe-nat-gateways --region "${REGION}" \
+        --filter "Name=vpc-id,Values=${vpc_id}" "Name=state,Values=available" \
+        --query 'NatGateways[*].[NatGatewayId,State,SubnetId]' --output text)
+
+      if [[ -z "$nat_gateways" ]]; then
+        pf_fail "No available NAT Gateway found in VPC ${vpc_id}"
+        pf_fail "Private subnets need NAT Gateway to reach internet for node bootstrapping"
+        pf_fail "To fix: Create a NAT Gateway in a public subnet of this VPC"
+      else
+        local nat_count=$(echo "$nat_gateways" | wc -l | tr -d ' ')
+        pf_ok "Found ${nat_count} NAT Gateway(s) in available state"
+        echo "$nat_gateways" | while read -r nat_id state subnet_id; do
+          pf_ok "  NAT Gateway ${nat_id} in subnet ${subnet_id}"
+        done
+      fi
+
+      # Check Internet Gateway
+      local igw_id
+      igw_id=$(aws ec2 describe-internet-gateways --region "${REGION}" \
+        --filters "Name=attachment.vpc-id,Values=${vpc_id}" \
+        --query 'InternetGateways[0].InternetGatewayId' --output text)
+
+      if [[ -z "$igw_id" || "$igw_id" == "None" ]]; then
+        pf_fail "No Internet Gateway attached to VPC ${vpc_id}"
+        pf_fail "Public subnets need Internet Gateway for external connectivity"
+      else
+        pf_ok "Internet Gateway ${igw_id} attached to VPC"
+      fi
+
+      # Validate private subnet routes to NAT Gateway
+      if [[ ${#PRIVATE_SUBNETS[@]} -gt 0 ]]; then
+        pf_header "Private subnet routing"
+        for subnet in "${PRIVATE_SUBNETS[@]}"; do
+          local route_table_id
+          route_table_id=$(aws ec2 describe-route-tables --region "${REGION}" \
+            --filters "Name=association.subnet-id,Values=${subnet}" \
+            --query 'RouteTables[0].RouteTableId' --output text)
+
+          if [[ -z "$route_table_id" || "$route_table_id" == "None" ]]; then
+            # Check if using main route table
+            route_table_id=$(aws ec2 describe-route-tables --region "${REGION}" \
+              --filters "Name=vpc-id,Values=${vpc_id}" "Name=association.main,Values=true" \
+              --query 'RouteTables[0].RouteTableId' --output text)
+            pf_warn "Subnet ${subnet} using main route table ${route_table_id}"
+          fi
+
+          # Check for NAT Gateway route
+          local has_nat_route
+          has_nat_route=$(aws ec2 describe-route-tables --region "${REGION}" \
+            --route-table-ids "${route_table_id}" \
+            --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && starts_with(NatGatewayId, `nat-`)].NatGatewayId' \
+            --output text)
+
+          if [[ -z "$has_nat_route" || "$has_nat_route" == "None" ]]; then
+            pf_fail "Private subnet ${subnet} (RT: ${route_table_id}) has no route to NAT Gateway"
+            pf_fail "Nodes in this subnet won't be able to download kubelet/images or join cluster"
+          else
+            pf_ok "Private subnet ${subnet} has route to NAT Gateway ${has_nat_route}"
+          fi
+        done
+      fi
+
+      # Validate public subnet routes to Internet Gateway
+      if [[ ${#PUBLIC_SUBNETS[@]} -gt 0 ]]; then
+        pf_header "Public subnet routing"
+        for subnet in "${PUBLIC_SUBNETS[@]}"; do
+          local route_table_id
+          route_table_id=$(aws ec2 describe-route-tables --region "${REGION}" \
+            --filters "Name=association.subnet-id,Values=${subnet}" \
+            --query 'RouteTables[0].RouteTableId' --output text)
+
+          if [[ -z "$route_table_id" || "$route_table_id" == "None" ]]; then
+            route_table_id=$(aws ec2 describe-route-tables --region "${REGION}" \
+              --filters "Name=vpc-id,Values=${vpc_id}" "Name=association.main,Values=true" \
+              --query 'RouteTables[0].RouteTableId' --output text)
+            pf_warn "Public subnet ${subnet} using main route table ${route_table_id}"
+          fi
+
+          # Check for Internet Gateway route
+          local has_igw_route
+          has_igw_route=$(aws ec2 describe-route-tables --region "${REGION}" \
+            --route-table-ids "${route_table_id}" \
+            --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && starts_with(GatewayId, `igw-`)].GatewayId' \
+            --output text)
+
+          if [[ -z "$has_igw_route" || "$has_igw_route" == "None" ]]; then
+            pf_fail "Public subnet ${subnet} (RT: ${route_table_id}) has no route to Internet Gateway"
+          else
+            pf_ok "Public subnet ${subnet} has route to Internet Gateway ${has_igw_route}"
+          fi
+        done
+      fi
+
+      # Check subnet requirements
+      pf_header "Subnet requirements"
+      if [[ ${#PRIVATE_SUBNETS[@]} -lt 2 ]]; then
+        pf_fail "Need at least 2 private subnets in different AZs (found ${#PRIVATE_SUBNETS[@]})"
+      else
+        pf_ok "Found ${#PRIVATE_SUBNETS[@]} private subnet(s)"
+      fi
+
+      if [[ ${#PUBLIC_SUBNETS[@]} -lt 2 ]]; then
+        pf_warn "Need at least 2 public subnets for HA (found ${#PUBLIC_SUBNETS[@]})"
+      else
+        pf_ok "Found ${#PUBLIC_SUBNETS[@]} public subnet(s)"
+      fi
+    fi
   fi
 
   pf_header "AWS credentials available"
+  pf_warn "AWS credentials check: Only needed for Splunk Standalone's S3 secret (not for AI platform - uses IRSA)"
   if resolve_aws_creds_for_secret 2>/dev/null; then
     if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
-      pf_ok "AWS credentials found (with session token) - will create s3-secret for Splunk Standalone"
+      pf_ok "Env creds OK (with session token) - will create s3-secret for Splunk Standalone"
     else
-      pf_ok "AWS credentials found - will create s3-secret for Splunk Standalone"
+      pf_ok "Env creds OK - will create s3-secret for Splunk Standalone"
     fi
   else
-    pf_fail "AWS credentials NOT found - required for Splunk Standalone's S3 secret"
-    echo -e "  \033[1;33m[FIX]\033[0m Set AWS credentials using one of these methods:"
-    echo -e "       1. AWS Profile:  export AWS_PROFILE=<your-profile>"
-    echo -e "       2. Environment:  export AWS_ACCESS_KEY_ID=<key>"
-    echo -e "                        export AWS_SECRET_ACCESS_KEY=<secret>"
-    echo -e "       3. AWS SSO:      aws sso login --profile <your-profile>"
-    echo -e "                        export AWS_PROFILE=<your-profile>"
+    pf_warn "AWS credentials not available. Splunk Standalone deployment will fail if attempted."
+    pf_warn "To fix: export AWS_PROFILE=<your-profile> && aws sso login --profile <your-profile>"
+    pf_warn "Or set: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
   fi
 }
 
