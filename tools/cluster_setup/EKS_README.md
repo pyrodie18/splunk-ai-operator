@@ -233,6 +233,167 @@ eksctl version            # Minimum: v0.150+
 aws --version             # Minimum: AWS CLI v2.13+
 ```
 
+### Container Images Configuration
+
+**IMPORTANT:** The `artifacts.yaml` file contains image references that point to a specific ECR registry. If you're using your own container registry or have uploaded the images to your own ECR account, you **must** update the image references before installation.
+
+#### Required Updates in artifacts.yaml
+
+The Splunk AI Operator deployment in `artifacts.yaml` contains environment variables that specify container images for all components. You need to update these to point to your registry:
+
+**Location:** `artifacts.yaml` → Deployment: `splunk-ai-operator-controller-manager` → Container env vars
+
+**Images to update:**
+
+```yaml
+env:
+  - name: RELATED_IMAGE_RAY_HEAD
+    value: YOUR_REGISTRY/ray-head:YOUR_TAG           # ← UPDATE THIS
+  - name: RELATED_IMAGE_RAY_WORKER
+    value: YOUR_REGISTRY/ray-worker-gpu:YOUR_TAG     # ← UPDATE THIS
+  - name: RELATED_IMAGE_WEAVIATE
+    value: YOUR_REGISTRY/weaviate:YOUR_TAG           # ← UPDATE THIS (or use public: semitechnologies/weaviate:stable-v1.28-007846a)
+  - name: RELATED_IMAGE_SAIA_API
+    value: YOUR_REGISTRY/saia-api:YOUR_TAG           # ← UPDATE THIS
+  - name: RELATED_IMAGE_POST_INSTALL_HOOK
+    value: YOUR_REGISTRY/saia-data-loader:YOUR_TAG   # ← UPDATE THIS
+  - name: RELATED_IMAGE_FLUENT_BIT
+    value: fluent/fluent-bit:1.9.6                   # ← Public image, usually no change needed
+  - name: MODEL_VERSION
+    value: v0.3.14-36-g1549f5a                       # ← Update to your model version
+  - name: RAY_VERSION
+    value: 2.44.0                                    # ← Ray version (usually no change needed)
+image: YOUR_REGISTRY/splunk-ai-operator:YOUR_TAG     # ← UPDATE THIS (operator image itself)
+```
+
+**Example with your own ECR registry:**
+
+```yaml
+env:
+  - name: RELATED_IMAGE_RAY_HEAD
+    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/ray-head:v1.0.0
+  - name: RELATED_IMAGE_RAY_WORKER
+    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/ray-worker-gpu:v1.0.0
+  - name: RELATED_IMAGE_WEAVIATE
+    value: semitechnologies/weaviate:stable-v1.28-007846a  # Can use public image
+  - name: RELATED_IMAGE_SAIA_API
+    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/saia-api:v1.1.0
+  - name: RELATED_IMAGE_POST_INSTALL_HOOK
+    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/saia-data-loader:v1.1.0
+  - name: RELATED_IMAGE_FLUENT_BIT
+    value: fluent/fluent-bit:1.9.6  # Public image
+  - name: MODEL_VERSION
+    value: v0.3.14-36-g1549f5a
+  - name: RAY_VERSION
+    value: 2.44.0
+image: docker.io/your-dockerhub-user/splunk-ai-operator:v1.2.0
+```
+
+**How to update:**
+
+```bash
+# Edit artifacts.yaml
+vi artifacts.yaml
+
+# Or use yq to update programmatically
+yq eval '.spec.template.spec.containers[0].env[] |= select(.name == "RELATED_IMAGE_RAY_HEAD").value = "YOUR_REGISTRY/ray-head:YOUR_TAG"' -i artifacts.yaml
+
+# Verify changes
+grep "RELATED_IMAGE" artifacts.yaml
+```
+
+**When to update:**
+- ✅ When using your own private container registry
+- ✅ When you've uploaded images to your own ECR account
+- ✅ When using different image tags/versions
+- ❌ If using the default public images (but check if they're accessible)
+
+**Image Pull Secrets:**
+If your images are in a private registry (like ECR), ensure you:
+1. Have valid AWS credentials configured (for ECR)
+2. The script will automatically create ECR pull secrets if AWS credentials are available
+3. For non-ECR registries, manually create image pull secrets (see [Image Pull Secrets](#image-pull-secrets) section)
+
+#### Required Updates in splunk-operator-cluster.yaml
+
+The Splunk Operator deployment in `splunk-operator-cluster.yaml` also contains image references that you need to update if using your own container registry.
+
+**Location:** `splunk-operator-cluster.yaml` → Deployment: `splunk-operator-controller-manager` → Container env vars and image
+
+**Images to update:**
+
+```yaml
+env:
+  - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
+    value: YOUR_REGISTRY/splunk:YOUR_TAG              # ← UPDATE THIS (Splunk Enterprise image)
+  - name: OPERATOR_NAME
+    value: splunk-operator                            # ← Usually no change needed
+  - name: SPLUNK_GENERAL_TERMS
+    value: "--accept-sgt-current-at-splunk-com"       # ← No change needed
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+image: YOUR_REGISTRY/splunk-operator:YOUR_TAG         # ← UPDATE THIS (Splunk Operator image itself)
+```
+
+**Example with your own registry:**
+
+```yaml
+env:
+  - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
+    value: docker.io/your-dockerhub-user/splunk:9.2.0  # Or ECR: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk:9.2.0
+  - name: OPERATOR_NAME
+    value: splunk-operator
+  - name: SPLUNK_GENERAL_TERMS
+    value: "--accept-sgt-current-at-splunk-com"
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+image: docker.io/your-dockerhub-user/splunk-operator:3.0.1  # Or ECR
+```
+
+**How to update:**
+
+```bash
+# Edit splunk-operator-cluster.yaml
+vi splunk-operator-cluster.yaml
+
+# Or use yq to update programmatically
+yq eval '(select(.kind == "Deployment") | .spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SPLUNK_ENTERPRISE").value) = "YOUR_REGISTRY/splunk:YOUR_TAG"' -i splunk-operator-cluster.yaml
+
+# Update operator image
+yq eval '(select(.kind == "Deployment") | .spec.template.spec.containers[0].image) = "YOUR_REGISTRY/splunk-operator:YOUR_TAG"' -i splunk-operator-cluster.yaml
+
+# Verify changes
+grep -A 5 "RELATED_IMAGE_SPLUNK_ENTERPRISE" splunk-operator-cluster.yaml
+grep "image:" splunk-operator-cluster.yaml | grep splunk-operator
+```
+
+**Note:** The script also sets these environment variables during installation via `kubectl set env`, but it's best to update the manifest file as well to ensure consistency, especially if you need to reapply the manifest later.
+
+#### Summary: Files to Update Before Installation
+
+Before running the installation script, update image references in these two files:
+
+| File | Images to Update | Purpose |
+|------|------------------|---------|
+| **artifacts.yaml** | • Ray head/worker images<br>• Weaviate<br>• SAIA API<br>• Data loader<br>• Fluent Bit<br>• Splunk AI Operator | Used by Splunk AI Operator to deploy AI platform components |
+| **splunk-operator-cluster.yaml** | • Splunk Enterprise image<br>• Splunk Operator | Used to deploy Splunk Operator and Splunk instances |
+
+**Quick check before installation:**
+
+```bash
+# Check artifacts.yaml
+grep "RELATED_IMAGE" artifacts.yaml | grep -v "#"
+grep "image:" artifacts.yaml | grep splunk-ai-operator
+
+# Check splunk-operator-cluster.yaml
+grep "RELATED_IMAGE_SPLUNK_ENTERPRISE" splunk-operator-cluster.yaml | grep -v "#"
+grep "image:" splunk-operator-cluster.yaml | grep splunk-operator
+```
+
 ---
 
 ## Quick Start
@@ -250,7 +411,7 @@ cd /path/to/splunk-ai-operator/tools/cluster_setup
 **✅ Ensure you have:**
 - AWS CLI installed and configured (`aws --version`)
 - Valid AWS credentials with appropriate permissions
-- Existing VPC with public and private subnets in multiple AZs
+- Existing VPC with public and private subnets in multiple AZs **OR** let eksctl create a new VPC automatically
 - Required tools installed: `eksctl`, `kubectl`, `helm`, `jq`, `yq`
 
 **🔐 Set AWS Credentials:**
@@ -270,7 +431,22 @@ aws sts get-caller-identity --query Account --output text
 
 **⚠️ Important:** The script requires valid AWS credentials to pass preflight checks. You'll get a clear error message if credentials are missing.
 
-### 3. Find Your VPC and Subnets
+**Note about AWS Credentials for Claude Code users:** If you're using Claude Code, you may need to unset AWS credentials that are set for Bedrock, as they will conflict with your actual AWS account credentials:
+```bash
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
+export AWS_PROFILE=your-actual-profile
+```
+
+### 3. Find Your VPC and Subnets (Optional)
+
+**You have two options:**
+
+**Option A: Let eksctl create a new VPC automatically (Easiest)**
+- Skip this step entirely
+- Leave the `subnets` section empty in your config file
+- eksctl will create a new VPC with proper networking
+
+**Option B: Use an existing VPC with subnets**
 
 ```bash
 # List all VPCs in your region
@@ -293,11 +469,27 @@ aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" \
 aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" \
   "Name=map-public-ip-on-launch,Values=true" --region us-west-2 \
   --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output table
+
+# IMPORTANT: Verify VPC has NAT Gateway (required for private subnets)
+aws ec2 describe-nat-gateways --region us-west-2 \
+  --filter "Name=vpc-id,Values=$VPC_ID" "Name=state,Values=available" \
+  --query 'NatGateways[*].[NatGatewayId,SubnetId,State]' --output table
 ```
+
+**Required VPC Networking Components:**
+If using existing VPC, ensure it has:
+- ✅ At least 2 private subnets in different AZs
+- ✅ At least 2 public subnets in different AZs
+- ✅ NAT Gateway (at least 1, preferably 1 per AZ for HA)
+- ✅ Internet Gateway attached to VPC
+- ✅ Private subnets route to NAT Gateway (0.0.0.0/0 → nat-xxxxx)
+- ✅ Public subnets route to Internet Gateway (0.0.0.0/0 → igw-xxxxx)
+
+**The script will validate all these requirements during preflight checks.**
 
 ### 4. Configure Your Deployment
 
-The script uses a YAML configuration file for all settings.
+The script uses a YAML configuration file (`cluster-config.yaml`) for all settings.
 
 **Copy the template:**
 ```bash
@@ -313,24 +505,34 @@ vi my-cluster-config.yaml
 
 ```yaml
 cluster:
-  name: "vivek-ai-cluster"        # ← CHANGE: Your unique cluster name
+  name: "my-ai-cluster"           # ← CHANGE: Your unique cluster name (DNS-1123 compliant)
   region: "us-west-2"             # ← CHANGE: Your AWS region
+  k8sVersion: "1.31"              # Kubernetes version (1.29, 1.30, 1.31)
 
+  # Option A: Leave subnets empty to create new VPC automatically
+  # Option B: Provide existing subnet IDs (eksctl auto-detects VPC from subnets)
   subnets:
-    private:                      # ← CHANGE: Your private subnet IDs
-      - id: "subnet-0f4af6..."    #           (at least 2, different AZs)
-        az: "us-west-2c"
+    private:                      # ← OPTIONAL: Your private subnet IDs
+      - id: "subnet-0f4af6..."    #             (at least 2, different AZs)
+        az: "us-west-2b"          #             Include the AZ for each subnet
       - id: "subnet-024d4e..."
-        az: "us-west-2d"
-    public:                       # ← CHANGE: Your public subnet IDs
-      - id: "subnet-0439b4..."    #           (at least 2, different AZs)
+        az: "us-west-2c"
+    public:                       # ← OPTIONAL: Your public subnet IDs
+      - id: "subnet-0439b4..."    #             (at least 2, different AZs)
         az: "us-west-2b"
       - id: "subnet-06aef8..."
         az: "us-west-2c"
 
 storage:
   s3Bucket: "my-ai-platform-bucket"  # ← CHANGE: Globally unique S3 bucket name
+                                      #          (3-63 chars, lowercase, numbers, hyphens)
 ```
+
+**Important Notes:**
+- **Cluster Name**: Must be DNS-1123 compliant (lowercase letters, numbers, hyphens; start/end with alphanumeric)
+- **S3 Bucket**: Must be globally unique across all AWS accounts
+- **Subnets**: If provided, script validates NAT Gateway, Internet Gateway, and route tables exist
+- **Subnets**: Leave empty or comment out to let eksctl create a new VPC automatically
 
 **What each section configures:**
 
@@ -436,143 +638,258 @@ kubectl get pods --all-namespaces
 
 ### EKS Cluster Configuration
 
-The script supports configuration through environment variables:
+The script uses a YAML configuration file (`cluster-config.yaml`) for all settings. Configuration is loaded from the file specified by the `CONFIG_FILE` environment variable (defaults to `./cluster-config.yaml`).
 
-#### Cluster Settings
+#### Configuration File Structure
 
-```bash
-# Cluster identification
-export CLUSTER_NAME="splunk-ai-eks"     # Name of EKS cluster
-export REGION="us-west-2"               # AWS region
+```yaml
+# cluster-config.yaml
 
-# VPC Configuration
-export VPC_ID="vpc-xxxxx"               # Existing VPC ID
-export SUBNET_IDS="subnet-a,subnet-b"   # Subnet IDs (comma-separated, 2+ required)
+cluster:
+  name: "my-ai-cluster"              # EKS cluster name (DNS-1123 compliant)
+  region: "us-west-2"                # AWS region
+  k8sVersion: "1.31"                 # Kubernetes version (1.29, 1.30, 1.31)
+
+  subnets:                           # Optional - leave empty for auto VPC creation
+    private:                         # Private subnets (at least 2, different AZs)
+      - id: "subnet-xxxxx"
+        az: "us-west-2a"
+      - id: "subnet-yyyyy"
+        az: "us-west-2b"
+    public:                          # Public subnets (at least 2, different AZs)
+      - id: "subnet-zzzzz"
+        az: "us-west-2a"
+      - id: "subnet-wwwww"
+        az: "us-west-2b"
+
+nodeGroups:
+  cpu:
+    enabled: true                    # Enable CPU node group
+    instanceType: "m5.xlarge"        # CPU instance type
+    desiredCapacity: 4               # Initial number of nodes
+    minSize: 2                       # Minimum nodes for autoscaling
+    maxSize: 8                       # Maximum nodes for autoscaling
+    volumeSize: 500                  # EBS volume size in GB
+    volumeType: "gp3"                # EBS volume type (gp3, gp2, io1, io2)
+
+  gpu:
+    enabled: true                    # Enable GPU node group
+    instanceType: "g6e.12xlarge"     # GPU instance type
+    desiredCapacity: 2               # Initial number of nodes
+    minSize: 2                       # Minimum nodes
+    maxSize: 4                       # Maximum nodes
+    volumeSize: 1000                 # EBS volume size in GB
+    volumeType: "gp3"                # EBS volume type
+
+storage:
+  s3Bucket: "my-ai-platform-bucket"  # S3 bucket for artifacts/apps/tasks
+  storageClass: "gp3"                # Default storage class for PVCs
+  vectorDbSize: "50Gi"               # VectorDB PVC size
+
+operators:
+  splunk:
+    image: "splunk/splunk:10.2.0-dev1"  # Splunk Enterprise image
+  ray:
+    version: "v1.2.2"                          # Ray operator version
+  nvidia:
+    devicePluginVersion: "v0.17.3"             # NVIDIA device plugin version
+
+aiPlatform:
+  namespace: "ai-platform"           # Kubernetes namespace
+  name: "splunk-ai-stack"            # AIPlatform CR name
+  serviceAccounts:                   # Service accounts for IRSA
+    rayHead: "ray-head-sa"
+    rayWorker: "ray-worker-sa"
+    saiaService: "saia-service-sa"
+  defaultAcceleratorType: "L40S"     # Default GPU type
+  workerGroupConfig:
+    serviceAccountName: "ray-worker-sa"
+    imageRegistry: ""                # Leave empty for default
+  ingress:
+    enabled: false                   # Enable ingress (requires ingress controller)
+    className: "nginx"
+    host: "ai.example.com"
+    tlsSecretName: "ai-platform-tls"
+
+splunkStandalone:
+  name: "splunk-standalone"          # Splunk Standalone CR name
+  serviceAccount: "saia-service-sa"  # Service account for S3 access
+  localAppPath: ""                   # Optional: local path to Splunk app to upload
+
+files:
+  splunkOperatorManifest: "./splunk-operator-cluster.yaml"
+  splunkAiOperatorManifest: "./artifacts.yaml"
 ```
 
-#### Node Configuration
+#### Using Custom Configuration File
 
 ```bash
-# Node groups
-export CPU_NODE_COUNT=2                 # Number of CPU nodes
-export GPU_NODE_COUNT=1                 # Number of GPU nodes (0 to skip GPU)
+# Specify custom config file
+CONFIG_FILE=./my-custom-config.yaml ./eks_cluster_with_stack.sh install
 
-# Instance types
-export CPU_INSTANCE_TYPE="m5.4xlarge"   # CPU node type (16 vCPU, 64GB RAM)
-export GPU_INSTANCE_TYPE="g5.2xlarge"   # GPU node type (1x A10G GPU, 8 vCPU, 32GB RAM)
-
-# Node group scaling
-export CPU_MIN_NODES=2                  # Minimum CPU nodes
-export CPU_MAX_NODES=10                 # Maximum CPU nodes
-export GPU_MIN_NODES=0                  # Minimum GPU nodes
-export GPU_MAX_NODES=5                  # Maximum GPU nodes
-
-# Disk size
-export NODE_VOLUME_SIZE=100             # EBS volume size in GB
-```
-
-#### AI Platform Settings
-
-```bash
-# Namespace
-export AI_NS="ai-platform"              # Kubernetes namespace
-
-# AI Platform name
-export AI_PLATFORM_NAME="splunk-ai"     # AIPlatform CR name
-
-# Storage
-export S3_BUCKET="splunk-ai-platform-data-${CLUSTER_NAME}"  # S3 bucket name
-export VECTORDB_SIZE="50Gi"             # Vector DB storage size
-export STORAGE_CLASS="gp3"              # EBS storage class (gp3, gp2, io1, io2)
-
-# Worker images
-export WORKER_IMAGE_REGISTRY="rayproject/ray:2.9.0"  # Ray worker image
+# Or set it as environment variable
+export CONFIG_FILE=./my-custom-config.yaml
+./eks_cluster_with_stack.sh install
 ```
 
 ### Configuration Examples
 
-#### Example 1: Development Cluster (Cost-Optimized)
+#### Example 1: Development Cluster (Cost-Optimized, Auto VPC)
 
-```bash
-#!/bin/bash
-# dev-config.sh - Minimal setup for development/testing
+```yaml
+# dev-cluster-config.yaml - Minimal setup for development/testing
 
-export CLUSTER_NAME="dev-ai-platform"
-export REGION="us-west-2"
-export VPC_ID="vpc-xxxxx"
-export SUBNET_IDS="subnet-a,subnet-b"
+cluster:
+  name: "dev-ai-platform"
+  region: "us-west-2"
+  k8sVersion: "1.31"
+  # No subnets specified - eksctl creates new VPC automatically
 
-# Minimal nodes
-export CPU_NODE_COUNT=2
-export GPU_NODE_COUNT=0  # No GPU for cost savings
+nodeGroups:
+  cpu:
+    enabled: true
+    instanceType: "m5.xlarge"        # 4 vCPU, 16GB RAM (smaller)
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 4
+    volumeSize: 200                  # Smaller disk
+    volumeType: "gp3"
 
-# Smaller instance types
-export CPU_INSTANCE_TYPE="m5.xlarge"  # 4 vCPU, 16GB RAM
+  gpu:
+    enabled: false                   # Disable GPU to save costs
 
-# Smaller storage
-export VECTORDB_SIZE="10Gi"
-export NODE_VOLUME_SIZE=50
+storage:
+  s3Bucket: "dev-ai-platform-data"
+  storageClass: "gp3"
+  vectorDbSize: "20Gi"               # Smaller vector DB
 
-# Source this file: source dev-config.sh
+operators:
+  splunk:
+    image: "splunk/splunk:10.2.0-dev1"
+  ray:
+    version: "v1.2.2"
+
+aiPlatform:
+  namespace: "ai-platform"
+  name: "splunk-ai-stack"
+  defaultAcceleratorType: "L40S"
+
+splunkStandalone:
+  name: "splunk-standalone"
+  serviceAccount: "saia-service-sa"
 ```
 
-#### Example 2: Production Cluster (High Availability)
+#### Example 2: Production Cluster (High Availability, Existing VPC)
 
-```bash
-#!/bin/bash
-# prod-config.sh - Production-ready setup
+```yaml
+# prod-cluster-config.yaml - Production-ready setup
 
-export CLUSTER_NAME="prod-ai-platform"
-export REGION="us-west-2"
-export VPC_ID="vpc-xxxxx"
-export SUBNET_IDS="subnet-a,subnet-b,subnet-c"  # 3 AZs for HA
+cluster:
+  name: "prod-ai-platform"
+  region: "us-west-2"
+  k8sVersion: "1.31"
+  subnets:
+    private:                         # 3 AZs for high availability
+      - id: "subnet-private-2a"
+        az: "us-west-2a"
+      - id: "subnet-private-2b"
+        az: "us-west-2b"
+      - id: "subnet-private-2c"
+        az: "us-west-2c"
+    public:
+      - id: "subnet-public-2a"
+        az: "us-west-2a"
+      - id: "subnet-public-2b"
+        az: "us-west-2b"
+      - id: "subnet-public-2c"
+        az: "us-west-2c"
 
-# High availability
-export CPU_NODE_COUNT=5
-export GPU_NODE_COUNT=2
+nodeGroups:
+  cpu:
+    enabled: true
+    instanceType: "m5.4xlarge"       # 16 vCPU, 64GB RAM
+    desiredCapacity: 5               # Higher capacity
+    minSize: 3                       # Never go below 3
+    maxSize: 20                      # Allow scaling to 20
+    volumeSize: 500
+    volumeType: "gp3"
 
-# Production instance types
-export CPU_INSTANCE_TYPE="m5.4xlarge"  # 16 vCPU, 64GB RAM
-export GPU_INSTANCE_TYPE="g5.2xlarge"  # 1x A10G GPU
+  gpu:
+    enabled: true
+    instanceType: "g5.2xlarge"       # 1x A10G GPU
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 10
+    volumeSize: 1000
+    volumeType: "gp3"
 
-# Auto-scaling ranges
-export CPU_MIN_NODES=3
-export CPU_MAX_NODES=20
-export GPU_MIN_NODES=1
-export GPU_MAX_NODES=10
+storage:
+  s3Bucket: "prod-ai-platform-data"
+  storageClass: "gp3"
+  vectorDbSize: "200Gi"              # Large vector DB
 
-# Large storage
-export VECTORDB_SIZE="200Gi"
-export NODE_VOLUME_SIZE=200
+operators:
+  splunk:
+    image: "splunk/splunk:10.2.0-dev1"
+  ray:
+    version: "v1.2.2"
 
-# Production storage class
-export STORAGE_CLASS="gp3"  # Better performance than gp2
+aiPlatform:
+  namespace: "ai-platform"
+  name: "splunk-ai-stack"
+  defaultAcceleratorType: "L40S"
+  ingress:
+    enabled: true                    # Enable ingress for production
+    className: "nginx"
+    host: "ai.production.example.com"
+    tlsSecretName: "ai-platform-tls"
 ```
 
 #### Example 3: GPU-Heavy Workload
 
-```bash
-#!/bin/bash
-# gpu-heavy-config.sh - For AI training/inference intensive workloads
+```yaml
+# gpu-heavy-config.yaml - For AI training/inference intensive workloads
 
-export CLUSTER_NAME="ai-training-cluster"
-export REGION="us-east-1"  # Check GPU availability in your region
-export VPC_ID="vpc-xxxxx"
-export SUBNET_IDS="subnet-a,subnet-b"
+cluster:
+  name: "ai-training-cluster"
+  region: "us-east-1"                # Check GPU availability
+  k8sVersion: "1.31"
+  # Auto-create VPC with sufficient capacity
 
-# More GPU nodes
-export CPU_NODE_COUNT=2      # Minimal CPU nodes
-export GPU_NODE_COUNT=4      # More GPU nodes
+nodeGroups:
+  cpu:
+    enabled: true
+    instanceType: "m5.xlarge"        # Minimal CPU
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 4
+    volumeSize: 200
+    volumeType: "gp3"
 
-# Large GPU instances
-export GPU_INSTANCE_TYPE="g5.12xlarge"  # 4x A10G GPUs, 48 vCPU, 192GB RAM
+  gpu:
+    enabled: true
+    instanceType: "g5.12xlarge"      # 4x A10G GPUs, 48 vCPU, 192GB RAM
+    desiredCapacity: 4               # More GPU nodes
+    minSize: 2
+    maxSize: 10
+    volumeSize: 2000                 # Large volumes for models
+    volumeType: "gp3"
 
-# GPU scaling
-export GPU_MIN_NODES=2
-export GPU_MAX_NODES=10
+storage:
+  s3Bucket: "ai-training-platform-data"
+  storageClass: "gp3"
+  vectorDbSize: "100Gi"
 
-# Large volumes for model storage
-export NODE_VOLUME_SIZE=500
+operators:
+  splunk:
+    image: "splunk/splunk:10.2.0-dev1"
+  ray:
+    version: "v1.2.2"
+
+aiPlatform:
+  namespace: "ai-platform"
+  name: "splunk-ai-stack"
+  defaultAcceleratorType: "L40S"
 ```
 
 ### Instance Type Selection Guide
@@ -755,7 +1072,7 @@ aws eks update-nodegroup-version \
 ```bash
 # Update operator image
 kubectl set image deployment/splunk-ai-operator-controller-manager \
-  manager=docker.io/vivekrsplunk/splunk-ai-operator:FRC-30 \
+  manager=docker.io/splunk/splunk-ai-operator:FRC-30 \
   -n splunk-ai-operator-system
 
 # Restart operator

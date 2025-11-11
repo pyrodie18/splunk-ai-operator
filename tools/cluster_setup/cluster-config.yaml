@@ -115,7 +115,7 @@ aiPlatform:
 
   # Ingress Configuration
   ingress: # not used
-    enabled: true
+    enabled: false
     className: "nginx"
     host: "ai.example.com"
     tlsSecretName: "ai-platform-tls"
