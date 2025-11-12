@@ -99,7 +99,7 @@ Uploads downloaded artifacts to AWS S3 storage.
 **Usage:**
 ```bash
 export S3_BUCKET=your-bucket-name
-export S3_REGION=us-east-1  # Optional, defaults to us-east-1
+export S3_REGION=us-east-1  # Optional, defaults to us-east-2
 export S3_PREFIX=model_artifacts  # Optional, defaults to 'model_artifacts'
 ./upload_to_s3.sh
 ```
