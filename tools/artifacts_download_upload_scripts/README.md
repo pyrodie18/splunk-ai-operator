@@ -2,6 +2,21 @@
 
 This directory contains scripts for downloading model artifacts from Hugging Face and uploading them to MinIO/S3.
 
+## ⚠️ Important Prerequisites
+
+**Sudo Access May Be Required:**
+- These scripts automatically install dependencies (wget, yq, git-lfs, AWS CLI, MinIO Client, etc.)
+- On Linux systems, installing dependencies typically requires sudo/root access
+- On macOS, sudo may be required depending on your Homebrew configuration
+- If you don't have sudo access:
+  - Dependencies will be installed to user directories (`~/.local/bin`)
+  - Ensure `~/.local/bin` is in your PATH
+  - Manual installation instructions will be provided if automatic installation fails
+
+**Running Scripts:**
+- If dependency installation fails, try running with sudo: `sudo ./script_name.sh`
+- Or manually install required dependencies first (see Dependency Installation Methods section)
+
 ## Scripts
 
 ### 1. `download_from_huggingface.sh`
@@ -20,9 +35,15 @@ Downloads model artifacts from Hugging Face repositories.
 ./download_from_huggingface.sh
 ```
 
+Or with sudo if dependency installation fails:
+```bash
+sudo ./download_from_huggingface.sh
+```
+
 **Prerequisites:**
 - `model_artifacts_configs.yaml` must be present in the same directory
 - For gated models: HF token and username must be configured in the YAML file
+- May require sudo for installing dependencies (wget, yq, git-lfs)
 
 ### 2. `upload_to_minio.sh`
 Uploads downloaded artifacts to MinIO storage.
@@ -42,8 +63,14 @@ Uploads downloaded artifacts to MinIO storage.
 ./upload_to_minio.sh
 ```
 
+Or with sudo if dependency installation fails:
+```bash
+sudo ./upload_to_minio.sh
+```
+
 **Prerequisites:**
 - Run `download_from_huggingface.sh` first to download artifacts
+- May require sudo for installing MinIO Client (mc)
 - Configure MinIO settings in the script or use environment variables:
   - `MINIO_ENDPOINT` (default: http://127.0.0.1:9000)
   - `MINIO_BUCKET` (default: personal)
@@ -69,8 +96,14 @@ Uploads downloaded artifacts to MinIO using AWS CLI (S3-compatible API).
 ./upload_to_minio_aws.sh
 ```
 
+Or with sudo if dependency installation fails:
+```bash
+sudo ./upload_to_minio_aws.sh
+```
+
 **Prerequisites:**
 - Run `download_from_huggingface.sh` first to download artifacts
+- May require sudo for installing AWS CLI
 - Configure MinIO settings in the script:
   - `MINIO_ENDPOINT` (default: http://127.0.0.1:9000)
   - `MINIO_BUCKET` (default: ml-platform-artifacts)
@@ -109,8 +142,14 @@ Or set inline:
 S3_BUCKET=your-bucket-name S3_REGION=us-west-2 ./upload_to_s3.sh
 ```
 
+Or with sudo if dependency installation fails:
+```bash
+sudo S3_BUCKET=your-bucket-name ./upload_to_s3.sh
+```
+
 **Prerequisites:**
 - Run `download_from_huggingface.sh` first to download artifacts
+- May require sudo for installing AWS CLI
 - AWS credentials must be configured:
   - AWS CLI configuration (`aws configure`)
   - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
@@ -138,6 +177,14 @@ Or with custom settings:
 ```bash
 MINIO_ENDPOINT=http://localhost:9000 MINIO_BUCKET=nexus ./test_minio_connection.sh
 ```
+
+Or with sudo if dependency installation fails:
+```bash
+sudo ./test_minio_connection.sh
+```
+
+**Prerequisites:**
+- May require sudo for installing MinIO Client (mc)
 
 **When to use:**
 - Before running upload scripts for the first time
