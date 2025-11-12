@@ -60,9 +60,27 @@ if ! command -v aws &> /dev/null; then
         if ! command -v unzip &> /dev/null; then
             echo "Installing unzip..."
             if [[ $EUID -eq 0 ]]; then
-                apt-get update && apt-get install -y unzip
+                if command -v apt-get &> /dev/null; then
+                    apt-get update && apt-get install -y unzip
+                elif command -v yum &> /dev/null; then
+                    yum install -y unzip
+                elif command -v dnf &> /dev/null; then
+                    dnf install -y unzip
+                else
+                    echo "Error: No supported package manager found. Please install unzip manually."
+                    exit 1
+                fi
             elif command -v sudo &> /dev/null; then
-                sudo apt-get update && sudo apt-get install -y unzip
+                if command -v apt-get &> /dev/null; then
+                    sudo apt-get update && sudo apt-get install -y unzip
+                elif command -v yum &> /dev/null; then
+                    sudo yum install -y unzip
+                elif command -v dnf &> /dev/null; then
+                    sudo dnf install -y unzip
+                else
+                    echo "Error: No supported package manager found. Please install unzip manually."
+                    exit 1
+                fi
             else
                 echo "Error: unzip not found and cannot install. Please install unzip manually."
                 exit 1

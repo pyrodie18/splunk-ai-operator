@@ -23,9 +23,71 @@ if command -v mc &> /dev/null; then
     echo "✓ MinIO Client found"
     mc --version
 else
-    echo "✗ MinIO Client not found"
-    echo "Please install mc first: brew install minio/stable/mc"
-    exit 1
+    echo "✗ MinIO Client not found, installing..."
+    
+    # Detect OS and Architecture
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+    
+    if [[ "$OS" == "Darwin" ]]; then
+        # macOS installation
+        if command -v brew &> /dev/null; then
+            echo "Installing MinIO Client via Homebrew..."
+            brew install minio/stable/mc
+        else
+            echo "Homebrew not found. Installing MinIO Client manually..."
+            if [[ "$ARCH" == "arm64" ]]; then
+                MC_URL="https://dl.min.io/client/mc/release/darwin-arm64/mc"
+            else
+                MC_URL="https://dl.min.io/client/mc/release/darwin-amd64/mc"
+            fi
+            curl -o /tmp/mc "$MC_URL"
+            chmod +x /tmp/mc
+            sudo mv /tmp/mc /usr/local/bin/mc
+        fi
+    elif [[ "$OS" == "Linux" ]]; then
+        # Linux installation
+        echo "Installing MinIO Client for Linux..."
+        
+        if [[ "$ARCH" == "x86_64" ]]; then
+            MC_URL="https://dl.min.io/client/mc/release/linux-amd64/mc"
+        elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+            MC_URL="https://dl.min.io/client/mc/release/linux-arm64/mc"
+        else
+            echo "Error: Unsupported architecture: $ARCH"
+            exit 1
+        fi
+        
+        curl -o /tmp/mc "$MC_URL"
+        chmod +x /tmp/mc
+        
+        # Try to move to /usr/local/bin
+        if [[ $EUID -eq 0 ]]; then
+            mv /tmp/mc /usr/local/bin/mc
+        elif command -v sudo &> /dev/null; then
+            sudo mv /tmp/mc /usr/local/bin/mc
+        else
+            # Install to user's local bin if no sudo
+            mkdir -p ~/.local/bin
+            mv /tmp/mc ~/.local/bin/mc
+            export PATH=$PATH:~/.local/bin
+            echo "Note: mc installed to ~/.local/bin - ensure this is in your PATH"
+        fi
+    else
+        echo "Error: Unsupported operating system: $OS"
+        echo "Please install MinIO Client manually."
+        echo "Visit: https://min.io/docs/minio/linux/reference/minio-mc.html"
+        exit 1
+    fi
+    
+    # Verify installation
+    if command -v mc &> /dev/null; then
+        echo "✓ MinIO Client installed successfully"
+        mc --version
+    else
+        echo "Error: MinIO Client installation failed"
+        exit 1
+    fi
 fi
 echo ""
 

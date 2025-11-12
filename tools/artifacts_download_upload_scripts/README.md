@@ -54,7 +54,7 @@ Uploads downloaded artifacts to MinIO storage.
 - **Auto-creates bucket** if it doesn't exist
 - Uses native MinIO Client (mc) for optimal performance
 - Comprehensive dependency installation:
-  - MinIO Client (via Homebrew or direct download)
+  - MinIO Client via **Homebrew on macOS** or **direct download on Linux**
   - Supports macOS (Intel & Apple Silicon) and Linux (amd64 & arm64)
   - Multiple fallback installation methods
 
@@ -86,7 +86,7 @@ Uploads downloaded artifacts to MinIO using AWS CLI (S3-compatible API).
 - **Auto-creates bucket** if it doesn't exist
 - Uses AWS CLI with S3-compatible API for MinIO
 - Comprehensive dependency installation:
-  - AWS CLI (via Homebrew or official installer)
+  - AWS CLI via **Homebrew on macOS** or **official AWS installer on Linux**
   - Supports macOS (Intel & Apple Silicon) and Linux (amd64 & arm64)
   - Multiple fallback installation methods
 - Alternative to `upload_to_minio.sh` (uses AWS CLI instead of mc)
@@ -124,7 +124,7 @@ Uploads downloaded artifacts to AWS S3 storage.
 - **Auto-creates bucket** if it doesn't exist (with proper region configuration)
 - Uses AWS CLI with proper credential validation
 - Comprehensive dependency installation:
-  - AWS CLI (via Homebrew or official installer)
+  - AWS CLI via **Homebrew on macOS** or **official AWS installer on Linux**
   - Supports macOS (Intel & Apple Silicon) and Linux (amd64 & arm64)
   - Multiple fallback installation methods
 - Validates AWS credentials before upload
@@ -352,12 +352,13 @@ All artifacts in the list will be downloaded and uploaded automatically.
 Installs MinIO Client (mc):
 
 1. **macOS**:
-   - Homebrew (if installed): `brew install minio/stable/mc`
-   - Direct download: Downloads appropriate binary (Intel or Apple Silicon)
+   - **Homebrew** (recommended for macOS): `brew install minio/stable/mc`
+   - Direct download fallback: Downloads appropriate binary (Intel or Apple Silicon)
    - Installs to `/usr/local/bin/mc`
 
 2. **Linux**:
-   - Direct download: Downloads appropriate binary (amd64 or arm64)
+   - **Direct download** (Homebrew is NOT used on Linux)
+   - Downloads appropriate binary (amd64 or arm64)
    - Installs to `/usr/local/bin/mc` (with sudo) or `~/.local/bin/mc` (without sudo)
    - Provides manual installation instructions if all methods fail
 
@@ -365,11 +366,12 @@ Installs MinIO Client (mc):
 Installs AWS CLI:
 
 1. **macOS**:
-   - Homebrew (if installed): `brew install awscli`
-   - Official installer: Downloads and installs AWSCLIV2.pkg
+   - **Homebrew** (recommended for macOS): `brew install awscli`
+   - Official installer fallback: Downloads and installs AWSCLIV2.pkg
 
 2. **Linux**:
-   - Official installer: Downloads appropriate binary (amd64 or arm64)
+   - **Official AWS installer** (Homebrew is NOT used on Linux)
+   - Downloads appropriate binary (amd64 or arm64)
    - Installs to `/usr/local/aws-cli` (with sudo) or `~/.local/aws-cli` (without sudo)
    - Requires unzip utility (auto-installed if missing)
 

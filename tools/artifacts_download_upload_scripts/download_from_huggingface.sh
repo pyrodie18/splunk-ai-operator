@@ -17,10 +17,29 @@ if ! command -v wget &> /dev/null; then
             exit 1
         fi
     else
+        # Linux - detect package manager
         if [ "$(id -u)" -eq 0 ]; then
-            apt-get update && apt-get install -y wget
+            if command -v apt-get &> /dev/null; then
+                apt-get update && apt-get install -y wget
+            elif command -v yum &> /dev/null; then
+                yum install -y wget
+            elif command -v dnf &> /dev/null; then
+                dnf install -y wget
+            else
+                echo "Error: No supported package manager found. Please install wget manually."
+                exit 1
+            fi
         elif command -v sudo &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y wget
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y wget
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y wget
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y wget
+            else
+                echo "Error: No supported package manager found. Please install wget manually."
+                exit 1
+            fi
         else
             echo "Error: Root privileges are required to install wget. Please run this script as root or install wget manually."
             exit 1
@@ -65,9 +84,27 @@ else
             exit 1
             ;;
     esac
-    wget "https://github.com/mikefarah/yq/releases/download/v4.44.1/$YQ_BINARY" -O /usr/local/bin/yq
-    chmod +x /usr/local/bin/yq
-    YQ_CMD="/usr/local/bin/yq"
+    
+    # Try to install to /usr/local/bin, fallback to ~/.local/bin if no sudo
+    if [[ $EUID -eq 0 ]]; then
+        wget "https://github.com/mikefarah/yq/releases/download/v4.44.1/$YQ_BINARY" -O /usr/local/bin/yq
+        chmod +x /usr/local/bin/yq
+        YQ_CMD="/usr/local/bin/yq"
+    elif command -v sudo &> /dev/null && [[ "$OS" == "Darwin" ]]; then
+        # On macOS, try sudo
+        wget "https://github.com/mikefarah/yq/releases/download/v4.44.1/$YQ_BINARY" -O /tmp/yq
+        chmod +x /tmp/yq
+        sudo mv /tmp/yq /usr/local/bin/yq
+        YQ_CMD="/usr/local/bin/yq"
+    else
+        # Install to user directory (Linux without sudo or failed sudo)
+        mkdir -p ~/.local/bin
+        wget "https://github.com/mikefarah/yq/releases/download/v4.44.1/$YQ_BINARY" -O ~/.local/bin/yq
+        chmod +x ~/.local/bin/yq
+        export PATH=$PATH:~/.local/bin
+        YQ_CMD="$HOME/.local/bin/yq"
+        echo "Note: yq installed to ~/.local/bin - ensure this is in your PATH"
+    fi
 fi
 
 # HF_TOKEN and HF_USERNAME are set in the model_artifacts_configs.yaml file
@@ -86,10 +123,29 @@ if ! command -v git-lfs &> /dev/null; then
             exit 1
         fi
     else
+        # Linux - detect package manager
         if [ "$(id -u)" -eq 0 ]; then
-            apt-get update && apt-get install -y git-lfs
+            if command -v apt-get &> /dev/null; then
+                apt-get update && apt-get install -y git-lfs
+            elif command -v yum &> /dev/null; then
+                yum install -y git-lfs
+            elif command -v dnf &> /dev/null; then
+                dnf install -y git-lfs
+            else
+                echo "Error: No supported package manager found. Please install git-lfs manually."
+                exit 1
+            fi
         elif command -v sudo &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y git-lfs
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y git-lfs
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y git-lfs
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y git-lfs
+            else
+                echo "Error: No supported package manager found. Please install git-lfs manually."
+                exit 1
+            fi
         else
             echo "Error: This script requires root privileges to install git-lfs. Please run as root or install git-lfs manually."
             exit 1
