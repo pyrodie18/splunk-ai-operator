@@ -1504,7 +1504,7 @@ spec:
         value: "true"
         effect: "NoSchedule"
   ingress:
-    enabled: true
+    enabled: false
     className: ${INGRESS_CLASS}
     hosts:
       - host: ${INGRESS_HOST}
