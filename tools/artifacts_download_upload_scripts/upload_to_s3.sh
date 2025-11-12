@@ -132,7 +132,7 @@ if [[ -z "$S3_BUCKET" ]]; then
     echo ""
     echo "Usage:"
     echo "  export S3_BUCKET=your-bucket-name"
-    echo "  export S3_REGION=us-east-1  # Optional, defaults to us-east-1"
+    echo "  export S3_REGION=us-east-2  # Optional, defaults to us-east-2"
     echo "  export S3_PREFIX=model_artifacts  # Optional, defaults to 'model_artifacts'"
     echo "  ./upload_to_s3.sh"
     echo ""
