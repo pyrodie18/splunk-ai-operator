@@ -86,7 +86,14 @@ if ! command -v git-lfs &> /dev/null; then
             exit 1
         fi
     else
-        apt-get update && apt-get install -y git-lfs
+        if [ "$(id -u)" -eq 0 ]; then
+            apt-get update && apt-get install -y git-lfs
+        elif command -v sudo &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y git-lfs
+        else
+            echo "Error: This script requires root privileges to install git-lfs. Please run as root or install git-lfs manually."
+            exit 1
+        fi
     fi
     git lfs install
 fi
