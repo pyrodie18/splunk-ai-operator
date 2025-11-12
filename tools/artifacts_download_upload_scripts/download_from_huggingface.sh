@@ -17,7 +17,14 @@ if ! command -v wget &> /dev/null; then
             exit 1
         fi
     else
-        apt-get update && apt-get install -y wget
+        if [ "$(id -u)" -eq 0 ]; then
+            apt-get update && apt-get install -y wget
+        elif command -v sudo &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y wget
+        else
+            echo "Error: Root privileges are required to install wget. Please run this script as root or install wget manually."
+            exit 1
+        fi
     fi
 fi
 
