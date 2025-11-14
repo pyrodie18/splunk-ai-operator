@@ -160,8 +160,6 @@ load_config() {
   AUTOSCALER_ROLE_NAME="ClusterAutoscalerRole-${CLUSTER_NAME}"
   AUTOSCALER_SA="cluster-autoscaler"
   AUTOSCALER_NS="kube-system"
-  CA_IMAGE_TAG_DEFAULT="v${K8S_VERSION}.2"
-  AUTOSCALER_IMAGE_TAG="${AUTOSCALER_IMAGE_TAG:-$CA_IMAGE_TAG_DEFAULT}"
 
   # OpenTelemetry
   OTEL_NS="observability"
@@ -256,6 +254,7 @@ cluster_exists() { aws eks describe-cluster --name "${CLUSTER_NAME}" --region "$
 ensure_kubeconfig() {
   log "Setting kubeconfig context for ${CLUSTER_NAME} in ${REGION}"
   aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${REGION}"
+  export K8S_PATCH_VERSION=$(kubectl version --output=json | jq -r '.serverVersion.gitVersion' | cut -d'-' -f1)
 }
 
 endpoint_host() {
@@ -718,7 +717,7 @@ install_cluster_autoscaler() {
     --set rbac.serviceAccount.create=false \
     --set rbac.serviceAccount.name="${AUTOSCALER_SA}" \
     --set image.repository=registry.k8s.io/autoscaling/cluster-autoscaler \
-    --set image.tag="${AUTOSCALER_IMAGE_TAG}" \
+    --set image.tag="${K8S_PATCH_VERSION}" \
     --set extraArgs.balance-similar-node-groups=true \
     --set extraArgs.skip-nodes-with-system-pods=false \
     --set extraArgs.expander=least-waste \
@@ -1513,7 +1512,7 @@ spec:
       - hosts: [ ${INGRESS_HOST} ]
         secretName: ${INGRESS_TLS_SECRET}
   splunkConfiguration:
-    endpoint: http://${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8089
+    endpoint: https://splunk-${AI_STANDALONE_NAME}-standalone-service.${AI_NS}.svc.cluster.local:8088
     secretRef:
       name: ${secret_name}
       namespace: ${AI_NS}
