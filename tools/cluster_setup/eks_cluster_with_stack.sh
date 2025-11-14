@@ -160,8 +160,6 @@ load_config() {
   AUTOSCALER_ROLE_NAME="ClusterAutoscalerRole-${CLUSTER_NAME}"
   AUTOSCALER_SA="cluster-autoscaler"
   AUTOSCALER_NS="kube-system"
-  CA_IMAGE_TAG_DEFAULT="v${K8S_VERSION}.2"
-  AUTOSCALER_IMAGE_TAG="${AUTOSCALER_IMAGE_TAG:-$CA_IMAGE_TAG_DEFAULT}"
 
   # OpenTelemetry
   OTEL_NS="observability"

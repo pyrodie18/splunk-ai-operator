@@ -214,7 +214,7 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 	endpoint := fmt.Sprintf("%s/services/collector", cr.Spec.SplunkConfiguration.Endpoint)
 	metricsIndexName, exists := os.LookupEnv("SPLUNK_METRICS_INDEX_NAME")
 	if !exists {
-		metricsIndexName = "metrics"
+		metricsIndexName = "_metrics"
 	}
 	return map[string]interface{}{
 		"exporters": map[string]interface{}{
