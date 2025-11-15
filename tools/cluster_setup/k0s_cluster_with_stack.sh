@@ -1306,7 +1306,7 @@ create_minio_secret() {
 
 # ====== SETUP ECR REPOSITORY PERMISSIONS ======
 setup_ecr_permissions() {
-  local repo_prefix="${1:-vivek/ml-platform}"
+  local repo_prefix="${1:-ml-platform}"
 
   log "Checking ECR repository permissions for: ${repo_prefix}..."
 
