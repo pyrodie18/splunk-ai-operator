@@ -5515,7 +5515,7 @@ spec:
         - name: WATCH_NAMESPACE
           value: WATCH_NAMESPACE_VALUE
         - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-          value: splunk/splunk:10.2.0-dev1
+          value: vivekrsplunk/splunk:10.2.0-dev1
         - name: OPERATOR_NAME
           value: splunk-operator
         - name: POD_NAME
@@ -5527,20 +5527,18 @@ spec:
         - name: RELATED_IMAGE_RAY_WORKER
           value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-17
         - name: RELATED_IMAGE_WEAVIATE
-          value: docker.io/semitechnologies/weaviate:stable-v1.28-007846a
+          value: semitechnologies/weaviate:stable-v1.28-007846a
         - name: RELATED_IMAGE_SAIA_API
           value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/saia/saia-api:build-1
         - name: RELATED_IMAGE_POST_INSTALL_HOOK
           value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/saia/saia-data-loader:build-1
-        - name: SPLUNK_METRICS_INDEX_NAME
-          value: _metrics
         - name: RELATED_IMAGE_FLUENT_BIT
-          value: docker.io/fluent/fluent-bit:1.9.6
+          value: fluent/fluent-bit:1.9.6
         - name: MODEL_VERSION
           value: v0.3.14-36-g1549f5a
         - name: RAY_VERSION
           value: 2.44.0
-        image: docker.io/splunk/splunk-ai-operator:FRC-32
+        image: docker.io/splunk/splunk-ai-operator:0.1.0
         livenessProbe:
           httpGet:
             path: /healthz

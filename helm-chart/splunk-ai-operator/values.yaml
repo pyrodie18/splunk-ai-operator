@@ -21,18 +21,23 @@ podLabels: {}
 # Default watches the entire cluster
 # TODO: should we have an extra clusterWideAccess flag? If so, all of the rbac templates need to be updated
 watchNamespace: ""
-# Splunk image
-splunkEnterpriseImage: "splunk/splunk:9.4.1"
-# Ray Head image
-rayHeadImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5"
-# Ray Worker image
-rayWorkerImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6"
-# Weaviate image
-weaviateImage: "semitechnologies/weaviate:stable-v1.28-007846a"
-# SAIA API image
-saiaApiImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-6"
-# SAIA Schema image
-saiaSchemaImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5"
+# Container Images Configuration
+# Configure all container images used by the AI Platform
+# Supports both Docker Hub (docker.io/...) and private registries (ECR, GCR, etc.)
+
+# Splunk Enterprise image
+splunkEnterpriseImage: "docker.io/splunk/splunk:9.4.1"
+
+# Ray cluster images
+rayHeadImage: "YOUR_REGISTRY/ml-platform/ray/ray-head:TAG"
+rayWorkerImage: "YOUR_REGISTRY/ml-platform/ray/ray-worker-gpu:TAG"
+
+# Weaviate vector database image
+weaviateImage: "docker.io/semitechnologies/weaviate:stable-v1.28-007846a"
+
+# SAIA (Splunk AI Assistant) images
+saiaApiImage: "YOUR_REGISTRY/ml-platform/saia/saia-api:TAG"
+saiaSchemaImage: "YOUR_REGISTRY/ml-platform/saia/ai-helm-post-hook:TAG"
 
 # Set security context for Splunk Operator pod
 # reference: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#podsecuritycontext-v1-core

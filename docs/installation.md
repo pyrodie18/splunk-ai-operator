@@ -99,4 +99,4 @@ env:
 
 After the operator is installed, it can manage the CRDs for the Splunk AI Platform. The Splunk AI Platform CR will create the necessary Splunk AI Service CRs, based on the `features` listed in the manifest.
 
-See [Custom Resources Documentation](CustomResources.md) for more information on configuring the Splunk AI Platform on your cluster.
+See [Custom Resources Documentation](api-reference.md) for more information on configuring the Splunk AI Platform on your cluster.
