@@ -8,68 +8,78 @@ The Splunk AI Operator is a Kubernetes operator that enables customers to manage
 
 ## Getting Started
 
+### Quick Install with Helm (Recommended)
+
+```bash
+# Install the operator from GitHub Release
+helm install splunk-ai-operator \
+  https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
+  -n splunk-ai-operator --create-namespace
+
+# Deploy the AI Platform
+kubectl apply -f config/samples/ai_v1_aiplatform.yaml
+```
+
+See [Helm Deployment Guide](docs/helm-deployment.md) for detailed installation options.
+
 ### Prerequisites
-- go version v1.23.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+- Kubernetes v1.11.3+ cluster
+- kubectl v1.11.3+
+- Helm v3.8+ (for Helm installation)
+- go v1.23.0+ (for development)
+- docker 17.03+ (for development)
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+### Installation Options
 
-```sh
-make docker-build docker-push IMG=<some-registry>/splunk-ai-operator:tag
+**Option 1: Helm (Recommended for Production)**
+```bash
+helm install splunk-ai-operator \
+  https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
+  -n splunk-ai-operator --create-namespace
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+**Option 2: YAML Manifests**
+```bash
+kubectl apply -f https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-cluster.yaml
+```
 
-**Install the CRDs into the cluster:**
-
-```sh
+**Option 3: From Source (Development)**
+```bash
+# Install CRDs
 make install
+
+# Build and deploy
+make docker-build docker-push IMG=<registry>/splunk-ai-operator:tag
+make deploy IMG=<registry>/splunk-ai-operator:tag
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### Deploy AI Platform
 
-```sh
-make deploy IMG=<some-registry>/splunk-ai-operator:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
+```bash
+# Create sample AI Platform
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+### Uninstall
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
+**Helm:**
+```bash
+helm uninstall splunk-ai-operator -n splunk-ai-operator
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
+**From Source:**
+```bash
+kubectl delete -k config/samples/
+make undeploy
 make uninstall
 ```
 
-**UnDeploy the controller from the cluster:**
+### Documentation
 
-```sh
-make undeploy
-```
-
-Please see the [Installation Documentation](docs/Install.md) for more
-information on how to install the operator in your cluster.
+- **[Installation Guide](docs/installation.md)** - Detailed installation instructions
+- **[Helm Deployment](docs/helm-deployment.md)** - Helm chart installation
+- **[API Reference](docs/api-reference.md)** - Complete CRD specification
+- **[AWS EKS Deployment](docs/deployment-aws-eks.md)** - Production deployment on AWS
 
 ## License
 

@@ -75,9 +75,22 @@ load_config() {
     SPLUNK_AI_FILE="$(yq eval '.files.splunkAiOperatorManifest' "$cfg")"
 
     # Operators
-    SPLUNK_IMAGE="$(yq eval '.operators.splunk.image' "$cfg")"
     RAY_VERSION="$(yq eval '.operators.ray.version' "$cfg")"
+    MODEL_VERSION="$(yq eval '.operators.ray.modelVersion' "$cfg")"
+    RAY_RUNTIME_VERSION="$(yq eval '.operators.ray.rayVersion' "$cfg")"
     NVIDIA_VERSION="$(yq eval '.operators.nvidia.devicePluginVersion' "$cfg")"
+
+    # Container Images
+    IMAGE_REGISTRY="$(yq eval '.images.registry' "$cfg")"
+    OPERATOR_IMAGE="$(yq eval '.images.operator.image' "$cfg")"
+    SPLUNK_IMAGE="$(yq eval '.images.splunk.image' "$cfg")"
+    SPLUNK_OPERATOR_IMAGE="$(yq eval '.images.splunk.operatorImage' "$cfg")"
+    RAY_HEAD_IMAGE="$(yq eval '.images.ray.headImage' "$cfg")"
+    RAY_WORKER_IMAGE="$(yq eval '.images.ray.workerImage' "$cfg")"
+    WEAVIATE_IMAGE="$(yq eval '.images.weaviate.image' "$cfg")"
+    SAIA_API_IMAGE="$(yq eval '.images.saia.apiImage' "$cfg")"
+    SAIA_DATALOADER_IMAGE="$(yq eval '.images.saia.dataLoaderImage' "$cfg")"
+    FLUENT_BIT_IMAGE="$(yq eval '.images.fluentBit.image' "$cfg")"
 
     # Subnets - read as arrays (Bash 3.2 compatible)
     PRIVATE_SUBNETS=()
@@ -121,7 +134,7 @@ load_config() {
     CERT_ISSUER="platform-issuer"
     SPLUNK_OPERATOR_FILE="./splunk-operator-cluster.yaml"
     SPLUNK_AI_FILE="./artifacts.yaml"
-    SPLUNK_IMAGE="vivekrsplunk/splunk:ef65e8205e4d-6d943f7-28228924"
+    SPLUNK_IMAGE="splunk/splunk:10.2.0-dev1"
     RAY_VERSION="v1.2.2"
     NVIDIA_VERSION="v0.17.3"
     ENABLE_CPU=true
@@ -181,6 +194,317 @@ err()   { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 need()  { command -v "$1" >/dev/null 2>&1 || err "Missing $1 in PATH"; }
 need_file(){ [[ -f "$1" ]] || err "Missing file: $1"; }
 all_ok(){ return 0; }
+
+# ---- Image configuration validation ----
+validate_image_config() {
+  log "Validating image configuration..."
+
+  local errors=0
+
+  # Required fields
+  if [[ -z "$IMAGE_REGISTRY" || "$IMAGE_REGISTRY" == "null" ]]; then
+    err "REQUIRED: images.registry must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$OPERATOR_IMAGE" || "$OPERATOR_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.operator.image must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$SPLUNK_IMAGE" || "$SPLUNK_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.splunk.image must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$RAY_HEAD_IMAGE" || "$RAY_HEAD_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.ray.headImage must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$RAY_WORKER_IMAGE" || "$RAY_WORKER_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.ray.workerImage must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$WEAVIATE_IMAGE" || "$WEAVIATE_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.weaviate.image must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$SAIA_API_IMAGE" || "$SAIA_API_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.saia.apiImage must be specified in cluster-config.yaml"
+  fi
+
+  if [[ -z "$SAIA_DATALOADER_IMAGE" || "$SAIA_DATALOADER_IMAGE" == "null" ]]; then
+    err "REQUIRED: images.saia.dataLoaderImage must be specified in cluster-config.yaml"
+  fi
+
+  # Optional with defaults
+  if [[ -z "$SPLUNK_OPERATOR_IMAGE" || "$SPLUNK_OPERATOR_IMAGE" == "null" ]]; then
+    SPLUNK_OPERATOR_IMAGE="docker.io/splunk/splunk-operator:3.0.0"
+    log "Using default Splunk Operator image: $SPLUNK_OPERATOR_IMAGE"
+  fi
+
+  if [[ -z "$FLUENT_BIT_IMAGE" || "$FLUENT_BIT_IMAGE" == "null" ]]; then
+    FLUENT_BIT_IMAGE="fluent/fluent-bit:1.9.6"
+    log "Using default Fluent Bit image: $FLUENT_BIT_IMAGE"
+  fi
+
+  if [[ -z "$MODEL_VERSION" || "$MODEL_VERSION" == "null" ]]; then
+    MODEL_VERSION="v0.3.14-36-g1549f5a"
+    log "Using default Model version: $MODEL_VERSION"
+  fi
+
+  if [[ -z "$RAY_RUNTIME_VERSION" || "$RAY_RUNTIME_VERSION" == "null" ]]; then
+    RAY_RUNTIME_VERSION="2.44.0"
+    log "Using default Ray runtime version: $RAY_RUNTIME_VERSION"
+  fi
+
+  log "✓ Image configuration validated successfully"
+}
+
+# ---- Image replacement helper functions ----
+# Build full image URL by combining registry with image path
+# Logic:
+#   1. If image has a registry (domain.com/path:tag) → use as-is (full URL provided)
+#   2. If registry is provided and image is relative → prepend registry
+#   3. If no registry and image is relative → use Docker Hub default
+build_image_url() {
+  local registry="$1"
+  local image_path="$2"
+
+  # Check if image already has a registry (contains domain pattern like docker.io, ghcr.io, *.ecr.*.amazonaws.com)
+  # Pattern: domain.tld/... or IP:port/...
+  if [[ "$image_path" =~ ^([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)?)/.*:.+ ]]; then
+    # Image has full registry path, use as-is
+    echo "$image_path"
+    return 0
+  fi
+
+  # If registry is provided and not empty, prepend it
+  if [[ -n "$registry" && "$registry" != "null" ]]; then
+    echo "${registry}/${image_path}"
+  else
+    # No registry specified, assume Docker Hub
+    # Docker Hub format: org/image:tag or image:tag
+    echo "$image_path"
+  fi
+}
+
+# Replace image in YAML manifest
+replace_image_in_manifest() {
+  local file="$1"
+  local old_image="$2"
+  local new_image="$3"
+
+  if [[ ! -f "$file" ]]; then
+    warn "File not found: $file, skipping image replacement"
+    return
+  fi
+
+  # Escape special characters for sed
+  local old_escaped=$(echo "$old_image" | sed 's/[\/&]/\\&/g')
+  local new_escaped=$(echo "$new_image" | sed 's/[\/&]/\\&/g')
+
+  # Replace in file
+  sed -i.bak "s|${old_escaped}|${new_escaped}|g" "$file"
+  log "  Replaced: $old_image → $new_image"
+}
+
+# Configure all images in artifacts.yaml and splunk-operator-cluster.yaml
+configure_images() {
+  log "Configuring container images in manifest files..."
+
+  # Make backups only if they don't exist (preserve original clean versions)
+  if [[ ! -f "${SPLUNK_AI_FILE}.original" ]]; then
+    log "Creating backup: ${SPLUNK_AI_FILE}.original"
+    cp "$SPLUNK_AI_FILE" "${SPLUNK_AI_FILE}.original"
+  fi
+  if [[ ! -f "${SPLUNK_OPERATOR_FILE}.original" ]]; then
+    log "Creating backup: ${SPLUNK_OPERATOR_FILE}.original"
+    cp "$SPLUNK_OPERATOR_FILE" "${SPLUNK_OPERATOR_FILE}.original"
+  fi
+
+  # Always restore from clean original before applying changes
+  # This ensures idempotent behavior - script can be run multiple times safely
+  log "Restoring from clean originals to ensure idempotent updates..."
+  cp "${SPLUNK_AI_FILE}.original" "$SPLUNK_AI_FILE"
+  cp "${SPLUNK_OPERATOR_FILE}.original" "$SPLUNK_OPERATOR_FILE"
+
+  # artifacts.yaml - RELATED_IMAGE_* environment variables
+  log "Updating $SPLUNK_AI_FILE..."
+
+  # Build full image URLs using registry prefix (or use full path if already has registry)
+  local operator_full=$(build_image_url "$IMAGE_REGISTRY" "$OPERATOR_IMAGE")
+  local ray_head_full=$(build_image_url "$IMAGE_REGISTRY" "$RAY_HEAD_IMAGE")
+  local ray_worker_full=$(build_image_url "$IMAGE_REGISTRY" "$RAY_WORKER_IMAGE")
+  local weaviate_full=$(build_image_url "$IMAGE_REGISTRY" "$WEAVIATE_IMAGE")
+  local saia_api_full=$(build_image_url "$IMAGE_REGISTRY" "$SAIA_API_IMAGE")
+  local saia_dataloader_full=$(build_image_url "$IMAGE_REGISTRY" "$SAIA_DATALOADER_IMAGE")
+  local fluent_bit_full=$(build_image_url "$IMAGE_REGISTRY" "$FLUENT_BIT_IMAGE")
+
+  # Escape special characters for sed
+  local ray_head_escaped=$(echo "$ray_head_full" | sed 's/[\/&]/\\&/g')
+  local ray_worker_escaped=$(echo "$ray_worker_full" | sed 's/[\/&]/\\&/g')
+  local weaviate_escaped=$(echo "$weaviate_full" | sed 's/[\/&]/\\&/g')
+  local saia_api_escaped=$(echo "$saia_api_full" | sed 's/[\/&]/\\&/g')
+  local saia_dataloader_escaped=$(echo "$saia_dataloader_full" | sed 's/[\/&]/\\&/g')
+  local fluent_bit_escaped=$(echo "$fluent_bit_full" | sed 's/[\/&]/\\&/g')
+  local operator_escaped=$(echo "$operator_full" | sed 's/[\/&]/\\&/g')
+
+  # Replace RELATED_IMAGE_ env vars by matching the env var name (not the value pattern)
+  # This works regardless of what registry/image was there before
+  sed -i '' "/name: RELATED_IMAGE_RAY_HEAD/,/value:/ s|value:.*|value: ${ray_head_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RELATED_IMAGE_RAY_WORKER/,/value:/ s|value:.*|value: ${ray_worker_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RELATED_IMAGE_WEAVIATE/,/value:/ s|value:.*|value: ${weaviate_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RELATED_IMAGE_SAIA_API/,/value:/ s|value:.*|value: ${saia_api_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RELATED_IMAGE_POST_INSTALL_HOOK/,/value:/ s|value:.*|value: ${saia_dataloader_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RELATED_IMAGE_FLUENT_BIT/,/value:/ s|value:.*|value: ${fluent_bit_escaped}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: MODEL_VERSION/,/value:/ s|value:.*|value: ${MODEL_VERSION}|" "$SPLUNK_AI_FILE"
+  sed -i '' "/name: RAY_VERSION/,/value:/ s|value:.*|value: ${RAY_RUNTIME_VERSION}|" "$SPLUNK_AI_FILE"
+
+  # Replace operator image (the container image itself, not env var)
+  # Find the line with "image:" that's near "splunk-ai-operator" and replace it
+  sed -i '' "s|image: .*splunk.*ai.*operator.*|image: ${operator_escaped}|I" "$SPLUNK_AI_FILE"
+
+  log "  ✓ Updated RELATED_IMAGE_RAY_HEAD: $ray_head_full"
+  log "  ✓ Updated RELATED_IMAGE_RAY_WORKER: $ray_worker_full"
+  log "  ✓ Updated RELATED_IMAGE_WEAVIATE: $weaviate_full"
+  log "  ✓ Updated RELATED_IMAGE_SAIA_API: $saia_api_full"
+  log "  ✓ Updated RELATED_IMAGE_POST_INSTALL_HOOK: $saia_dataloader_full"
+  log "  ✓ Updated RELATED_IMAGE_FLUENT_BIT: $fluent_bit_full"
+  log "  ✓ Updated operator image: $operator_full"
+  log "  ✓ Updated MODEL_VERSION: $MODEL_VERSION"
+  log "  ✓ Updated RAY_VERSION: $RAY_RUNTIME_VERSION"
+
+  # splunk-operator-cluster.yaml - Splunk images
+  log "Updating $SPLUNK_OPERATOR_FILE..."
+
+  local splunk_full=$(build_image_url "$IMAGE_REGISTRY" "$SPLUNK_IMAGE")
+  local splunk_operator_full=$(build_image_url "$IMAGE_REGISTRY" "$SPLUNK_OPERATOR_IMAGE")
+
+  local splunk_escaped=$(echo "$splunk_full" | sed 's/[\/&]/\\&/g')
+  local splunk_op_escaped=$(echo "$splunk_operator_full" | sed 's/[\/&]/\\&/g')
+
+  # Replace RELATED_IMAGE_SPLUNK_ENTERPRISE env var
+  sed -i '' "/name: RELATED_IMAGE_SPLUNK_ENTERPRISE/,/value:/ s|value:.*|value: ${splunk_escaped}|" "$SPLUNK_OPERATOR_FILE"
+
+  # Replace splunk-operator image (the container image itself)
+  sed -i '' "s|image: .*splunk.*operator.*|image: ${splunk_op_escaped}|I" "$SPLUNK_OPERATOR_FILE"
+
+  log "  ✓ Updated Splunk Enterprise image: $splunk_full"
+  log "  ✓ Updated Splunk Operator image: $splunk_operator_full"
+
+  log "✓ All images configured successfully"
+}
+
+# ---- Image existence validation ----
+# Check if an image exists in the registry
+check_image_exists() {
+  local image="$1"
+  local image_name=$(echo "$image" | sed 's|.*/||' | cut -d: -f1)
+
+  log "  Checking: $image"
+
+  # Try docker manifest inspect (fastest, works if Docker daemon is running)
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if docker manifest inspect "$image" >/dev/null 2>&1; then
+      log "    ✓ Found (via docker)"
+      return 0
+    fi
+  fi
+
+  # Try crane (works without Docker daemon, supports multiple registries)
+  if command -v crane >/dev/null 2>&1; then
+    if crane manifest "$image" >/dev/null 2>&1; then
+      log "    ✓ Found (via crane)"
+      return 0
+    fi
+  fi
+
+  # Try skopeo (alternative tool, good for registries)
+  if command -v skopeo >/dev/null 2>&1; then
+    if skopeo inspect "docker://$image" >/dev/null 2>&1; then
+      log "    ✓ Found (via skopeo)"
+      return 0
+    fi
+  fi
+
+  # For ECR images, try AWS CLI
+  if [[ "$image" =~ ^[0-9]+\.dkr\.ecr\.[^.]+\.amazonaws\.com ]]; then
+    local registry=$(echo "$image" | cut -d/ -f1)
+    local region=$(echo "$registry" | cut -d. -f4)
+    local repo=$(echo "$image" | cut -d/ -f2- | cut -d: -f1)
+    local tag=$(echo "$image" | cut -d: -f2)
+
+    if aws ecr describe-images \
+      --registry-id "$(echo $registry | cut -d. -f1)" \
+      --repository-name "$repo" \
+      --image-ids imageTag="$tag" \
+      --region "$region" >/dev/null 2>&1; then
+      log "    ✓ Found (via AWS ECR)"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Validate all configured images exist
+validate_images_exist() {
+  log "Validating image availability in registries..."
+  log "This may take a few moments as we check each image..."
+
+  local failed_images=()
+  local images_to_check=()
+
+  # Build list of all images to check (apply registry logic consistently)
+  local operator_full=$(build_image_url "$IMAGE_REGISTRY" "$OPERATOR_IMAGE")
+  local splunk_full=$(build_image_url "$IMAGE_REGISTRY" "$SPLUNK_IMAGE")
+  local splunk_operator_full=$(build_image_url "$IMAGE_REGISTRY" "$SPLUNK_OPERATOR_IMAGE")
+  local ray_head_full=$(build_image_url "$IMAGE_REGISTRY" "$RAY_HEAD_IMAGE")
+  local ray_worker_full=$(build_image_url "$IMAGE_REGISTRY" "$RAY_WORKER_IMAGE")
+  local weaviate_full=$(build_image_url "$IMAGE_REGISTRY" "$WEAVIATE_IMAGE")
+  local saia_api_full=$(build_image_url "$IMAGE_REGISTRY" "$SAIA_API_IMAGE")
+  local saia_dataloader_full=$(build_image_url "$IMAGE_REGISTRY" "$SAIA_DATALOADER_IMAGE")
+  local fluent_bit_full=$(build_image_url "$IMAGE_REGISTRY" "$FLUENT_BIT_IMAGE")
+
+  images_to_check=(
+    "$operator_full"
+    "$splunk_full"
+    "$splunk_operator_full"
+    "$ray_head_full"
+    "$ray_worker_full"
+    "$weaviate_full"
+    "$saia_api_full"
+    "$saia_dataloader_full"
+    "$fluent_bit_full"
+  )
+
+  # Check each image
+  for image in "${images_to_check[@]}"; do
+    if ! check_image_exists "$image"; then
+      failed_images+=("$image")
+      warn "    ✗ NOT FOUND: $image"
+    fi
+  done
+
+  # Report results
+  if [ ${#failed_images[@]} -gt 0 ]; then
+    echo ""
+    err "❌ Image validation FAILED! The following images were not found in their registries:
+
+$(printf '  - %s\n' "${failed_images[@]}")
+
+Please verify:
+1. Image names and tags are correct in cluster-config.yaml
+2. You have access to the registries (ECR login, Docker Hub auth, etc.)
+3. Images have been pushed to the registries
+
+For ECR images, ensure you're logged in:
+  aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${IMAGE_REGISTRY}
+
+To skip image validation (NOT RECOMMENDED), set:
+  export SKIP_IMAGE_VALIDATION=true"
+  fi
+
+  log "✓ All images validated successfully - ready for deployment!"
+}
 
 # ---- temp files ----
 TMP_FILES=()
@@ -2229,6 +2553,18 @@ main_install() {
 
   # Load configuration from YAML file
   load_config
+
+  # Validate and configure container images
+  validate_image_config
+  configure_images
+
+  # Validate images exist in registries (unless explicitly skipped)
+  if [[ "${SKIP_IMAGE_VALIDATION:-false}" != "true" ]]; then
+    validate_images_exist
+  else
+    warn "⚠️  SKIPPING image validation (SKIP_IMAGE_VALIDATION=true)"
+    warn "⚠️  Deployment may fail if images don't exist!"
+  fi
 
   log "Region: ${REGION}, Account: ${ACCOUNT_ID}, Cluster: ${CLUSTER_NAME}"
 

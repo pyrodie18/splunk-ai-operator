@@ -6,7 +6,7 @@ prometheus:
 opentelemetry-operator:
   enabled: false
 objectStorage:
-  path: "s3://ai-platform-dev-vivekr"
+  path: "s3://ai-platform-dev"
   region: "us-west-2"
   # secretRef: "s3-secret"
 serviceAccountName: ray-head-sa

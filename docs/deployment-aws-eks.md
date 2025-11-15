@@ -72,6 +72,15 @@ The script installs everything needed for the AI Platform:
 ✅ **Auto Scaling** - Dynamic cluster scaling based on workload demand
 ✅ **Multi-AZ Deployment** - High availability across availability zones
 
+### Automated Image Configuration ✨
+
+**NEW:** Centralized container image management with validation:
+- ✅ **Single Configuration File** - All images in `cluster-config.yaml`
+- ✅ **Pre-deployment Validation** - Verifies images exist before cluster creation (fails fast!)
+- ✅ **Mixed Registries** - Support for both public (Docker Hub) and private (ECR) images
+- ✅ **Idempotent Updates** - Safe to run multiple times, creates clean backups
+- ✅ **No Manual Editing** - Script automatically updates manifest files
+
 ### Image Pull Secrets Support 🔐
 
 Automatically creates and configures secrets for private container registries:
@@ -446,11 +455,19 @@ cluster:
 storage:
   s3Bucket: "my-ai-platform-bucket"  # ← CHANGE: Globally unique S3 bucket name
                                       #          (3-63 chars, lowercase, numbers, hyphens)
+
+images:
+  # ← CHANGE: Configure your container images
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"  # Your ECR registry
+  operator:
+    image: "splunk-ai-operator:v1.0.0"                     # Your operator image
+  # ... (see Configuration section for complete image setup)
 ```
 
 **Important Notes:**
 - **Cluster Name**: Must be DNS-1123 compliant (lowercase letters, numbers, hyphens; start/end with alphanumeric)
 - **S3 Bucket**: Must be globally unique across all AWS accounts
+- **Container Images**: Configure all images in the `images:` section - script validates they exist before deployment
 - **Subnets**: If provided, script validates NAT Gateway, Internet Gateway, and route tables exist
 - **Subnets**: Leave empty or comment out to let eksctl create a new VPC automatically
 
@@ -465,10 +482,11 @@ CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
 ```
 
 **📋 Script performs these steps:**
-1. **Preflight Checks** (1 min)
+1. **Preflight Checks** (1-2 min)
    - ✓ Validates configuration file
    - ✓ Checks AWS credentials
    - ✓ Verifies subnets exist
+   - ✓ Validates all container images exist in registries (fails fast!)
    - ✓ Checks required tools
 2. **Create EKS Cluster** (10-15 min)
    - ✓ Creates managed control plane
@@ -511,6 +529,35 @@ kubectl get pods --all-namespaces
 
 ## Configuration
 
+### Container Images Configuration
+
+**✨ NEW:** All container images are now configured from a single file - `cluster-config.yaml`!
+
+The script automatically:
+- ✅ Validates all images exist before deployment (fails fast!)
+- ✅ Updates manifest files with your configured images
+- ✅ Supports mixing public (Docker Hub) and private (ECR) registries
+- ✅ Creates idempotent backups (safe to run multiple times)
+
+**Quick example:**
+```yaml
+images:
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+
+  operator:
+    image: "splunk-ai-operator:v1.0.0"
+
+  splunk:
+    image: "docker.io/splunk/splunk:10.2.0"  # Full path = uses Docker Hub
+
+  ray:
+    headImage: "ml-platform/ray/ray-head:v1"  # Relative = uses registry prefix
+```
+
+For complete image configuration guide, registry setup, validation details, and troubleshooting, see the [Comprehensive EKS Deployment Guide](../tools/cluster_setup/EKS_README.md#container-images-configuration).
+
+### Custom Resources
+
 For detailed configuration options, custom resource specifications, and advanced deployment scenarios, see the [Custom Resource Guide](api-reference.md).
 
 ---
@@ -538,6 +585,62 @@ For detailed usage patterns and operational procedures, see the complete guide i
 ---
 
 ## Architecture
+
+### Deployment Workflow
+
+The script follows an automated deployment workflow with built-in validation and idempotent image configuration:
+
+```mermaid
+flowchart TD
+    Start([Start: ./eks_cluster_with_stack.sh install]) --> LoadConfig[Load cluster-config.yaml]
+    LoadConfig --> ValidateConfig{Validate Config}
+    ValidateConfig -->|Invalid| Error1[❌ Exit: Fix config]
+    ValidateConfig -->|Valid| CheckImages[Validate Container Images]
+
+    CheckImages --> CheckECR{Check ECR Images}
+    CheckECR -->|Not Found| Error2[❌ Exit: Images missing in ECR]
+    CheckECR -->|Found| CheckDockerHub{Check Docker Hub Images}
+    CheckDockerHub -->|Not Found| Error3[❌ Exit: Images not accessible]
+    CheckDockerHub -->|Found| ImagesOK[✅ All images validated]
+
+    ImagesOK --> ConfigImages[Configure Image Manifests]
+    ConfigImages --> Backup{.original exists?}
+    Backup -->|No| CreateBackup[Create .original backup files]
+    Backup -->|Yes| RestoreBackup[Restore from .original]
+    CreateBackup --> UpdateManifests[Update artifacts.yaml & splunk-operator-cluster.yaml]
+    RestoreBackup --> UpdateManifests
+
+    UpdateManifests --> PreflightAWS[Preflight: AWS Credentials & VPC]
+    PreflightAWS --> ClusterExists{Cluster Exists?}
+
+    ClusterExists -->|No| CreateCluster[Create EKS Cluster<br/>10-15 min]
+    ClusterExists -->|Yes| SkipCreate[Skip cluster creation]
+
+    CreateCluster --> InstallInfra[Install Infrastructure<br/>EBS CSI, Autoscaler<br/>10-15 min]
+    SkipCreate --> InstallInfra
+
+    InstallInfra --> InstallPlatform[Install Platform Components<br/>Cert-Manager, Prometheus<br/>OTEL, Ray, Splunk Operators<br/>15-20 min]
+
+    InstallPlatform --> DeployAI[Deploy AI Platform<br/>S3, IRSA, AIPlatform CR<br/>5-10 min]
+
+    DeployAI --> Verify[Verify AI Platform Ready]
+    Verify --> Success([✅ Deployment Complete<br/>~45 minutes total])
+
+    style Start fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style Success fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
+    style Error1 fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Error2 fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Error3 fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style ImagesOK fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ConfigImages fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style UpdateManifests fill:#fff3e0,stroke:#e65100,stroke-width:2px
+```
+
+**Key Features:**
+- 🚀 **Fail Fast**: Image validation happens BEFORE cluster creation (saves 20+ minutes if images are missing)
+- 🔄 **Idempotent**: Safe to run multiple times - restores from clean backups before each run
+- ✅ **Multi-Registry**: Validates images in both ECR and Docker Hub
+- 📦 **Backup Safety**: Preserves original manifest files as `.original`
 
 ### EKS Cluster Architecture
 

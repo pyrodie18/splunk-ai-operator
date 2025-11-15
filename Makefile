@@ -419,3 +419,112 @@ setup/ginkgo:
 	@go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@latest
 	@echo Installing gomega
 	@go get github.com/onsi/gomega/...
+
+##@ Helm Charts
+
+HELM_CHART_VERSION ?= $(VERSION)
+HELM_CHART_OPERATOR_DIR = helm-chart/splunk-ai-operator
+HELM_CHART_PLATFORM_DIR = helm-chart/splunk-ai-platform
+HELM_OUTPUT_DIR ?= dist/helm
+
+.PHONY: helm-sync
+helm-sync: manifests ## Sync CRDs and RBAC from config/ to helm charts
+	@echo "Syncing CRDs and RBAC to Helm charts..."
+	@echo "  Copying CRDs..."
+	@cp config/crd/bases/*.yaml $(HELM_CHART_OPERATOR_DIR)/crds/
+	@echo "  Extracting RBAC from kustomize build..."
+	@mkdir -p dist
+	@$(KUSTOMIZE) build config/default > dist/install.yaml
+	@echo "  Updating RBAC templates..."
+	@# Extract ClusterRole from kustomize build and update helm template
+	@echo "✓ CRDs synced to $(HELM_CHART_OPERATOR_DIR)/crds/"
+	@echo "⚠️  RBAC sync requires manual review - check dist/install.yaml for latest ClusterRole"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Review dist/install.yaml for ClusterRole changes"
+	@echo "  2. Update $(HELM_CHART_OPERATOR_DIR)/templates/rbac/role.yaml manually"
+	@echo "  3. Run 'make helm-lint' to verify changes"
+
+.PHONY: helm-lint
+helm-lint: ## Lint Helm charts
+	@echo "Linting Helm charts..."
+	@helm lint $(HELM_CHART_OPERATOR_DIR)
+	@helm lint $(HELM_CHART_PLATFORM_DIR)
+	@echo "✓ Helm charts linting complete"
+
+.PHONY: helm-package
+helm-package: helm-lint ## Package Helm charts into tgz archives
+	@echo "Packaging Helm charts..."
+	@mkdir -p $(HELM_OUTPUT_DIR)
+	@helm package $(HELM_CHART_OPERATOR_DIR) --version $(HELM_CHART_VERSION) --app-version $(VERSION) --destination $(HELM_OUTPUT_DIR)
+	@helm package $(HELM_CHART_PLATFORM_DIR) --version $(HELM_CHART_VERSION) --app-version $(VERSION) --destination $(HELM_OUTPUT_DIR)
+	@echo "✓ Helm charts packaged:"
+	@ls -lh $(HELM_OUTPUT_DIR)/*.tgz
+
+.PHONY: helm-index
+helm-index: helm-package ## Generate Helm repository index
+	@echo "Generating Helm repository index..."
+	@helm repo index $(HELM_OUTPUT_DIR) --url https://github.com/splunk/splunk-ai-operator/releases/download/v$(VERSION)
+	@echo "✓ Helm repository index generated: $(HELM_OUTPUT_DIR)/index.yaml"
+
+.PHONY: helm-template
+helm-template: ## Render Helm chart templates locally (for testing)
+	@echo "Rendering splunk-ai-operator chart templates..."
+	@helm template test-operator $(HELM_CHART_OPERATOR_DIR) --debug
+	@echo ""
+	@echo "Rendering splunk-ai-platform chart templates..."
+	@helm template test-platform $(HELM_CHART_PLATFORM_DIR) --debug
+
+.PHONY: helm-install-operator
+helm-install-operator: ## Install splunk-ai-operator chart locally
+	@echo "Installing splunk-ai-operator chart..."
+	@helm upgrade --install splunk-ai-operator $(HELM_CHART_OPERATOR_DIR) \
+		--namespace splunk-ai-operator --create-namespace \
+		--set image.repository=$(IMG)
+	@echo "✓ Operator installed. Check status:"
+	@kubectl get pods -n splunk-ai-operator
+
+.PHONY: helm-install-platform
+helm-install-platform: ## Install splunk-ai-platform chart locally
+	@echo "Installing splunk-ai-platform chart..."
+	@echo "⚠️  Make sure to customize values first!"
+	@helm upgrade --install splunk-ai-platform $(HELM_CHART_PLATFORM_DIR) \
+		--namespace ai-platform --create-namespace
+	@echo "✓ Platform installed. Check status:"
+	@kubectl get aiplatform -n ai-platform
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall both Helm charts
+	@echo "Uninstalling Helm charts..."
+	-@helm uninstall splunk-ai-platform -n ai-platform 2>/dev/null || true
+	-@helm uninstall splunk-ai-operator -n splunk-ai-operator 2>/dev/null || true
+	@echo "✓ Helm charts uninstalled"
+
+.PHONY: helm-clean
+helm-clean: ## Clean Helm build artifacts
+	@echo "Cleaning Helm artifacts..."
+	@rm -rf $(HELM_OUTPUT_DIR)
+	@echo "✓ Helm artifacts cleaned"
+
+.PHONY: helm-docs
+helm-docs: ## Generate Helm chart README from values.yaml (requires helm-docs)
+	@if command -v helm-docs >/dev/null 2>&1; then \
+		echo "Generating Helm chart documentation..."; \
+		helm-docs $(HELM_CHART_OPERATOR_DIR); \
+		helm-docs $(HELM_CHART_PLATFORM_DIR); \
+		echo "✓ Helm documentation generated"; \
+	else \
+		echo "⚠️  helm-docs not installed. Install: https://github.com/norwoodj/helm-docs"; \
+	fi
+
+.PHONY: helm-all
+helm-all: helm-lint helm-package helm-index ## Build and package all Helm charts with index
+	@echo "✓ All Helm operations complete"
+	@echo ""
+	@echo "📦 Packaged charts ready for release:"
+	@ls -lh $(HELM_OUTPUT_DIR)/*.tgz
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Upload .tgz files to GitHub release"
+	@echo "  2. Upload index.yaml to release"
+	@echo "  3. Update docs with new version"

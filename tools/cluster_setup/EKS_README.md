@@ -235,170 +235,176 @@ aws --version             # Minimum: AWS CLI v2.13+
 
 ### Container Images Configuration
 
-**IMPORTANT:** The `artifacts.yaml` file contains image references that point to a specific ECR registry. If you're using your own container registry or have uploaded the images to your own ECR account, you **must** update the image references before installation.
+**GOOD NEWS:** The script now automatically configures all container images from a single configuration file! You don't need to manually edit YAML files.
 
-#### Required Updates in artifacts.yaml
+#### How Image Configuration Works
 
-The Splunk AI Operator deployment in `artifacts.yaml` contains environment variables that specify container images for all components. You need to update these to point to your registry:
+All container images are configured in **`cluster-config.yaml`** under the `images:` section. The script:
 
-**Location:** `artifacts.yaml` → Deployment: `splunk-ai-operator-controller-manager` → Container env vars
+1. ✅ **Validates** all images exist in their registries before deployment
+2. ✅ **Automatically updates** `artifacts.yaml` and `splunk-operator-cluster.yaml` with your images
+3. ✅ **Fails fast** if any images are missing (saves 20+ minutes of waiting)
+4. ✅ **Creates backups** of original files (`.original` suffix)
 
-**Images to update:**
+#### Simple Registry Configuration
 
+The `registry` field is automatically prepended to ALL image paths (unless they already have a registry):
+
+**`cluster-config.yaml`:**
 ```yaml
-env:
-  - name: RELATED_IMAGE_RAY_HEAD
-    value: YOUR_REGISTRY/ray-head:YOUR_TAG           # ← UPDATE THIS
-  - name: RELATED_IMAGE_RAY_WORKER
-    value: YOUR_REGISTRY/ray-worker-gpu:YOUR_TAG     # ← UPDATE THIS
-  - name: RELATED_IMAGE_WEAVIATE
-    value: YOUR_REGISTRY/weaviate:YOUR_TAG           # ← UPDATE THIS (or use public: semitechnologies/weaviate:stable-v1.28-007846a)
-  - name: RELATED_IMAGE_SAIA_API
-    value: YOUR_REGISTRY/saia-api:YOUR_TAG           # ← UPDATE THIS
-  - name: RELATED_IMAGE_POST_INSTALL_HOOK
-    value: YOUR_REGISTRY/saia-data-loader:YOUR_TAG   # ← UPDATE THIS
-  - name: RELATED_IMAGE_FLUENT_BIT
-    value: fluent/fluent-bit:1.9.6                   # ← Public image, usually no change needed
-  - name: MODEL_VERSION
-    value: v0.3.14-36-g1549f5a                       # ← Update to your model version
-  - name: RAY_VERSION
-    value: 2.44.0                                    # ← Ray version (usually no change needed)
-image: YOUR_REGISTRY/splunk-ai-operator:YOUR_TAG     # ← UPDATE THIS (operator image itself)
+images:
+  # Your private container registry (ECR, Docker Hub, Harbor, etc.)
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+
+  # All images below - the script handles registry prefix automatically
+  operator:
+    image: "splunk-ai-operator:v1.0.0"  # Becomes: registry/splunk-ai-operator:v1.0.0
+
+  splunk:
+    image: "splunk/splunk:10.2.0"  # Becomes: registry/splunk/splunk:10.2.0
+
+  ray:
+    headImage: "ray/ray-head:v1"  # Becomes: registry/ray/ray-head:v1
+    workerImage: "ray/ray-worker:v1"  # Becomes: registry/ray/ray-worker:v1
+
+  weaviate:
+    image: "weaviate:1.28.0"  # Becomes: registry/weaviate:1.28.0
+
+  saia:
+    apiImage: "saia/api:v1"  # Becomes: registry/saia/api:v1
+    dataLoaderImage: "saia/loader:v1"  # Becomes: registry/saia/loader:v1
 ```
 
-**Example with your own ECR registry:**
+**Result:** ALL images use your private ECR!
+
+#### Mix Public and Private Images
+
+You can also mix images from different registries by specifying full paths:
 
 ```yaml
-env:
-  - name: RELATED_IMAGE_RAY_HEAD
-    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/ray-head:v1.0.0
-  - name: RELATED_IMAGE_RAY_WORKER
-    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/ray-worker-gpu:v1.0.0
-  - name: RELATED_IMAGE_WEAVIATE
-    value: semitechnologies/weaviate:stable-v1.28-007846a  # Can use public image
-  - name: RELATED_IMAGE_SAIA_API
-    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/saia-api:v1.1.0
-  - name: RELATED_IMAGE_POST_INSTALL_HOOK
-    value: 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-ai-platform/saia-data-loader:v1.1.0
-  - name: RELATED_IMAGE_FLUENT_BIT
-    value: fluent/fluent-bit:1.9.6  # Public image
-  - name: MODEL_VERSION
-    value: v0.3.14-36-g1549f5a
-  - name: RAY_VERSION
-    value: 2.44.0
-image: docker.io/your-dockerhub-user/splunk-ai-operator:v1.2.0
+images:
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+
+  # Your custom operator in ECR (relative path)
+  operator:
+    image: "splunk-ai-operator:v1.0.0"
+    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
+
+  # Public Splunk from Docker Hub (full path, ignores registry)
+  splunk:
+    image: "docker.io/splunk/splunk:10.2.0"
+    # → docker.io/splunk/splunk:10.2.0 (uses as-is)
+
+  # Your custom Ray in ECR (relative paths)
+  ray:
+    headImage: "ml-platform/ray/ray-head:build-17"
+    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-17
+
+  # Public Weaviate from Docker Hub (full path)
+  weaviate:
+    image: "semitechnologies/weaviate:1.28.0"
+    # → semitechnologies/weaviate:1.28.0 (Docker Hub)
 ```
 
-**How to update:**
+#### Image Validation
+
+Before cluster creation, the script validates ALL images exist:
 
 ```bash
-# Edit artifacts.yaml
-vi artifacts.yaml
-
-# Or use yq to update programmatically
-yq eval '.spec.template.spec.containers[0].env[] |= select(.name == "RELATED_IMAGE_RAY_HEAD").value = "YOUR_REGISTRY/ray-head:YOUR_TAG"' -i artifacts.yaml
-
-# Verify changes
-grep "RELATED_IMAGE" artifacts.yaml
+./eks_cluster_with_stack.sh install
 ```
 
-**When to update:**
-- ✅ When using your own private container registry
-- ✅ When you've uploaded images to your own ECR account
-- ✅ When using different image tags/versions
-- ❌ If using the default public images (but check if they're accessible)
-
-**Image Pull Secrets:**
-If your images are in a private registry (like ECR), ensure you:
-1. Have valid AWS credentials configured (for ECR)
-2. The script will automatically create ECR pull secrets if AWS credentials are available
-3. For non-ECR registries, manually create image pull secrets (see [Image Pull Secrets](#image-pull-secrets) section)
-
-#### Required Updates in splunk-operator-cluster.yaml
-
-The Splunk Operator deployment in `splunk-operator-cluster.yaml` also contains image references that you need to update if using your own container registry.
-
-**Location:** `splunk-operator-cluster.yaml` → Deployment: `splunk-operator-controller-manager` → Container env vars and image
-
-**Images to update:**
-
-```yaml
-env:
-  - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-    value: YOUR_REGISTRY/splunk:YOUR_TAG              # ← UPDATE THIS (Splunk Enterprise image)
-  - name: OPERATOR_NAME
-    value: splunk-operator                            # ← Usually no change needed
-  - name: SPLUNK_GENERAL_TERMS
-    value: "--accept-sgt-current-at-splunk-com"       # ← No change needed
-  - name: POD_NAME
-    valueFrom:
-      fieldRef:
-        fieldPath: metadata.name
-image: YOUR_REGISTRY/splunk-operator:YOUR_TAG         # ← UPDATE THIS (Splunk Operator image itself)
+**Output:**
+```
+[INFO] Validating image availability in registries...
+[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
+[INFO]     ✓ Found (via AWS ECR)
+[INFO]   Checking: docker.io/splunk/splunk:10.2.0
+[INFO]     ✓ Found (via docker)
+...
+[INFO] ✓ All images validated successfully - ready for deployment!
 ```
 
-**Example with your own registry:**
+**If images are missing:**
+```
+[ERROR] ❌ Image validation FAILED! The following images were not found:
+  - 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v99
 
-```yaml
-env:
-  - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-    value: docker.io/your-dockerhub-user/splunk:9.2.0  # Or ECR: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk:9.2.0
-  - name: OPERATOR_NAME
-    value: splunk-operator
-  - name: SPLUNK_GENERAL_TERMS
-    value: "--accept-sgt-current-at-splunk-com"
-  - name: POD_NAME
-    valueFrom:
-      fieldRef:
-        fieldPath: metadata.name
-image: docker.io/your-dockerhub-user/splunk-operator:3.0.1  # Or ECR
+Please verify:
+1. Image names and tags are correct in cluster-config.yaml
+2. You have access to the registries (ECR login, Docker Hub auth)
+3. Images have been pushed to the registries
+
+For ECR images, ensure you're logged in:
+  aws ecr get-login-password --region us-west-2 | \
+    docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
 ```
 
-**How to update:**
-
+**Skip validation (emergency only):**
 ```bash
-# Edit splunk-operator-cluster.yaml
-vi splunk-operator-cluster.yaml
-
-# Or use yq to update programmatically
-yq eval '(select(.kind == "Deployment") | .spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SPLUNK_ENTERPRISE").value) = "YOUR_REGISTRY/splunk:YOUR_TAG"' -i splunk-operator-cluster.yaml
-
-# Update operator image
-yq eval '(select(.kind == "Deployment") | .spec.template.spec.containers[0].image) = "YOUR_REGISTRY/splunk-operator:YOUR_TAG"' -i splunk-operator-cluster.yaml
-
-# Verify changes
-grep -A 5 "RELATED_IMAGE_SPLUNK_ENTERPRISE" splunk-operator-cluster.yaml
-grep "image:" splunk-operator-cluster.yaml | grep splunk-operator
+SKIP_IMAGE_VALIDATION=true ./eks_cluster_with_stack.sh install
 ```
 
-**Note:** The script also sets these environment variables during installation via `kubectl set env`, but it's best to update the manifest file as well to ensure consistency, especially if you need to reapply the manifest later.
+#### Idempotent and Safe
 
-#### Summary: Files to Update Before Installation
+The script is **idempotent** - you can run it multiple times safely:
 
-Before running the installation script, update image references in these two files:
+- ✅ **First run:** Creates `.original` backup files of clean YAML manifests
+- ✅ **Subsequent runs:** Restores from clean backups, applies fresh configuration
+- ✅ **No corruption:** Image paths never get duplicated or stacked
+- ✅ **Safe re-runs:** Change images in `cluster-config.yaml` and re-run anytime
 
-| File | Images to Update | Purpose |
-|------|------------------|---------|
-| **artifacts.yaml** | • Ray head/worker images<br>• Weaviate<br>• SAIA API<br>• Data loader<br>• Fluent Bit<br>• Splunk AI Operator | Used by Splunk AI Operator to deploy AI platform components |
-| **splunk-operator-cluster.yaml** | • Splunk Enterprise image<br>• Splunk Operator | Used to deploy Splunk Operator and Splunk instances |
+**Backup files created:**
+```
+tools/cluster_setup/
+├── artifacts.yaml              # Modified with your images
+├── artifacts.yaml.original     # Clean backup (preserved)
+├── splunk-operator-cluster.yaml
+└── splunk-operator-cluster.yaml.original
+```
 
-**Quick check before installation:**
-
+**To reset to clean state:**
 ```bash
-# Check artifacts.yaml
-grep "RELATED_IMAGE" artifacts.yaml | grep -v "#"
-grep "image:" artifacts.yaml | grep splunk-ai-operator
+# Remove modified files and backups
+rm -f artifacts.yaml artifacts.yaml.original
+rm -f splunk-operator-cluster.yaml splunk-operator-cluster.yaml.original
 
-# Check splunk-operator-cluster.yaml
-grep "RELATED_IMAGE_SPLUNK_ENTERPRISE" splunk-operator-cluster.yaml | grep -v "#"
-grep "image:" splunk-operator-cluster.yaml | grep splunk-operator
+# Restore clean files from git
+git checkout HEAD -- artifacts.yaml splunk-operator-cluster.yaml
+
+# Re-run script to create fresh backups and apply config
+./eks_cluster_with_stack.sh install
 ```
+
+#### Required Images
+
+You must configure these images in `cluster-config.yaml`:
+
+| Image | Config Field | Description |
+|-------|--------------|-------------|
+| Splunk AI Operator | `operator.image` | Main operator controller |
+| Splunk Enterprise | `splunk.image` | Splunk instance for observability |
+| Splunk Operator | `splunk.operatorImage` | Splunk CRD controller (optional, has default) |
+| Ray Head | `ray.headImage` | Ray cluster head node |
+| Ray Worker | `ray.workerImage` | Ray worker nodes (GPU) |
+| Weaviate | `weaviate.image` | Vector database |
+| SAIA API | `saia.apiImage` | Splunk AI Assistant API |
+| SAIA Data Loader | `saia.dataLoaderImage` | SAIA initialization |
+| Fluent Bit | `fluentBit.image` | Logging (optional, has default) |
+
+**No manual YAML editing required!** The script handles everything.
 
 ---
 
 ## Quick Start
 
 **Time to complete:** ~45 minutes
+
+> **✨ NEW:** Automated image configuration and validation! The script now:
+> - ✅ Configures all container images from a single config file
+> - ✅ Validates images exist before cluster creation (fails fast!)
+> - ✅ No manual YAML editing required
+> - ✅ Supports mix of private/public registries
 
 ### 1. Navigate to Cluster Setup Directory
 
@@ -538,13 +544,77 @@ storage:
 
 | Section | What It Does | Required Changes |
 |---------|--------------|------------------|
-| `cluster.name` | EKS cluster name | ✅ Change to your cluster name |
-| `cluster.region` | AWS region | ✅ Change to your region |
-| `cluster.subnets` | VPC subnets for nodes | ✅ Replace with your subnet IDs |
-| `storage.s3Bucket` | S3 bucket for AI artifacts | ✅ Choose unique name |
+| `cluster.name` | EKS cluster name | ✅ **REQUIRED:** Change to your cluster name |
+| `cluster.region` | AWS region | ✅ **REQUIRED:** Change to your region |
+| `cluster.subnets` | VPC subnets for nodes | ⚙️ **OPTIONAL:** Leave empty for new VPC or provide existing subnet IDs |
+| `storage.s3Bucket` | S3 bucket for AI artifacts | ✅ **REQUIRED:** Choose unique name |
+| `images.registry` | Container registry URL | ✅ **REQUIRED:** Your ECR/Docker registry |
+| `images.*` | All container images | ✅ **REQUIRED:** Configure all image paths |
 | `nodeGroups.cpu` | CPU node group settings | ⚙️ Optional: adjust size/type |
 | `nodeGroups.gpu` | GPU node group settings | ⚙️ Optional: adjust size/type |
 | `aiPlatform` | AI Platform configuration | ⚙️ Optional: customize features |
+
+### 5. Configure Container Images ⚠️ CRITICAL
+
+**This is the most important configuration step!** All container images must be specified correctly.
+
+**Update the `images:` section in your config file:**
+
+```yaml
+images:
+  # Your container registry (ECR, Docker Hub, Harbor, etc.)
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"  # ← CHANGE THIS
+
+  operator:
+    image: "splunk-ai-operator:v1.0.0"  # ← CHANGE: Your operator image
+
+  splunk:
+    image: "splunk/splunk:10.2.0"  # ← CHANGE: Splunk Enterprise image
+    operatorImage: "docker.io/splunk/splunk-operator:3.0.0"  # ← OPTIONAL (has default)
+
+  ray:
+    headImage: "ml-platform/ray/ray-head:build-17"  # ← CHANGE: Ray head image path
+    workerImage: "ml-platform/ray/ray-worker-gpu:build-17"  # ← CHANGE: Ray worker image path
+
+  weaviate:
+    image: "semitechnologies/weaviate:1.28.0"  # ← CHANGE: Weaviate database
+
+  saia:
+    apiImage: "ml-platform/saia/saia-api:build-1"  # ← CHANGE: SAIA API image path
+    dataLoaderImage: "ml-platform/saia/saia-data-loader:build-1"  # ← CHANGE: SAIA loader
+
+  fluentBit:
+    image: "fluent/fluent-bit:1.9.6"  # ← OPTIONAL (has default)
+```
+
+**Tips:**
+- Use **relative paths** (no registry prefix) for images in your private registry
+  - Example: `"ray/ray-head:v1"` becomes `registry/ray/ray-head:v1`
+
+- Use **full paths** for public Docker Hub images
+  - Example: `"docker.io/splunk/splunk:10.2.0"` stays as-is
+
+**The script will validate ALL images exist before deployment!**
+
+### 6. Login to Container Registries
+
+**For AWS ECR:**
+```bash
+# Login to your ECR registry
+aws ecr get-login-password --region us-west-2 | \
+  docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
+```
+
+**For Docker Hub (if using private images):**
+```bash
+docker login
+```
+
+**Verify image access:**
+```bash
+# Test pull one of your images
+docker pull 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v1
+```
 
 **Optional customizations:**
 
@@ -561,7 +631,7 @@ nodeGroups:
     desiredCapacity: 2             # ← Adjust number of GPU nodes
 ```
 
-### 5. Deploy the Cluster
+### 7. Deploy the Cluster
 
 ```bash
 # Run the installation with your configuration file
@@ -571,30 +641,60 @@ CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
 # The script will show progress for each step
 ```
 
-**📋 Script performs these steps:**
-1. **Preflight Checks** (1 min)
+**What happens immediately:**
+```
+[INFO] Loading configuration from: ./my-cluster-config.yaml
+[INFO] Validating image configuration...
+[INFO] ✓ Image configuration validated successfully
+[INFO] Configuring container images in manifest files...
+[INFO] ✓ All images configured successfully
+[INFO] Validating image availability in registries...
+[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
+[INFO]     ✓ Found (via AWS ECR)
+[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:build-17
+[INFO]     ✓ Found (via AWS ECR)
+[INFO]   ... (checking all 9 images)
+[INFO] ✓ All images validated successfully - ready for deployment!
+[INFO] Region: us-west-2, Account: 123456789012, Cluster: my-ai-cluster
+[INFO] Starting preflight checks...
+```
+
+**💡 TIP:** The script validates images exist BEFORE starting cluster creation. This saves 20+ minutes if any images are misconfigured!
+
+**📋 Deployment Steps (30-45 minutes total):**
+1. **Configuration & Validation** (1-2 min) ⚡ NEW!
    - ✓ Validates configuration file
+   - ✓ Validates ALL container images exist
+   - ✓ Updates manifest files automatically
+   - ✓ Creates backups
+
+2. **Preflight Checks** (1 min)
    - ✓ Checks AWS credentials
-   - ✓ Verifies subnets exist
+   - ✓ Verifies subnets exist (if provided)
+   - ✓ Validates NAT Gateway & Internet Gateway
    - ✓ Checks required tools
-2. **Create EKS Cluster** (10-15 min)
+
+3. **Create EKS Cluster** (10-15 min)
    - ✓ Creates managed control plane
    - ✓ Sets up node groups (CPU + GPU)
-3. **Install Infrastructure** (10-15 min)
+
+4. **Install Infrastructure** (10-15 min)
    - ✓ EBS CSI Driver (for persistent volumes)
    - ✓ Cluster Autoscaler (for node scaling)
    - ✓ VPC CNI (for pod networking)
-4. **Install Platform Components** (15-20 min)
+
+5. **Install Platform Components** (15-20 min)
    - ✓ Cert Manager (certificates)
    - ✓ Prometheus + Grafana (monitoring)
    - ✓ OpenTelemetry (tracing)
    - ✓ NVIDIA GPU Operator (GPU support)
    - ✓ KubeRay Operator (Ray clusters)
    - ✓ Splunk Operator (Splunk management)
-5. **Deploy AI Platform** (5-10 min)
+
+6. **Deploy AI Platform** (5-10 min)
    - ✓ Creates S3 bucket
    - ✓ Sets up IAM roles (IRSA)
-   - ✓ Installs Splunk AI Operator
+   - ✓ Installs Splunk AI Operator (with your images!)
    - ✓ Creates AIPlatform CR
    - ✓ Deploys AI services
 
