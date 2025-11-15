@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
@@ -211,6 +212,10 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 	}
 
 	endpoint := fmt.Sprintf("%s/services/collector", cr.Spec.SplunkConfiguration.Endpoint)
+	metricsIndexName, exists := os.LookupEnv("SPLUNK_METRICS_INDEX_NAME")
+	if !exists {
+		metricsIndexName = "_metrics"
+	}
 	return map[string]interface{}{
 		"exporters": map[string]interface{}{
 			"splunk_hec": map[string]interface{}{
@@ -218,7 +223,7 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 				"endpoint":            endpoint,
 				"source":              "otel",
 				"sourcetype":          "otel",
-				"index":               "metrics",
+				"index":               metricsIndexName,
 				"disable_compression": false,
 				"timeout":             "10s",
 				"tls":                 map[string]interface{}{"insecure_skip_verify": true},
