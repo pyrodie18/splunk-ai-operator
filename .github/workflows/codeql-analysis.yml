@@ -1,5 +1,10 @@
 name: "CodeQL Advanced"
 
+# NOTE: This workflow requires GitHub's default CodeQL setup to be DISABLED
+# Go to: Settings → Code security and analysis → Code scanning → CodeQL analysis
+# Change from "Default" to "Advanced" or disable default setup
+# Otherwise, you'll get: "CodeQL analyses from advanced configurations cannot be processed"
+
 on:
   push:
     branches: [ "main", "develop" ]
@@ -30,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -43,7 +48,7 @@ jobs:
           echo 'Manual build not required for Go with autobuild'
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results
