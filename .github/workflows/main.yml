@@ -29,6 +29,10 @@ jobs:
     secrets: inherit
     needs: build-image
 
+  helm-lint-test:
+    uses: ./.github/workflows/helm-lint-test.yml
+    needs: unit-tests  # Run in parallel with build-image
+
   # smoke-tests:
   #   uses: ./.github/workflows/main-smoke-tests.yml
   #   secrets: inherit
