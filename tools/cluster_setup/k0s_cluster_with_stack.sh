@@ -274,28 +274,45 @@ create_security_group() {
   log "Created security group: ${sg_id}"
 
   # Add ingress rules (redirect output to avoid pollution)
-  log "Configuring security group rules (public vs internal)..."
+  log "Configuring security group rules (restricted to your IP)..."
 
-  # === EXTERNAL ACCESS (from internet) ===
-  # API server - allow from anywhere for kubectl access
-  aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
-    --protocol tcp --port 6443 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
-  log "  ✓ Port 6443 (Kubernetes API): PUBLIC - for kubectl access"
+  # Detect current public IP address
+  MY_IP="${ALLOWED_CIDR:-}"
+  if [[ -z "$MY_IP" ]]; then
+    log "Auto-detecting your public IP address..."
+    MY_IP=$(curl -s https://checkip.amazonaws.com || curl -s https://ipinfo.io/ip || curl -s https://api.ipify.org)
+    if [[ -z "$MY_IP" ]]; then
+      warn "Could not auto-detect IP. Set ALLOWED_CIDR environment variable."
+      warn "Example: export ALLOWED_CIDR=\"1.2.3.4/32\""
+      err "Failed to determine your IP address"
+    fi
+    # Add /32 for single IP
+    MY_IP="${MY_IP}/32"
+    log "  Detected IP: ${MY_IP}"
+  else
+    log "  Using provided CIDR: ${MY_IP}"
+  fi
 
-  # SSH - allow from anywhere for management
+  # === EXTERNAL ACCESS (restricted to your IP) ===
+  # API server - allow ONLY from your IP for kubectl access
   aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
-    --protocol tcp --port 22 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
-  log "  ✓ Port 22 (SSH): PUBLIC - for remote management"
+    --protocol tcp --port 6443 --cidr "${MY_IP}" >/dev/null 2>&1 || true
+  log "  ✓ Port 6443 (Kubernetes API): RESTRICTED to ${MY_IP}"
 
-  # NodePort services - allow from anywhere for accessing deployed services
+  # SSH - allow ONLY from your IP for management
   aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
-    --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
-  log "  ✓ Ports 30000-32767 (NodePort): PUBLIC - for Kubernetes services"
+    --protocol tcp --port 22 --cidr "${MY_IP}" >/dev/null 2>&1 || true
+  log "  ✓ Port 22 (SSH): RESTRICTED to ${MY_IP}"
 
-  # Konnectivity agent port - allow from anywhere (agents connect via public IP)
+  # NodePort services - allow ONLY from your IP for accessing deployed services
   aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
-    --protocol tcp --port 8132 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
-  log "  ✓ Port 8132 (Konnectivity): PUBLIC - for konnectivity-agent connections"
+    --protocol tcp --port 30000-32767 --cidr "${MY_IP}" >/dev/null 2>&1 || true
+  log "  ✓ Ports 30000-32767 (NodePort): RESTRICTED to ${MY_IP}"
+
+  # Konnectivity agent port - allow ONLY from your IP
+  aws ec2 authorize-security-group-ingress --region "${REGION}" --group-id "${sg_id}" \
+    --protocol tcp --port 8132 --cidr "${MY_IP}" >/dev/null 2>&1 || true
+  log "  ✓ Port 8132 (Konnectivity): RESTRICTED to ${MY_IP}"
 
   # === INTERNAL CLUSTER COMMUNICATION (within security group only) ===
   # All internal traffic - etcd (2380), kubelet (10250), CNI, pod networking, etc.

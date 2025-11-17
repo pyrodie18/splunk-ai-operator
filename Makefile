@@ -527,4 +527,125 @@ helm-all: helm-lint helm-package helm-index ## Build and package all Helm charts
 	@echo "Next steps:"
 	@echo "  1. Upload .tgz files to GitHub release"
 	@echo "  2. Upload index.yaml to release"
+
+##@ Zarf Operations
+
+ZARF_VERSION ?= $(VERSION)
+ZARF_DIR := tools/cluster_setup/zarf
+
+.PHONY: zarf-check
+zarf-check: ## Check if Zarf CLI is installed
+	@if ! command -v zarf >/dev/null 2>&1; then \
+		echo "❌ Zarf CLI not found. Install from: https://docs.zarf.dev/docs/getting-started#installing-zarf"; \
+		exit 1; \
+	else \
+		echo "✓ Zarf CLI installed: $$(zarf version)"; \
+	fi
+
+.PHONY: zarf-build
+zarf-build: zarf-check helm-package ## Build Zarf package for air-gapped deployment
+	@echo "Building Zarf package..."
+	@echo "⚠️  This will take 15-30 minutes depending on image sizes"
+	@echo "⚠️  Ensure you're authenticated to all required registries (Docker Hub, ECR, etc.)"
+	@cd $(ZARF_DIR) && zarf package create . --confirm
+	@mv $(ZARF_DIR)/zarf-package-*.tar.zst . 2>/dev/null || true
+	@echo "✓ Zarf package created in project root"
+
+.PHONY: zarf-build-complete
+zarf-build-complete: zarf-check helm-package ## Build complete Zarf package (k0s + operator + platform)
+	@echo "=========================================="
+	@echo "Building COMPLETE Zarf Package"
+	@echo "=========================================="
+	@echo "This package includes:"
+	@echo "  • k0s cluster installation"
+	@echo "  • Storage and networking"
+	@echo "  • GPU support (optional)"
+	@echo "  • Monitoring stack (optional)"
+	@echo "  • Splunk AI Operator"
+	@echo "  • Splunk Enterprise"
+	@echo "  • AI Platform instance"
+	@echo ""
+	@echo "⚠️  This will take 45-90 minutes"
+	@echo "⚠️  Package size will be 30-50GB"
+	@echo "⚠️  Ensure you're authenticated to all registries"
+	@echo ""
+	@cd $(ZARF_DIR) && zarf package create . -f zarf-complete.yaml --confirm
+	@mv $(ZARF_DIR)/zarf-package-splunk-ai-platform-complete-*.tar.zst . 2>/dev/null || true
+	@echo ""
+	@echo "=========================================="
+	@echo "✓ Complete package created"
+	@echo "=========================================="
+	@ls -lh zarf-package-splunk-ai-platform-complete-*.tar.zst
+	@echo ""
+	@echo "This package can deploy everything from bare metal to AI Platform"
+	@echo "See tools/cluster_setup/zarf/docs/COMPLETE_DEPLOYMENT.md"
+
+.PHONY: zarf-inspect
+zarf-inspect: ## Inspect the Zarf package contents
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		zarf package inspect zarf-package-*.tar.zst; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy
+zarf-deploy: ## Deploy Zarf package to current Kubernetes cluster
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying Zarf package to cluster..."; \
+		zarf package deploy zarf-package-*.tar.zst --confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy-minimal
+zarf-deploy-minimal: ## Deploy only core operator components (no monitoring)
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying minimal Zarf package (core + operator only)..."; \
+		zarf package deploy zarf-package-*.tar.zst \
+			--components=core-dependencies,splunk-ai-operator,ai-platform-images \
+			--confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy-full
+zarf-deploy-full: ## Deploy full stack including monitoring
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying full Zarf package (all components)..."; \
+		zarf package deploy zarf-package-*.tar.zst \
+			--components=core-dependencies,monitoring,splunk-ai-operator,ai-platform-images,ai-platform-instances \
+			--confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-remove
+zarf-remove: ## Remove deployed Zarf package
+	@echo "Removing Zarf package deployment..."
+	@zarf package remove splunk-ai-operator --confirm
+
+.PHONY: zarf-clean
+zarf-clean: ## Clean Zarf build artifacts
+	@echo "Cleaning Zarf artifacts..."
+	@rm -f zarf-package-*.tar.zst
+	@rm -f zarf-sbom-*.tar
+	@echo "✓ Zarf artifacts cleaned"
+
+.PHONY: zarf-all
+zarf-all: helm-all zarf-build zarf-inspect ## Build Helm charts and Zarf package
+	@echo "✓ Zarf package ready for air-gapped deployment"
+	@echo ""
+	@echo "📦 Package files:"
+	@ls -lh zarf-package-*.tar.zst
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Transfer package to air-gapped environment"
+	@echo "  2. Run: zarf init --confirm"
+	@echo "  3. Run: zarf package deploy <package-file> --confirm"
+	@echo ""
+	@echo "See tools/cluster_setup/zarf/docs/zarf-deployment.md for complete guide"
 	@echo "  3. Update docs with new version"

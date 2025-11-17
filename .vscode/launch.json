@@ -5,38 +5,91 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Kubernetes: Run/Debug",
+            "name": "Cloud Code: Run on Kubernetes",
             "type": "cloudcode.kubernetes",
             "request": "launch",
             "skaffoldConfig": "${workspaceFolder}/skaffold.yaml",
             "watch": true,
-            "cleanUp": true,
-            "portForward": true
+            "cleanUp": false,
+            "portForward": true,
+            "imageRegistry": "localhost:5000",
+            "debug": [
+                {
+                    "image": "splunk-ai-operator",
+                    "containerName": "manager",
+                    "sourceFileMap": {
+                        "${workspaceFolder}": "/workspace"
+                    }
+                }
+            ]
         },
         {
-            "name": "Launch file",
+            "name": "Cloud Code: Debug on Kubernetes",
+            "type": "cloudcode.kubernetes",
+            "request": "launch",
+            "skaffoldConfig": "${workspaceFolder}/skaffold.yaml",
+            "watch": true,
+            "cleanUp": false,
+            "portForward": true,
+            "debug": [
+                {
+                    "image": "splunk-ai-operator",
+                    "containerName": "manager",
+                    "sourceFileMap": {
+                        "${workspaceFolder}": "/workspace"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Launch file (webhooks disabled)",
             "type": "go",
             "request": "launch",
             "mode": "debug",
             "program": "${workspaceFolder}/cmd/main.go",
             // "envFile": "${workspaceFolder}/.env",
             "env": {
-              "IAC_URL": "test.iac.url",
-              "API_GATEWAY_HOST": "", // Check if this should be filled in
-              "AUTH_PROVIDER": "scp",
-              "ENABLE_AUTHZ": "false",
               "RELATED_IMAGE_SPLUNK_ENTERPRISE": "splunk/splunk:9.4.1",
-              "RELATED_IMAGE_RAY_HEAD": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5",
-              "RELATED_IMAGE_RAY_WORKER": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6",
+              "RELATED_IMAGE_RAY_HEAD": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-15",
+              "RELATED_IMAGE_RAY_WORKER": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-15",
               "RELATED_IMAGE_WEAVIATE": "semitechnologies/weaviate:stable-v1.28-007846a",
-              "RELATED_IMAGE_SAIA_API": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-6",
-              "RELATED_IMAGE_POST_INSTALL_HOOK": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5",
+              "RELATED_IMAGE_SAIA_API": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-13",
+              "RELATED_IMAGE_POST_INSTALL_HOOK": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10",
+              "RELATED_IMAGE_FLUENT_BIT": "fluent/fluent-bit:1.9.6",
               "CLUSTER_NAME": "sok-ml-platform",
               "MODEL_VERSION" : "v0.3.14-36-g1549f5a",
               "RAY_VERSION": "2.44.0",
-              "CA_CERT_PATH": "/Users/vivekr/Projects/splunk-ai-operator/etc/certs/tls.crt", 
-              "INSTANCE_FILE": "/Users/vivekr/Projects/splunk-ai-operator/config/configs/instance.yaml",
-              "APPLICATION_FILE": "/Users/vivekr/Projects/splunk-ai-operator/config/configs/applications.yaml",
+              "CA_CERT_PATH": "/Users/viveredd/Projects/splunk-ai-operator/etc/certs/tls.crt",
+              "INSTANCE_FILE": "/Users/viveredd/Projects/splunk-ai-operator/config/configs/instance.yaml",
+              "APPLICATION_FILE": "/Users/viveredd/Projects/splunk-ai-operator/config/configs/applications.yaml",
+              "ENABLE_WEBHOOKS": "false",
+            },
+        },
+        {
+            "name": "Launch file (webhooks enabled)",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+              "--webhook-cert-path", "/Users/viveredd/Projects/splunk-ai-operator/etc/certs",
+              "--webhook-cert-name", "tls.crt",
+              "--webhook-cert-key", "tls.key"
+            ],
+            "env": {
+              "RELATED_IMAGE_SPLUNK_ENTERPRISE": "splunk/splunk:9.4.1",
+              "RELATED_IMAGE_RAY_HEAD": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-15",
+              "RELATED_IMAGE_RAY_WORKER": "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-15",
+              "RELATED_IMAGE_WEAVIATE": "semitechnologies/weaviate:stable-v1.28-007846a",
+              "RELATED_IMAGE_SAIA_API": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-13",
+              "RELATED_IMAGE_POST_INSTALL_HOOK": "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10",
+              "RELATED_IMAGE_FLUENT_BIT": "fluent/fluent-bit:1.9.6",
+              "CLUSTER_NAME": "sok-ml-platform",
+              "MODEL_VERSION" : "v0.3.14-36-g1549f5a",
+              "RAY_VERSION": "2.44.0",
+              "CA_CERT_PATH": "/Users/viveredd/Projects/splunk-ai-operator/etc/certs/tls.crt",
+              "INSTANCE_FILE": "/Users/viveredd/Projects/splunk-ai-operator/config/configs/instance.yaml",
+              "APPLICATION_FILE": "/Users/viveredd/Projects/splunk-ai-operator/config/configs/applications.yaml",
             },
         },
         {

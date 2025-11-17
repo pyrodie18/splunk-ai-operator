@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "GoogleCloudTools.cloudcode",
+    "golang.go",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "redhat.vscode-yaml",
+    "ms-azuretools.vscode-docker"
+  ]
+}
