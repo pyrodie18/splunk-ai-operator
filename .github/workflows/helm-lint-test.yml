@@ -87,11 +87,23 @@ jobs:
 
           # Validate operator manifests
           echo "Validating operator manifests..."
-          kubeval --strict --ignore-missing-schemas /tmp/operator-template.yaml || true
+          if kubeval --strict --ignore-missing-schemas /tmp/operator-template.yaml 2>&1 | tee /tmp/operator-kubeval.log; then
+            echo "✅ Operator manifests validation passed"
+          else
+            echo "❌ Operator manifests validation failed"
+            cat /tmp/operator-kubeval.log
+            exit 1
+          fi
 
           # Validate platform manifests
           echo "Validating platform manifests..."
-          kubeval --strict --ignore-missing-schemas /tmp/platform-template.yaml || true
+          if kubeval --strict --ignore-missing-schemas /tmp/platform-template.yaml 2>&1 | tee /tmp/platform-kubeval.log; then
+            echo "✅ Platform manifests validation passed"
+          else
+            echo "❌ Platform manifests validation failed"
+            cat /tmp/platform-kubeval.log
+            exit 1
+          fi
           echo "::endgroup::"
 
       - name: Check for chart version bump (PR only)
