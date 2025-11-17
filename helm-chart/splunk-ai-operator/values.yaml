@@ -48,8 +48,11 @@ securityContext:
 
 # Splunk AI Operator image and pull policy
 # reference: https://github.com/splunk/splunk-ai-operator
+# Default uses GitHub Container Registry (ghcr.io) for official releases
+# You can also use Docker Hub: docker.io/splunk/splunk-ai-operator
 image:
-  repository: docker.io/splunk/splunk-ai-operator:0.1.0
+  repository: ghcr.io/splunk/splunk-ai-operator
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 # Define liveness probe to check if manager container is running
