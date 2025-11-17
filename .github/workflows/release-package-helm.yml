@@ -54,10 +54,34 @@ jobs:
           sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
 
+          # Validate operator chart update
+          OP_VER=$(grep '^version:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          OP_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          if [ "$OP_VER" != "$VERSION" ] || [ "$OP_APPVER" != "$VERSION" ]; then
+            echo "ERROR: Failed to update operator chart version/appVersion to $VERSION"
+            echo "Expected: $VERSION"
+            echo "Got version: $OP_VER, appVersion: $OP_APPVER"
+            cat helm-chart/splunk-ai-operator/Chart.yaml
+            exit 1
+          fi
+          echo "✅ Operator chart updated successfully: version=$OP_VER, appVersion=$OP_APPVER"
+
           # Update platform chart if it exists
           if [ -f helm-chart/splunk-ai-platform/Chart.yaml ]; then
             sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
             sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
+
+            # Validate platform chart update
+            PLAT_VER=$(grep '^version:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            PLAT_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            if [ "$PLAT_VER" != "$VERSION" ] || [ "$PLAT_APPVER" != "$VERSION" ]; then
+              echo "ERROR: Failed to update platform chart version/appVersion to $VERSION"
+              echo "Expected: $VERSION"
+              echo "Got version: $PLAT_VER, appVersion: $PLAT_APPVER"
+              cat helm-chart/splunk-ai-platform/Chart.yaml
+              exit 1
+            fi
+            echo "✅ Platform chart updated successfully: version=$PLAT_VER, appVersion=$PLAT_APPVER"
           fi
 
       - name: Package Helm charts
