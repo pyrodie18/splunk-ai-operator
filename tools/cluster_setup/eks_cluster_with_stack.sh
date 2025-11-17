@@ -399,25 +399,28 @@ check_image_exists() {
 
   log "  Checking: $image"
 
-  # Try docker manifest inspect (fastest, works if Docker daemon is running)
+  # Try docker manifest inspect with timeout (fastest, works if Docker daemon is running)
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    if docker manifest inspect "$image" >/dev/null 2>&1; then
+    if timeout 30 docker manifest inspect "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via docker)"
       return 0
+    else
+      log "    ⚠ Docker check timed out or failed, trying other methods..."
     fi
   fi
 
-  # Try crane (works without Docker daemon, supports multiple registries)
+  # Try crane with timeout (works without Docker daemon, supports multiple registries)
   if command -v crane >/dev/null 2>&1; then
-    if crane manifest "$image" >/dev/null 2>&1; then
+    if timeout 30 crane manifest "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via crane)"
       return 0
     fi
   fi
 
-  # Try skopeo (alternative tool, good for registries)
+  # Try skopeo with timeout (alternative tool, good for registries)
+  # Note: Force linux/amd64 platform since we're checking for EKS deployment images
   if command -v skopeo >/dev/null 2>&1; then
-    if skopeo inspect "docker://$image" >/dev/null 2>&1; then
+    if timeout 30 skopeo inspect --override-os linux --override-arch amd64 "docker://$image" >/dev/null 2>&1; then
       log "    ✓ Found (via skopeo)"
       return 0
     fi
@@ -445,8 +448,15 @@ check_image_exists() {
 
 # Validate all configured images exist
 validate_images_exist() {
+  # Allow skipping validation with environment variable
+  if [[ "${SKIP_IMAGE_VALIDATION:-false}" == "true" ]]; then
+    warn "Skipping image validation (SKIP_IMAGE_VALIDATION=true)"
+    return 0
+  fi
+
   log "Validating image availability in registries..."
   log "This may take a few moments as we check each image..."
+  log "Tip: To skip validation, set SKIP_IMAGE_VALIDATION=true"
 
   local failed_images=()
   local images_to_check=()

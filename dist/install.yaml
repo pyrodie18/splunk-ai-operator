@@ -5515,7 +5515,7 @@ spec:
         - name: WATCH_NAMESPACE
           value: WATCH_NAMESPACE_VALUE
         - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-          value: vivekrsplunk/splunk:10.2.0-dev1
+          value: splunk/splunk:10.2.0-dev1
         - name: OPERATOR_NAME
           value: splunk-operator
         - name: POD_NAME
