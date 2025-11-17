@@ -5523,15 +5523,15 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         - name: RELATED_IMAGE_RAY_HEAD
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-17
+          value: splunk/ai/ray/ray-head:build-17
         - name: RELATED_IMAGE_RAY_WORKER
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-17
+          value: splunk/ai/ray/ray-worker-gpu:build-17
         - name: RELATED_IMAGE_WEAVIATE
           value: docker.io/semitechnologies/weaviate:stable-v1.28-007846a
         - name: RELATED_IMAGE_SAIA_API
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/saia/saia-api:build-1
+          value: splunk/ai/saia/saia-api:build-1
         - name: RELATED_IMAGE_POST_INSTALL_HOOK
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/saia/saia-data-loader:build-1
+          value: splunk/ai/saia/saia-data-loader:build-1
         - name: SPLUNK_METRICS_INDEX_NAME
           value: _metrics
         - name: RELATED_IMAGE_FLUENT_BIT
@@ -5540,7 +5540,7 @@ spec:
           value: v0.3.14-36-g1549f5a
         - name: RAY_VERSION
           value: 2.44.0
-        image: docker.io/splunk/splunk-ai-operator:FRC-32
+        image: splunk/ai/splunk-ai-operator:build-v1alpha1
         livenessProbe:
           httpGet:
             path: /healthz
