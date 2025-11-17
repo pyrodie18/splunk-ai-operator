@@ -399,25 +399,40 @@ check_image_exists() {
 
   log "  Checking: $image"
 
-  # Try docker manifest inspect (fastest, works if Docker daemon is running)
+  # Detect timeout command (GNU timeout on Linux, gtimeout on macOS via coreutils, or none)
+  local TIMEOUT_CMD=""
+  if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="timeout 30"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="gtimeout 30"
+  else
+    # No timeout command available (common on macOS without coreutils)
+    # Commands will run without timeout
+    TIMEOUT_CMD=""
+  fi
+
+  # Try docker manifest inspect with timeout (fastest, works if Docker daemon is running)
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    if docker manifest inspect "$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD docker manifest inspect "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via docker)"
       return 0
+    else
+      log "    ⚠ Docker check timed out or failed, trying other methods..."
     fi
   fi
 
-  # Try crane (works without Docker daemon, supports multiple registries)
+  # Try crane with timeout (works without Docker daemon, supports multiple registries)
   if command -v crane >/dev/null 2>&1; then
-    if crane manifest "$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD crane manifest "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via crane)"
       return 0
     fi
   fi
 
-  # Try skopeo (alternative tool, good for registries)
+  # Try skopeo with timeout (alternative tool, good for registries)
+  # Note: Force linux/amd64 platform since we're checking for EKS deployment images
   if command -v skopeo >/dev/null 2>&1; then
-    if skopeo inspect "docker://$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD skopeo inspect --override-os linux --override-arch amd64 "docker://$image" >/dev/null 2>&1; then
       log "    ✓ Found (via skopeo)"
       return 0
     fi
@@ -445,8 +460,15 @@ check_image_exists() {
 
 # Validate all configured images exist
 validate_images_exist() {
+  # Allow skipping validation with environment variable
+  if [[ "${SKIP_IMAGE_VALIDATION:-false}" == "true" ]]; then
+    warn "Skipping image validation (SKIP_IMAGE_VALIDATION=true)"
+    return 0
+  fi
+
   log "Validating image availability in registries..."
   log "This may take a few moments as we check each image..."
+  log "Tip: To skip validation, set SKIP_IMAGE_VALIDATION=true"
 
   local failed_images=()
   local images_to_check=()
@@ -1020,6 +1042,30 @@ EOF
 }
 
 # ---------- Autoscaler ----------
+get_autoscaler_version() {
+  local k8s_version="$1"
+  # Extract major.minor (e.g., "v1.31" from "v1.31.13")
+  local k8s_minor=$(echo "$k8s_version" | cut -d'.' -f1-2)
+
+  # Map K8s version to EKS-compatible cluster-autoscaler versions
+  # EKS supports 1.31+ (1.31 will move to extended support soon, recommending 1.32+)
+  # EKS K8s patch versions (e.g., 1.31.13) are higher than autoscaler patch versions
+  # Use the latest available autoscaler for each K8s minor version
+  # To verify: skopeo list-tags docker://registry.k8s.io/autoscaling/cluster-autoscaler | grep "v1.34"
+  case "$k8s_minor" in
+    v1.34) echo "v1.34.1" ;;  # Latest for EKS 1.34.x
+    v1.33) echo "v1.33.2" ;;  # Latest for EKS 1.33.x
+    v1.32) echo "v1.32.4" ;;  # Latest for EKS 1.32.x
+    v1.31) echo "v1.31.5" ;;  # Latest for EKS 1.31.x (moving to extended support)
+    *)
+      # For future versions or unknown versions, try .0 and warn
+      warn "K8s version ${k8s_minor} not explicitly mapped. Using ${k8s_minor}.0"
+      warn "If this fails, update get_autoscaler_version() with the correct autoscaler version"
+      echo "${k8s_minor}.0"
+      ;;
+  esac
+}
+
 install_cluster_autoscaler() {
   log "Installing Cluster Autoscaler with IRSA..."
   eksctl create iamserviceaccount \
@@ -1034,6 +1080,10 @@ install_cluster_autoscaler() {
   helm repo add autoscaler https://kubernetes.github.io/autoscaler
   helm repo update
 
+  # Get appropriate autoscaler version for the K8s version
+  local autoscaler_version=$(get_autoscaler_version "${K8S_PATCH_VERSION}")
+  log "Using cluster-autoscaler image tag: ${autoscaler_version} (K8s version: ${K8S_PATCH_VERSION})"
+
   helm_retry 5 upgrade --install "${AUTOSCALER_RELEASE}" autoscaler/cluster-autoscaler \
     --namespace "${AUTOSCALER_NS}" \
     --set autoDiscovery.clusterName="${CLUSTER_NAME}" \
@@ -1041,7 +1091,7 @@ install_cluster_autoscaler() {
     --set rbac.serviceAccount.create=false \
     --set rbac.serviceAccount.name="${AUTOSCALER_SA}" \
     --set image.repository=registry.k8s.io/autoscaling/cluster-autoscaler \
-    --set image.tag="${K8S_PATCH_VERSION}" \
+    --set image.tag="${autoscaler_version}" \
     --set extraArgs.balance-similar-node-groups=true \
     --set extraArgs.skip-nodes-with-system-pods=false \
     --set extraArgs.expander=least-waste \

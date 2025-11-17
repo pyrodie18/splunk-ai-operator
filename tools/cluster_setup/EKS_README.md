@@ -47,7 +47,7 @@ The `eks_cluster_with_stack.sh` script deploys the complete Splunk AI Platform o
 
 The script installs everything needed for the AI Platform:
 
-1. **EKS Cluster** (Kubernetes 1.29+) - AWS-managed control plane
+1. **EKS Cluster** (Kubernetes 1.31-1.34) - AWS-managed control plane
 2. **VPC CNI** - Native AWS VPC networking for pods
 3. **S3 Bucket** - Object storage for AI artifacts and models
 4. **EBS CSI Driver** - Persistent volumes backed by AWS EBS
@@ -229,8 +229,13 @@ helm version               # Minimum: v3.12+
 git --version             # Minimum: v2.30+
 jq --version              # Minimum: v1.6+
 yq --version              # Minimum: v4.30+ (mikefarah/yq, NOT Python yq)
-eksctl version            # Minimum: v0.150+
+eksctl version            # Minimum: v0.217+ (for K8s 1.34 support)
 aws --version             # Minimum: AWS CLI v2.13+
+
+# IMPORTANT: eksctl version determines supported Kubernetes versions
+# - eksctl 0.191 supports K8s up to 1.31
+# - eksctl 0.217+ supports K8s 1.32, 1.33, 1.34
+# If you need K8s 1.32+, upgrade eksctl to latest version
 ```
 
 ### Container Images Configuration
@@ -1172,7 +1177,7 @@ aws eks update-nodegroup-version \
 ```bash
 # Update operator image
 kubectl set image deployment/splunk-ai-operator-controller-manager \
-  manager=docker.io/splunk/splunk-ai-operator:FRC-30 \
+  manager=docker.io/splunk/splunk-ai-operator:FRC-33 \
   -n splunk-ai-operator-system
 
 # Restart operator
