@@ -345,20 +345,24 @@ configure_images() {
   local fluent_bit_escaped=$(echo "$fluent_bit_full" | sed 's/[\/&]/\\&/g')
   local operator_escaped=$(echo "$operator_full" | sed 's/[\/&]/\\&/g')
 
+  SEDOPTION="-i"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    SEDOPTION="-i ''"
+  fi
   # Replace RELATED_IMAGE_ env vars by matching the env var name (not the value pattern)
   # This works regardless of what registry/image was there before
-  sed -i '' "/name: RELATED_IMAGE_RAY_HEAD/,/value:/ s|value:.*|value: ${ray_head_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RELATED_IMAGE_RAY_WORKER/,/value:/ s|value:.*|value: ${ray_worker_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RELATED_IMAGE_WEAVIATE/,/value:/ s|value:.*|value: ${weaviate_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RELATED_IMAGE_SAIA_API/,/value:/ s|value:.*|value: ${saia_api_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RELATED_IMAGE_POST_INSTALL_HOOK/,/value:/ s|value:.*|value: ${saia_dataloader_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RELATED_IMAGE_FLUENT_BIT/,/value:/ s|value:.*|value: ${fluent_bit_escaped}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: MODEL_VERSION/,/value:/ s|value:.*|value: ${MODEL_VERSION}|" "$SPLUNK_AI_FILE"
-  sed -i '' "/name: RAY_VERSION/,/value:/ s|value:.*|value: ${RAY_RUNTIME_VERSION}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_RAY_HEAD/,/value:/ s|value:.*|value: ${ray_head_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_RAY_WORKER/,/value:/ s|value:.*|value: ${ray_worker_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_WEAVIATE/,/value:/ s|value:.*|value: ${weaviate_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_SAIA_API/,/value:/ s|value:.*|value: ${saia_api_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_POST_INSTALL_HOOK/,/value:/ s|value:.*|value: ${saia_dataloader_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_FLUENT_BIT/,/value:/ s|value:.*|value: ${fluent_bit_escaped}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: MODEL_VERSION/,/value:/ s|value:.*|value: ${MODEL_VERSION}|" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "/name: RAY_VERSION/,/value:/ s|value:.*|value: ${RAY_RUNTIME_VERSION}|" "$SPLUNK_AI_FILE"
 
   # Replace operator image (the container image itself, not env var)
   # Find the line with "image:" that's near "splunk-ai-operator" and replace it
-  sed -i '' "s|image: .*splunk.*ai.*operator.*|image: ${operator_escaped}|I" "$SPLUNK_AI_FILE"
+  sed $SEDOPTION "s|image: .*splunk.*ai.*operator.*|image: ${operator_escaped}|I" "$SPLUNK_AI_FILE"
 
   log "  ✓ Updated RELATED_IMAGE_RAY_HEAD: $ray_head_full"
   log "  ✓ Updated RELATED_IMAGE_RAY_WORKER: $ray_worker_full"
@@ -380,10 +384,10 @@ configure_images() {
   local splunk_op_escaped=$(echo "$splunk_operator_full" | sed 's/[\/&]/\\&/g')
 
   # Replace RELATED_IMAGE_SPLUNK_ENTERPRISE env var
-  sed -i '' "/name: RELATED_IMAGE_SPLUNK_ENTERPRISE/,/value:/ s|value:.*|value: ${splunk_escaped}|" "$SPLUNK_OPERATOR_FILE"
+  sed $SEDOPTION "/name: RELATED_IMAGE_SPLUNK_ENTERPRISE/,/value:/ s|value:.*|value: ${splunk_escaped}|" "$SPLUNK_OPERATOR_FILE"
 
   # Replace splunk-operator image (the container image itself)
-  sed -i '' "s|image: .*splunk.*operator.*|image: ${splunk_op_escaped}|I" "$SPLUNK_OPERATOR_FILE"
+  sed $SEDOPTION "s|image: .*splunk.*operator.*|image: ${splunk_op_escaped}|I" "$SPLUNK_OPERATOR_FILE"
 
   log "  ✓ Updated Splunk Enterprise image: $splunk_full"
   log "  ✓ Updated Splunk Operator image: $splunk_operator_full"
