@@ -28,7 +28,6 @@
 
 <!-- Code Quality & Security -->
 [![CodeQL](https://github.com/splunk/splunk-ai-operator/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/splunk/splunk-ai-operator/actions/workflows/codeql-analysis.yml)
-[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/XXXXX/badge)](https://bestpractices.coreinfrastructure.org/projects/XXXXX)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/splunk/splunk-ai-operator/badge)](https://api.securityscorecards.dev/projects/github.com/splunk/splunk-ai-operator)
 
 <!-- Documentation -->
