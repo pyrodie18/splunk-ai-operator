@@ -1177,7 +1177,7 @@ aws eks update-nodegroup-version \
 ```bash
 # Update operator image
 kubectl set image deployment/splunk-ai-operator-controller-manager \
-  manager=docker.io/splunk/splunk-ai-operator:FRC-30 \
+  manager=docker.io/splunk/splunk-ai-operator:FRC-33 \
   -n splunk-ai-operator-system
 
 # Restart operator
