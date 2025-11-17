@@ -399,9 +399,21 @@ check_image_exists() {
 
   log "  Checking: $image"
 
+  # Detect timeout command (GNU timeout on Linux, gtimeout on macOS via coreutils, or none)
+  local TIMEOUT_CMD=""
+  if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="timeout 30"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="gtimeout 30"
+  else
+    # No timeout command available (common on macOS without coreutils)
+    # Commands will run without timeout
+    TIMEOUT_CMD=""
+  fi
+
   # Try docker manifest inspect with timeout (fastest, works if Docker daemon is running)
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    if timeout 30 docker manifest inspect "$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD docker manifest inspect "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via docker)"
       return 0
     else
@@ -411,7 +423,7 @@ check_image_exists() {
 
   # Try crane with timeout (works without Docker daemon, supports multiple registries)
   if command -v crane >/dev/null 2>&1; then
-    if timeout 30 crane manifest "$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD crane manifest "$image" >/dev/null 2>&1; then
       log "    ✓ Found (via crane)"
       return 0
     fi
@@ -420,7 +432,7 @@ check_image_exists() {
   # Try skopeo with timeout (alternative tool, good for registries)
   # Note: Force linux/amd64 platform since we're checking for EKS deployment images
   if command -v skopeo >/dev/null 2>&1; then
-    if timeout 30 skopeo inspect --override-os linux --override-arch amd64 "docker://$image" >/dev/null 2>&1; then
+    if $TIMEOUT_CMD skopeo inspect --override-os linux --override-arch amd64 "docker://$image" >/dev/null 2>&1; then
       log "    ✓ Found (via skopeo)"
       return 0
     fi
