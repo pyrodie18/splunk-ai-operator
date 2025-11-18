@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write  # For pushing to GHCR OCI registry
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -135,6 +136,36 @@ jobs:
           echo "Generated index.yaml:"
           cat .helm-releases/index.yaml
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm charts to OCI registry (GHCR)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Push operator chart to GHCR OCI registry
+          if [ -f .helm-releases/splunk-ai-operator-${VERSION}.tgz ]; then
+            echo "📦 Pushing splunk-ai-operator chart to OCI registry..."
+            helm push .helm-releases/splunk-ai-operator-${VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+            echo "✅ Pushed: oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${VERSION}"
+          fi
+
+          # Push platform chart to GHCR OCI registry
+          if [ -f .helm-releases/splunk-ai-platform-${VERSION}.tgz ]; then
+            echo "📦 Pushing splunk-ai-platform chart to OCI registry..."
+            helm push .helm-releases/splunk-ai-platform-${VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+            echo "✅ Pushed: oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${VERSION}"
+          fi
+
+          echo ""
+          echo "📊 Charts published to OCI registry:"
+          echo "  oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${VERSION}"
+          echo "  oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${VERSION}"
+
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -158,36 +189,42 @@ jobs:
             kubectl apply -f https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/install-v${{ steps.version.outputs.version }}.yaml
             ```
 
-            #### Option 2: Using Helm (Direct Install)
+            #### Option 2: Using Helm OCI Registry (Recommended)
+            ```bash
+            # Requires Helm 3.8+
+            helm install splunk-ai-operator \
+              oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator \
+              --version ${{ steps.version.outputs.version }}
+            ```
+
+            #### Option 3: Using Helm (Direct from GitHub Release)
             ```bash
             helm install splunk-ai-operator \
               https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/splunk-ai-operator-${{ steps.version.outputs.version }}.tgz
             ```
 
-            #### Option 3: Using Helm Repository
-            ```bash
-            helm repo add splunk-ai https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/
-            helm repo update
-            helm install splunk-ai-operator splunk-ai/splunk-ai-operator --version ${{ steps.version.outputs.version }}
-            ```
-
             ### Release Assets
 
+            **GitHub Release:**
             - **install-v${{ steps.version.outputs.version }}.yaml** - Complete Kubernetes manifests (CRDs + Operator)
             - **splunk-ai-operator-${{ steps.version.outputs.version }}.tgz** - Operator Helm chart
             - **splunk-ai-platform-${{ steps.version.outputs.version }}.tgz** - Platform Helm chart (includes dependencies)
             - **index.yaml** - Helm repository index
+
+            **OCI Registry (GHCR):**
+            - `oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${{ steps.version.outputs.version }}`
+            - `oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${{ steps.version.outputs.version }}`
+
+            ### Container Images
+
+            **Docker Images:**
+            - `ghcr.io/splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}`
+            - `splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}`
 
             ### Documentation
 
             - [Helm Deployment Guide](https://github.com/${{ github.repository }}/blob/main/docs/helm-deployment.md)
             - [Installation Guide](https://github.com/${{ github.repository }}/blob/main/docs/installation.md)
             - [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/api-reference.md)
-
-            ### Container Images
-
-            ```
-            ghcr.io/splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}
-            ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

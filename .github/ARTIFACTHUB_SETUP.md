@@ -51,18 +51,10 @@ Once logged in:
 Kind: Helm charts
 Name: splunk-ai-operator
 Display name: Splunk AI Operator
-URL: https://github.com/splunk/splunk-ai-operator/releases/download/v1.0.0/
+URL: oci://ghcr.io/splunk/charts
 ```
 
-**Important:** The URL should point to where your Helm chart releases are stored. Since you're using GitHub Releases:
-```
-https://github.com/splunk/splunk-ai-operator/releases/download/v1.0.0/
-```
-
-Or if you create a consolidated index across all releases:
-```
-https://splunk.github.io/splunk-ai-operator/
-```
+**Important:** We're using OCI registry (modern approach). Artifact Hub supports OCI-based Helm registries!
 
 #### Optional Fields:
 
@@ -98,127 +90,61 @@ https://artifacthub.io/packages/helm/splunk-ai-operator/splunk-ai-operator
 
 ---
 
-## Repository URL Options
+## OCI Registry Approach
 
-You have two main options for hosting your Helm charts:
+We're using **OCI registries** to store Helm charts (modern approach):
 
-### Option 1: GitHub Releases (Current Setup) ✅
-
-**URL Format:**
-```
-https://github.com/splunk/splunk-ai-operator/releases/download/v1.0.0/
-```
-
-**Pros:**
-- ✅ Already set up (you're using this)
-- ✅ No additional hosting needed
-- ✅ Works with current workflow
-
-**Cons:**
-- ⚠️ URL changes with each version
-- ⚠️ Need to update Artifact Hub for each release
-
-**Best for:** Getting started quickly
-
-### Option 2: GitHub Pages (Recommended for Multiple Versions)
+### Benefits of OCI:
 
 **URL Format:**
 ```
-https://splunk.github.io/splunk-ai-operator/
+oci://ghcr.io/splunk/charts
 ```
 
 **Pros:**
-- ✅ Single, stable URL
-- ✅ Hosts multiple versions
-- ✅ Automatic updates via workflow
+- ✅ No .tgz files committed to git (anywhere!)
+- ✅ Charts stored as container images in GHCR
+- ✅ Same infrastructure as Docker images
+- ✅ Better security and access control
+- ✅ Immutable like container images
+- ✅ Single source for charts + images
+- ✅ Modern Helm 3.8+ standard
 
-**Cons:**
-- ⚠️ Requires additional setup
-
-**Best for:** Production use with multiple versions
-
----
-
-## Setting Up GitHub Pages (Optional but Recommended)
-
-If you want a stable URL that works across all versions:
-
-### 1. Create gh-pages branch workflow
-
-Add this to `.github/workflows/publish-helm-charts.yml`:
-
-```yaml
-name: Publish Helm Charts to GitHub Pages
-
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-permissions:
-  contents: write
-
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.14.0
-
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          charts_dir: helm-chart
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-```
-
-### 2. Enable GitHub Pages
-
-1. Go to repository **Settings**
-2. Navigate to **Pages** (left sidebar)
-3. Under **Source**, select:
-   - Branch: `gh-pages`
-   - Folder: `/ (root)`
-4. Click **Save**
-5. Wait 2-3 minutes for deployment
-
-### 3. Update Artifact Hub
-
-Go back to Artifact Hub Control Panel and update your repository URL to:
-```
-https://splunk.github.io/splunk-ai-operator/
-```
+**Requirements:**
+- Users need Helm 3.8+ (most have this)
+- No `helm repo add` (use direct `oci://` URLs instead)
 
 ---
 
-## Updating Artifact Hub After Each Release
+## How It Works
 
-### If using GitHub Releases URL:
+### Automatic Publishing
 
-After each release, you need to update the URL in Artifact Hub:
+When you create a release (e.g., `v1.0.0`):
 
-1. Go to Artifact Hub Control Panel
-2. Click on your repository
-3. Click **"Edit"**
-4. Update URL to new version: `https://github.com/splunk/splunk-ai-operator/releases/download/v1.0.1/`
-5. Click **"Update"**
+1. ✅ Workflow packages Helm charts
+2. ✅ Charts pushed to `oci://ghcr.io/splunk/charts/`
+3. ✅ Artifact Hub automatically discovers new versions
+4. ✅ No manual updates needed!
 
-### If using GitHub Pages:
+### Chart Locations
 
-No action needed! Artifact Hub automatically discovers new versions.
+After release, charts are available at:
+```bash
+# Operator chart
+oci://ghcr.io/splunk/charts/splunk-ai-operator:1.0.0
+
+# Platform chart
+oci://ghcr.io/splunk/charts/splunk-ai-platform:1.0.0
+```
+
+### No Maintenance Required
+
+Unlike traditional Helm repositories:
+- ❌ No need to update URLs
+- ❌ No need to rebuild index
+- ❌ No .tgz files in git
+- ✅ Everything automatic!
 
 ---
 
