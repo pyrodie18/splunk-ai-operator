@@ -205,6 +205,44 @@ jobs:
           echo "Manifest preview (first 50 lines):"
           head -50 dist/install-v$VERSION.yaml
 
+      - name: Generate Bill of Materials (BOM)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "Generating custom BOM for version $VERSION..."
+          make generate-bom VERSION=$VERSION
+
+          echo ""
+          echo "Generated BOM files:"
+          ls -lh dist/bom-v$VERSION.*
+
+          echo ""
+          echo "BOM Summary:"
+          cat dist/bom-v$VERSION.txt
+
+      - name: Install Syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@ab5d7b5f48981941c4c5d6bf33aeb98fe3bae38c # v0.15.10
+
+      - name: Generate SBOM for operator image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          OPERATOR_IMAGE="ghcr.io/splunk/splunk-ai-operator:v$VERSION"
+
+          echo "Generating SBOM for operator image: $OPERATOR_IMAGE"
+
+          # Generate SBOM in multiple formats
+          syft "$OPERATOR_IMAGE" -o cyclonedx-json=dist/sbom-operator-v$VERSION.cyclonedx.json
+          syft "$OPERATOR_IMAGE" -o spdx-json=dist/sbom-operator-v$VERSION.spdx.json
+          syft "$OPERATOR_IMAGE" -o syft-json=dist/sbom-operator-v$VERSION.syft.json
+
+          echo ""
+          echo "Generated SBOM files:"
+          ls -lh dist/sbom-operator-v$VERSION.*
+
+          echo ""
+          echo "SBOM Statistics:"
+          jq '.artifacts | length' dist/sbom-operator-v$VERSION.syft.json || echo "SBOM contains package inventory"
+
       - name: Package Helm charts
         run: |
           mkdir -p .helm-releases
@@ -267,6 +305,12 @@ jobs:
             .helm-releases/*.tgz
             .helm-releases/index.yaml
             dist/install-v${{ steps.version.outputs.version }}.yaml
+            dist/bom-v${{ steps.version.outputs.version }}.json
+            dist/bom-v${{ steps.version.outputs.version }}.yaml
+            dist/bom-v${{ steps.version.outputs.version }}.txt
+            dist/sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json
+            dist/sbom-operator-v${{ steps.version.outputs.version }}.spdx.json
+            dist/sbom-operator-v${{ steps.version.outputs.version }}.syft.json
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -298,11 +342,23 @@ jobs:
 
             ### Release Assets
 
-            **GitHub Release:**
+            **Kubernetes Manifests:**
             - **install-v${{ steps.version.outputs.version }}.yaml** - Complete Kubernetes manifests (CRDs + Operator)
+
+            **Helm Charts:**
             - **splunk-ai-operator-${{ steps.version.outputs.version }}.tgz** - Operator Helm chart
             - **splunk-ai-platform-${{ steps.version.outputs.version }}.tgz** - Platform Helm chart (includes dependencies)
             - **index.yaml** - Helm repository index
+
+            **Bill of Materials (BOM):**
+            - **bom-v${{ steps.version.outputs.version }}.txt** - Human-readable BOM with all container images
+            - **bom-v${{ steps.version.outputs.version }}.yaml** - Kubernetes-friendly YAML BOM
+            - **bom-v${{ steps.version.outputs.version }}.json** - CycloneDX format BOM
+
+            **Software Bill of Materials (SBOM):**
+            - **sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json** - CycloneDX SBOM
+            - **sbom-operator-v${{ steps.version.outputs.version }}.spdx.json** - SPDX SBOM
+            - **sbom-operator-v${{ steps.version.outputs.version }}.syft.json** - Syft native format SBOM
 
             **OCI Registry (GHCR):**
             - `oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${{ steps.version.outputs.version }}`
