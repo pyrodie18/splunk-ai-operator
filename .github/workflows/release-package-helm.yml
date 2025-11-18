@@ -241,7 +241,7 @@ jobs:
 
           echo ""
           echo "SBOM Statistics:"
-          jq '.artifacts | length' dist/sbom-operator-v$VERSION.syft.json || echo "SBOM contains package inventory"
+          jq -r '.artifacts // .packages // [] | length' dist/sbom-operator-v$VERSION.syft.json || echo "SBOM contains package inventory"
 
       - name: Package Helm charts
         run: |

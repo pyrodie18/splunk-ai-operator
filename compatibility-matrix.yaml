@@ -143,6 +143,7 @@ managedComponents:
         status: recommended
         releaseDate: "2023-Q3"
         image: "fluent/fluent-bit:1.9.6"
+        notes: "Stable version validated with current deployment"
         resources:
           cpu: "100m"
           memory: "128Mi"
@@ -247,4 +248,4 @@ support:
   deprecationPolicy:
     kubernetesVersions: "Support kubernetes versions N-3 (current and 3 previous minor versions)"
     componentVersions: "Support component versions for 12 months after release"
-    noticePerio: "90 days notice before deprecating support"
+    noticePeriod: "90 days notice before deprecating support"

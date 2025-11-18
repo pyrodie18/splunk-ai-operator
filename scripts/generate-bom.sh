@@ -130,7 +130,7 @@ for name in "${!IMAGES[@]}"; do
       "type": "container",
       "name": "${name}",
       "version": "${image_tag}",
-      "purl": "pkg:docker/${image_name}@${image_tag}",
+      "purl": "pkg:docker/${image_name}:${image_tag}",
       "properties": [
         {
           "name": "image",
