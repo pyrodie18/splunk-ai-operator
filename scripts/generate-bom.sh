@@ -48,6 +48,7 @@ MODEL_VERSION="${MODEL_VERSION:-unknown}"
 RAY_VERSION="${RAY_VERSION:-unknown}"
 K8S_VERSION="${EKS_CLUSTER_K8_VERSION:-${KUBECTL_VERSION:-unknown}}"
 GO_VERSION="${GO_VERSION:-unknown}"
+SPLUNK_OPERATOR_VERSION="${SPLUNK_OPERATOR_FOR_KUBERNETES:-unknown}"
 SPLUNK_ENTERPRISE_RELEASE="${SPLUNK_ENTERPRISE_RELEASE_IMAGE:-unknown}"
 
 # Extract Splunk Enterprise version from image tag
@@ -95,6 +96,10 @@ cat > "${BOM_JSON}" <<EOF
       {
         "name": "splunk_enterprise_image",
         "value": "${SPLUNK_ENTERPRISE_RELEASE}"
+      },
+      {
+        "name": "splunk_operator_for_kubernetes_version",
+        "value": "${SPLUNK_OPERATOR_VERSION}"
       }
     ]
   },
@@ -150,6 +155,9 @@ metadata:
   name: splunk-ai-operator
   version: ${VERSION}
   timestamp: ${TIMESTAMP}
+  annotations:
+    compatibilityMatrix: "compatibility-matrix.yaml"
+    compatibilityMatrixVersion: "${VERSION}"
 spec:
   operatorImage: ${OPERATOR_IMAGE}
   dependencies:
@@ -159,6 +167,7 @@ spec:
     goVersion: ${GO_VERSION}
     splunkEnterpriseVersion: ${SPLUNK_VERSION}
     splunkEnterpriseImage: ${SPLUNK_ENTERPRISE_RELEASE}
+    splunkOperatorForKubernetesVersion: ${SPLUNK_OPERATOR_VERSION}
   containerImages:
 EOF
 
@@ -196,12 +205,13 @@ cat >> "${BOM_TXT}" <<EOF
 
 DEPENDENCY VERSIONS
 -------------------
-Model Version:           ${MODEL_VERSION}
-Ray Version:             ${RAY_VERSION}
-Kubernetes Version:      ${K8S_VERSION}
-Go Version:              ${GO_VERSION}
-Splunk Enterprise:       ${SPLUNK_VERSION}
-Splunk Enterprise Image: ${SPLUNK_ENTERPRISE_RELEASE}
+Model Version:                    ${MODEL_VERSION}
+Ray Version:                      ${RAY_VERSION}
+Kubernetes Version:               ${K8S_VERSION}
+Go Version:                       ${GO_VERSION}
+Splunk Enterprise:                ${SPLUNK_VERSION}
+Splunk Enterprise Image:          ${SPLUNK_ENTERPRISE_RELEASE}
+Splunk Operator for Kubernetes:   ${SPLUNK_OPERATOR_VERSION}
 
 VERIFICATION
 ------------

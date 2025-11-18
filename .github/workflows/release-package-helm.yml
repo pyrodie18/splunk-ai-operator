@@ -305,6 +305,7 @@ jobs:
             .helm-releases/*.tgz
             .helm-releases/index.yaml
             dist/install-v${{ steps.version.outputs.version }}.yaml
+            compatibility-matrix.yaml
             dist/bom-v${{ steps.version.outputs.version }}.json
             dist/bom-v${{ steps.version.outputs.version }}.yaml
             dist/bom-v${{ steps.version.outputs.version }}.txt
@@ -349,6 +350,9 @@ jobs:
             - **splunk-ai-operator-${{ steps.version.outputs.version }}.tgz** - Operator Helm chart
             - **splunk-ai-platform-${{ steps.version.outputs.version }}.tgz** - Platform Helm chart (includes dependencies)
             - **index.yaml** - Helm repository index
+
+            **Compatibility Matrix:**
+            - **compatibility-matrix.yaml** - Version compatibility information, supported platforms, and dependencies
 
             **Bill of Materials (BOM):**
             - **bom-v${{ steps.version.outputs.version }}.txt** - Human-readable BOM with all container images

@@ -1,0 +1,245 @@
+apiVersion: operator.splunk.com/v1
+kind: CompatibilityMatrix
+metadata:
+  name: splunk-ai-operator
+  version: 0.1.0  # Operator version this matrix applies to
+  lastUpdated: "2025-11-18"
+  description: "Compatibility matrix for Splunk AI Operator - defines supported versions of platform dependencies and managed components"
+
+operator:
+  name: splunk-ai-operator
+  version: 0.1.0
+
+# Platform Requirements
+platform:
+  kubernetes:
+    minVersion: "1.28.0"
+    maxVersion: "1.31.99"
+    tested:  # Versions explicitly tested
+      - "1.28"
+      - "1.29"
+      - "1.30"
+      - "1.31"
+    notes: "Operator tested on EKS, AKS, GKE, and vanilla Kubernetes"
+
+  splunkOperatorForKubernetes:  # SOK
+    version: "3.0.0"
+    minVersion: "3.0.0"
+    maxVersion: "3.99.99"
+    optional: true
+    url: "https://github.com/splunk/splunk-operator"
+    notes: "Splunk Operator for Kubernetes - manages Splunk Enterprise deployments"
+
+  go:
+    version: "1.23.0"
+    notes: "Go version used to build the operator"
+
+  splunkEnterprise:
+    minVersion: "9.2.0"
+    maxVersion: "9.4.99"
+    recommended: "9.4.1"
+    notes: "Operator can manage Splunk Enterprise instances"
+
+# Required External Dependencies
+requiredServices:
+  certManager:
+    name: cert-manager
+    minVersion: "1.13.0"
+    recommended: "1.14.0"
+    required: true
+    url: "https://cert-manager.io/"
+    notes: "Required for TLS certificate management"
+
+  vaultInjector:
+    name: vault-injector
+    minVersion: "0.25.0"
+    recommended: "0.26.0"
+    required: false
+    url: "https://www.vaultproject.io/"
+    notes: "Optional - for secrets management integration"
+
+# Managed Components (what the operator deploys and manages)
+managedComponents:
+  ray:
+    displayName: "Ray ML Runtime"
+    description: "Distributed ML runtime for AI workloads"
+    url: "https://www.ray.io/"
+    versions:
+      - version: "2.44.0"
+        status: recommended
+        releaseDate: "2024-11"
+        images:
+          head: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5"
+          worker: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6"
+        resources:
+          head:
+            cpu: "2"
+            memory: "8Gi"
+          worker:
+            cpu: "4"
+            memory: "16Gi"
+            gpu: "1"
+
+  weaviate:
+    displayName: "Weaviate Vector Database"
+    description: "Vector database for AI/ML applications"
+    url: "https://weaviate.io/"
+    versions:
+      - version: "1.28.0"
+        status: recommended
+        releaseDate: "2024-10"
+        image: "semitechnologies/weaviate:stable-v1.28-007846a"
+        resources:
+          cpu: "2"
+          memory: "8Gi"
+
+  splunkEnterprise:
+    displayName: "Splunk Enterprise"
+    description: "Data platform for security and observability"
+    url: "https://www.splunk.com/"
+    versions:
+      - version: "9.2.3"
+        status: supported
+        releaseDate: "2024-Q2"
+        image: "splunk/splunk:9.2.3"
+        notes: "Minimum supported version"
+      - version: "9.4.1"
+        status: recommended
+        releaseDate: "2024-Q4"
+        image: "splunk/splunk:9.4.1"
+        notes: "Latest tested and recommended version"
+
+  saiaApi:
+    displayName: "SAIA API Service"
+    description: "Splunk AI API service for AI operations"
+    versions:
+      - version: "build-1"
+        status: recommended
+        image: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/saia/saia-api:build-1"
+        resources:
+          cpu: "1"
+          memory: "2Gi"
+
+  saiaDataLoader:
+    displayName: "SAIA Data Loader"
+    description: "Post-installation data loading hooks"
+    versions:
+      - version: "0.0.5"
+        status: recommended
+        image: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5"
+        notes: "Post-install hook for data initialization"
+
+  fluentBit:
+    displayName: "Fluent Bit"
+    description: "Lightweight log processor and forwarder"
+    url: "https://fluentbit.io/"
+    versions:
+      - version: "1.9.6"
+        status: recommended
+        releaseDate: "2023-Q3"
+        image: "fluent/fluent-bit:1.9.6"
+        resources:
+          cpu: "100m"
+          memory: "128Mi"
+
+# Inter-Operator Dependencies
+interOperatorCompatibility:
+  securityOperator:
+    name: "Splunk Security Operator"
+    minVersion: "2.1.0"
+    maxVersion: "2.99.99"
+    required: false
+    notes: "Optional - for enhanced security features"
+
+  sokOperator:
+    name: "Splunk Operator Kit"
+    minVersion: "4.0.0"
+    maxVersion: "4.99.99"
+    required: false
+    notes: "Optional - for advanced operator features"
+
+# BOM Integration
+bom:
+  family: splunk-ai-platform
+  compatibleVersions:
+    - "0.1.x"
+    - "0.2.x"
+
+  # Reference to generated BOM files
+  generatedBomFiles:
+    - "bom-v0.1.0.json"
+    - "bom-v0.1.0.yaml"
+    - "bom-v0.1.0.txt"
+
+  sbomFiles:
+    - "sbom-operator-v0.1.0.cyclonedx.json"
+    - "sbom-operator-v0.1.0.spdx.json"
+    - "sbom-operator-v0.1.0.syft.json"
+
+# Upgrade Paths
+upgradePaths:
+  - from: "0.0.x"
+    to: "0.1.x"
+    automatic: true
+    breaking: false
+    notes: "Initial pre-GA release"
+
+  - from: "0.1.x"
+    to: "0.2.x"
+    automatic: true
+    breaking: false
+    notes: "Future upgrade path"
+
+# Known Issues and Limitations
+knownIssues:
+  - issue: "Ray worker GPU support requires NVIDIA GPU operator"
+    severity: info
+    workaround: "Install NVIDIA GPU operator before deploying AI workloads"
+    affectedVersions: ["0.1.0"]
+
+  - issue: "Weaviate persistence requires storage class with ReadWriteMany"
+    severity: info
+    workaround: "Configure appropriate storage class in values.yaml"
+    affectedVersions: ["0.1.0"]
+
+# Testing and Validation
+testing:
+  environments:
+    - name: "AWS EKS"
+      kubernetesVersion: "1.31"
+      status: tested
+      notes: "Primary testing environment"
+
+    - name: "Local k0s"
+      kubernetesVersion: "1.30"
+      status: tested
+      notes: "Development and testing"
+
+    - name: "Azure AKS"
+      kubernetesVersion: "1.29"
+      status: planned
+      notes: "Planned for future testing"
+
+    - name: "Google GKE"
+      kubernetesVersion: "1.28"
+      status: planned
+      notes: "Planned for future testing"
+
+  validationCriteria:
+    - "All CRDs install successfully"
+    - "Operator pod starts and becomes ready"
+    - "Sample AI workloads deploy successfully"
+    - "Ray cluster scales up and down"
+    - "Weaviate persistence works across pod restarts"
+    - "Logs forwarded to Splunk Enterprise"
+
+# Support and Documentation
+support:
+  documentation: "https://github.com/splunk/splunk-ai-operator/tree/main/docs"
+  issues: "https://github.com/splunk/splunk-ai-operator/issues"
+  discussions: "https://github.com/splunk/splunk-ai-operator/discussions"
+
+  deprecationPolicy:
+    kubernetesVersions: "Support kubernetes versions N-3 (current and 3 previous minor versions)"
+    componentVersions: "Support component versions for 12 months after release"
+    noticePerio: "90 days notice before deprecating support"
