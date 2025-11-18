@@ -1,7 +1,7 @@
 ---
 # Hugging Face credentials for gated models. Not required if there are no gated models
-hf-username: dummy-username
-hf-token: dummy-token
+hf-username: <CHANGE ME>
+hf-token: <CHANGE ME>
 
 # Model artifacts configuration
 artifact-configs:
@@ -32,7 +32,7 @@ artifact-configs:
 
   - artifact-id: llama31-8b-instruct
     hf-url: https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct
-    is-a-gated-model: false
+    is-a-gated-model: true
 
   - artifact-id: pii-classifier
     hf-url: https://huggingface.co/StanfordAIMI/stanford-deidentifier-base
