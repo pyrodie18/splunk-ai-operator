@@ -244,6 +244,13 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
+.PHONY: generate-bom
+generate-bom: ## Generate Bill of Materials (BOM) for release
+	@echo "Generating Bill of Materials..."
+	@mkdir -p dist
+	@./scripts/generate-bom.sh $(VERSION) dist
+	@echo "✅ BOM generated in dist/ directory"
+
 ##@ Deployment
 
 ifndef ignore-not-found
