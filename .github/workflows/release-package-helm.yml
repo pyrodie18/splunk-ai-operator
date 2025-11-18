@@ -96,10 +96,7 @@ jobs:
 
           # Generate install.yaml with version-specific image tag
           echo "Generating Kubernetes manifests for version $VERSION..."
-          make build-installer
-
-          # Update image tag in the generated manifest
-          sed -i "s|ghcr.io/splunk/splunk-ai-operator:.*|ghcr.io/splunk/splunk-ai-operator:v$VERSION|g" dist/install.yaml
+          IMG="ghcr.io/splunk/splunk-ai-operator:v$VERSION" make build-installer
 
           # Rename to version-specific filename
           cp dist/install.yaml dist/install-v$VERSION.yaml
@@ -107,6 +104,10 @@ jobs:
           echo "Generated manifests:"
           ls -lh dist/install*.yaml
 
+          echo "Verifying image tag in manifest:"
+          grep "image: ghcr.io/splunk/splunk-ai-operator" dist/install-v$VERSION.yaml || echo "Warning: Image tag not found"
+
+          echo ""
           echo "Manifest preview (first 50 lines):"
           head -50 dist/install-v$VERSION.yaml
 
