@@ -1,6 +1,0 @@
-{
-    "go.testTimeout": "1800m",
-    "go.testFlags": ["-v"],
-    //"go.testEnvFile": "${workspaceFolder}/test.env.aws",
-
-}

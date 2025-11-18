@@ -206,3 +206,139 @@ func TestReconcileFeatures_DoesNotRecreateExistingAIService(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "my-ai-feature1", fetched.Name)
 }
+
+func TestCheckAIServiceStatus_SuccessWhenAllServicesHealthy(t *testing.T) {
+	ctx := context.Background()
+	scheme := buildTestScheme(t)
+
+	// Register schemes
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(aiApi.AddToScheme(scheme))
+
+	platform := &aiApi.AIPlatform{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-ai",
+			Namespace: "default",
+			UID:       types.UID("test-ai-uid"),
+		},
+	}
+
+	// Healthy AIService with all conditions True
+	healthyService := &aiApi.AIService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-ai-feature1",
+			Namespace: "default",
+		},
+		Status: aiApi.AIServiceStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "ValidateReady",
+					Status: metav1.ConditionTrue,
+					Reason: "Reconciled",
+				},
+				{
+					Type:   "ServiceAccountReady",
+					Status: metav1.ConditionTrue,
+					Reason: "Reconciled",
+				},
+			},
+		},
+	}
+	require.NoError(t, controllerutil.SetControllerReference(platform, healthyService, scheme))
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(platform, healthyService).
+		WithStatusSubresource(&aiApi.AIService{}).
+		WithIndex(&aiApi.AIService{}, ".metadata.controller", func(obj client.Object) []string {
+			if owner := metav1.GetControllerOfNoCopy(obj); owner != nil {
+				if owner.Controller != nil && *owner.Controller {
+					return []string{owner.Name}
+				}
+			}
+			return nil
+		}).
+		Build()
+
+	reconciler := &AIPlatformReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Act
+	err := reconciler.CheckAIServiceStatus(ctx, platform)
+
+	// Assert - should succeed when all services are healthy
+	assert.NoError(t, err)
+}
+
+func TestCheckAIServiceStatus_FailsWhenServiceHasFailedCondition(t *testing.T) {
+	ctx := context.Background()
+	scheme := buildTestScheme(t)
+
+	// Register schemes
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(aiApi.AddToScheme(scheme))
+
+	platform := &aiApi.AIPlatform{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-ai",
+			Namespace: "default",
+			UID:       types.UID("test-ai-uid"),
+		},
+	}
+
+	// AIService with a failed condition
+	failedService := &aiApi.AIService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-ai-feature1",
+			Namespace: "default",
+		},
+		Status: aiApi.AIServiceStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "ValidateReady",
+					Status: metav1.ConditionTrue,
+					Reason: "Reconciled",
+				},
+				{
+					Type:    "PostInstallHookReady",
+					Status:  metav1.ConditionFalse,
+					Reason:  "Error",
+					Message: "job \"splunk-ai-stack-saia-vector-db-setup-posthook\" is still running",
+				},
+			},
+		},
+	}
+	require.NoError(t, controllerutil.SetControllerReference(platform, failedService, scheme))
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(platform, failedService).
+		WithStatusSubresource(&aiApi.AIService{}).
+		WithIndex(&aiApi.AIService{}, ".metadata.controller", func(obj client.Object) []string {
+			if owner := metav1.GetControllerOfNoCopy(obj); owner != nil {
+				if owner.Controller != nil && *owner.Controller {
+					return []string{owner.Name}
+				}
+			}
+			return nil
+		}).
+		Build()
+
+	reconciler := &AIPlatformReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Act
+	err := reconciler.CheckAIServiceStatus(ctx, platform)
+
+	// Assert - should fail when service has failed condition
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "my-ai-feature1")
+	assert.Contains(t, err.Error(), "PostInstallHookReady")
+	assert.Contains(t, err.Error(), "still running")
+}

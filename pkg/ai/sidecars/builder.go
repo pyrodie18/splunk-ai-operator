@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,9 +42,6 @@ func New(client client.Client, scheme *runtime.Scheme, recorder record.EventReco
 
 // Reconcile orchestrates individual sidecar reconcilers
 func (s *Builder) Reconcile(ctx context.Context, p *aiApi.AIPlatform) error {
-	if err := s.reconcileFluentBitConfig(ctx, p); err != nil {
-		return err
-	}
 	if err := s.reconcileEnvoyConfig(ctx, p); err != nil {
 		return err
 	}
@@ -59,121 +56,6 @@ func (s *Builder) Reconcile(ctx context.Context, p *aiApi.AIPlatform) error {
 	}
 
 	return nil
-}
-
-// reconcileFluentBitConfig ensures the FluentBit sidecar ConfigMap exists and is up-to-date
-func (r *Builder) reconcileFluentBitConfig(ctx context.Context, p *aiApi.AIPlatform) error {
-	if !p.Spec.Sidecars.FluentBit {
-		return nil
-	}
-	// Retrieve the secret reference from SplunkConfiguration
-	secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{
-		Name:      p.Spec.SplunkConfiguration.SecretRef.Name,
-		Namespace: p.Namespace,
-	}
-	if err := r.Get(ctx, secretKey, secret); err != nil {
-		return fmt.Errorf("failed to retrieve secret %q: %w", secretKey.Name, err)
-	}
-
-	// Extract the HEC token from the secret
-	hecToken, exists := secret.Data["hec_token"]
-	if !exists {
-		return fmt.Errorf("hec_token not found in secret %q", secretKey.Name)
-	}
-
-	// Retrieve the endpoint from SplunkConfiguration
-	endpoint := r.ai.Spec.SplunkConfiguration.Endpoint
-	if endpoint == "" {
-		return fmt.Errorf("endpoint is not specified in SplunkConfiguration")
-	}
-
-	fluentbitConfig := fmt.Sprintf(renderFluentBitConf(), endpoint, string(hecToken))
-	// Update FluentBit configuration with the retrieved values
-	data := map[string]string{
-		"fluent-bit.conf": fluentbitConfig,
-		"parser.conf":     renderParserConf(),
-	}
-
-	cmName := fmt.Sprintf("%s-fluentbit-config", r.ai.Name)
-	err := r.createOrUpdateConfigMap(ctx, cmName, data)
-	if err != nil {
-		return err
-	}
-
-	// Validate the ConfigMap before returning
-	found := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: r.ai.Namespace}, found)
-	if err != nil {
-		return fmt.Errorf("failed to validate ConfigMap %q: %w", cmName, err)
-	}
-	return nil
-}
-
-func (s *Builder) AddFluentBitSidecar(podSpec *corev1.PodSpec) {
-	// Add FluentBit sidecar if enabled and not already present
-	if s.ai.Spec.Sidecars.FluentBit {
-		found := false
-		for _, container := range podSpec.Containers {
-			if container.Name == "fluentbit" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			podSpec.Containers = append(podSpec.Containers, corev1.Container{
-				Name:  "fluentbit",
-				Image: "fluent/fluent-bit:1.9.6",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("100m"),
-						corev1.ResourceMemory: resource.MustParse("128Mi"),
-					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("100m"),
-						corev1.ResourceMemory: resource.MustParse("128Mi"),
-					},
-				},
-				VolumeMounts: []corev1.VolumeMount{
-					{
-						MountPath: "/tmp/ray",
-						Name:      "ray-logs",
-					},
-					{
-						MountPath: "/fluent-bit/etc/parser.conf",
-						SubPath:   "parser.conf",
-						Name:      "fluentbit-config",
-					},
-					{
-						MountPath: "/fluent-bit/etc/fluent-bit.conf",
-						SubPath:   "fluent-bit.conf",
-						Name:      "fluentbit-config",
-					},
-				},
-			})
-
-		}
-		found = false
-		for _, volume := range podSpec.Volumes {
-			if volume.Name == "fluentbit-config" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-				Name: "fluentbit-config",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: fmt.Sprintf("%s-fluentbit-config", s.ai.Name),
-						},
-					},
-				},
-			})
-		}
-	}
-
 }
 
 // createOrUpdateConfigMap is a helper to create or patch a ConfigMap owned by the RayService
@@ -290,7 +172,8 @@ func (s *Builder) reconcileOpenTelemetryCollector(ctx context.Context, p *aiApi.
 // If the user edits the ConfigMap later, those changes are preserved.
 func (s *Builder) reconcileOtelConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling OpenTelemetry ConfigMap")
+	// Use V(1) for verbose logging - reduces noise
+	logger.V(1).Info("Reconciling OpenTelemetry ConfigMap")
 
 	cmName := fmt.Sprintf("%s-otel-config", p.Name)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: p.Namespace}}
@@ -329,6 +212,10 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 	}
 
 	endpoint := fmt.Sprintf("%s/services/collector", cr.Spec.SplunkConfiguration.Endpoint)
+	metricsIndexName, exists := os.LookupEnv("SPLUNK_METRICS_INDEX_NAME")
+	if !exists {
+		metricsIndexName = "_metrics"
+	}
 	return map[string]interface{}{
 		"exporters": map[string]interface{}{
 			"splunk_hec": map[string]interface{}{
@@ -336,7 +223,7 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 				"endpoint":            endpoint,
 				"source":              "otel",
 				"sourcetype":          "otel",
-				"index":               "metrics",
+				"index":               metricsIndexName,
 				"disable_compression": false,
 				"timeout":             "10s",
 				"tls":                 map[string]interface{}{"insecure_skip_verify": true},
@@ -389,49 +276,6 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 			},
 		},
 	}
-}
-
-// renderFluentBitConf generates the FluentBit configuration for the given RayService.
-func renderFluentBitConf() string {
-	return `
-	[SERVICE]
-        Parsers_File /fluent-bit/etc/parser.conf
-    [INPUT]
-        Name tail
-        Path /tmp/ray/session_latest/logs/*, /tmp/ray/session_latest/logs/*/*
-        Tag ray
-        Path_Key source_log_file_path
-        Refresh_Interval 5
-        Parser colon_prefix_parser
-    [FILTER]
-        Name                modify
-        Match               ray
-        Add                 application_name NONE
-        Add                 deployment_name NONE
-    [OUTPUT]
-        Name stdout
-        Format json_lines
-        Match *
-    [OUTPUT]
-        Name   splunk
-        Match  *
-        Host   "%s"
-        Splunk_Token  %s
-        TLS    On
-        TLS.verify  Off
-`
-}
-
-// renderParserConf generates the parser configuration for FluentBit.
-func renderParserConf() string {
-	return `
-	[PARSER]
-        Name                colon_prefix_parser
-        Format              regex
-        Regex               :actor_name:ServeReplica:(?<application_name>[a-zA-Z0-9_-]+):(?<deployment_name>[a-zA-Z0-9_-]+)
-        Time_Key            time
-        Time_Format         %Y-%m-%dT%H:%M:%S
-`
 }
 
 // renderEnvoyConf generates the Envoy configuration for the given AIPlatform.

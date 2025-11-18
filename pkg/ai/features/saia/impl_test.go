@@ -154,36 +154,3 @@ func Test_getAIPlatform_error(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, got)
 }
-
-func Test_AddFluentBitSidecar_addsSidecarAndVolume(t *testing.T) {
-	r := &SaiaReconciler{}
-	podSpec := &corev1.PodSpec{}
-	ai := &aiv1.AIService{ObjectMeta: metav1.ObjectMeta{Name: "foo"}}
-
-	r.AddFluentBitSidecar(podSpec, ai)
-
-	foundContainer := false
-	for _, c := range podSpec.Containers {
-		if c.Name == "fluentbit" {
-			foundContainer = true
-			break
-		}
-	}
-	assert.True(t, foundContainer)
-
-	foundVolume := false
-	for _, v := range podSpec.Volumes {
-		if v.Name == "fluentbit-config" {
-			foundVolume = true
-			break
-		}
-	}
-	assert.True(t, foundVolume)
-}
-
-func Test_renderFluentBitConf_and_renderParserConf(t *testing.T) {
-	conf := renderFluentBitConf()
-	parser := renderParserConf()
-	assert.Contains(t, conf, "[SERVICE]")
-	assert.Contains(t, parser, "[PARSER]")
-}

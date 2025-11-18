@@ -1,29 +1,143 @@
-name: Package Helm Chart
+name: Package and Release Helm Charts
 on:
   workflow_call:
+    inputs:
+      old_operator_version:
+        description: 'OLD OPERATOR VERSION'
+        required: false
+        type: string
+      new_operator_version:
+        description: 'NEW OPERATOR VERSION'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
   package:
     runs-on: ubuntu-latest
     permissions:
-      # Need the write permission because this job commits changes to some folders like dist
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Dotenv Action
-        uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
-        id: dotenv
-      - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/checkout@v4
         with:
-          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
-      - name: Run helm chart package creation
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Extract version
+        id: version
         run: |
-          helm package helm-chart/splunk-ai-operator
-          cp splunk-ai-operator-${{ github.event.inputs.new_operator_version }}.tgz docs/
-          mv splunk-ai-operator-${{ github.event.inputs.new_operator_version }}.tgz helm-chart/splunk-enterprise/charts
-          helm package helm-chart/splunk-enterprise
-          mv splunk-enterprise-${{ github.event.inputs.new_operator_version }}.tgz docs/
-          helm repo index --url https://splunk.github.io/splunk-ai-operator/ docs/
+          if [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Extract from git tag (remove 'v' prefix)
+            VERSION=${GITHUB_REF_NAME#v}
+          elif [ -n "${{ inputs.new_operator_version }}" ]; then
+            # Use input version (for workflow_call)
+            VERSION="${{ inputs.new_operator_version }}"
+          else
+            # Fallback to Chart.yaml version
+            VERSION=$(grep '^version:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Packaging version: $VERSION"
+
+      - name: Update Chart versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update operator chart
+          sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
+
+          # Validate operator chart update
+          OP_VER=$(grep '^version:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          OP_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          if [ "$OP_VER" != "$VERSION" ] || [ "$OP_APPVER" != "$VERSION" ]; then
+            echo "ERROR: Failed to update operator chart version/appVersion to $VERSION"
+            echo "Expected: $VERSION"
+            echo "Got version: $OP_VER, appVersion: $OP_APPVER"
+            cat helm-chart/splunk-ai-operator/Chart.yaml
+            exit 1
+          fi
+          echo "✅ Operator chart updated successfully: version=$OP_VER, appVersion=$OP_APPVER"
+
+          # Update platform chart if it exists
+          if [ -f helm-chart/splunk-ai-platform/Chart.yaml ]; then
+            sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
+            sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
+
+            # Validate platform chart update
+            PLAT_VER=$(grep '^version:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            PLAT_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            if [ "$PLAT_VER" != "$VERSION" ] || [ "$PLAT_APPVER" != "$VERSION" ]; then
+              echo "ERROR: Failed to update platform chart version/appVersion to $VERSION"
+              echo "Expected: $VERSION"
+              echo "Got version: $PLAT_VER, appVersion: $PLAT_APPVER"
+              cat helm-chart/splunk-ai-platform/Chart.yaml
+              exit 1
+            fi
+            echo "✅ Platform chart updated successfully: version=$PLAT_VER, appVersion=$PLAT_APPVER"
+          fi
+
+      - name: Package Helm charts
+        run: |
+          mkdir -p .helm-releases
+
+          # Package operator chart
+          helm package helm-chart/splunk-ai-operator --destination .helm-releases
+
+          # Package platform chart if it exists
+          if [ -f helm-chart/splunk-ai-platform/Chart.yaml ]; then
+            helm package helm-chart/splunk-ai-platform --destination .helm-releases
+          fi
+
+          echo "Packaged charts:"
+          ls -lh .helm-releases/
+
+      - name: Generate Helm repository index
+        run: |
+          RELEASE_TAG="v${{ steps.version.outputs.version }}"
+          helm repo index .helm-releases \
+            --url "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}"
+
+          echo "Generated index.yaml:"
+          cat .helm-releases/index.yaml
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            .helm-releases/*.tgz
+            .helm-releases/index.yaml
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## Splunk AI Operator Helm Charts
+
+            This release includes Helm charts for the Splunk AI Operator.
+
+            ### Installation
+
+            #### Direct Install from GitHub Release
+            ```bash
+            helm install splunk-ai-operator \
+              https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/splunk-ai-operator-${{ steps.version.outputs.version }}.tgz
+            ```
+
+            #### Using as Helm Repository
+            ```bash
+            helm repo add splunk-ai https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/
+            helm repo update
+            helm install splunk-ai-operator splunk-ai/splunk-ai-operator --version ${{ steps.version.outputs.version }}
+            ```
+
+            See [Helm Deployment Guide](https://github.com/${{ github.repository }}/blob/main/docs/deployment/helm-deployment.md) for detailed instructions.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

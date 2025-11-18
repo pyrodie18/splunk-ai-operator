@@ -29,64 +29,141 @@ const aiServiceFinalizer = "ai.splunk.com/aiservice-protect"
 
 // AIServiceSpec defines the desired state of AIService
 type AIServiceSpec struct {
-	// Features defines the features to be enabled for the AIService
+	// Feature defines the features to be enabled for the AIService
+	// +kubebuilder:validation:Optional
 	Feature FeatureSpec `json:"features,omitempty"`
+
 	// Version specifies the version of the AIService
+	// +kubebuilder:validation:Optional
 	Version string `json:"version,omitempty"`
-	// TaskVolume specifies the volume to be used for tasks
+
+	// TaskVolume specifies the object storage volume for tasks
+	// +kubebuilder:validation:Optional
 	TaskVolume ObjectStorageSpec `json:"taskVolume,omitempty"`
-	// SplunkConfigurationSpec specifies the Splunk configuration for the AIService
+
+	// SplunkConfiguration specifies the Splunk configuration for the AIService
+	// +kubebuilder:validation:Optional
 	SplunkConfiguration SplunkConfigurationSpec `json:"splunkConfiguration,omitempty"`
-	// VectorDbUrl specifies the URL for the vector database
+
+	// VectorDbUrl specifies the URL or service name for the vector database
+	// +kubebuilder:validation:Required
 	VectorDbUrl string `json:"vectorDbUrl"`
-	// AIPlatformUrl specifies the URL for the AI Platform
+
+	// AIPlatformUrl specifies the URL for the AI Platform (deprecated, use AIPlatformRef)
+	// +kubebuilder:validation:Optional
 	AIPlatformUrl string `json:"aiPlatformUrl,omitempty"`
+
 	// AIPlatformRef is a reference to the AIPlatform resource
+	// +kubebuilder:validation:Required
 	AIPlatformRef corev1.ObjectReference `json:"aiPlatformRef"`
+
 	// Replicas specifies the number of replicas for the AIService
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
 	Replicas int32 `json:"replicas,omitempty"`
+
 	// ServiceAccountName specifies the service account to be used by the AIService
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
-	//Port specifies the default port for the service
-	Port int32 `json:"port,omitempty" default:"80"`
+
+	// ImagePullSecrets is a list of secret names for pulling container images from private registries
+	// If specified, these secrets will be added to ALL pods created for this AIService
+	// Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+	// +kubebuilder:validation:Optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
+	// Port specifies the service port
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=80
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port,omitempty"`
+
 	// Env specifies environment variables for the AIService
+	// +kubebuilder:validation:Optional
 	Env map[string]string `json:"env,omitempty"`
+
 	// Tolerations specifies the tolerations for the AIService pods
+	// +kubebuilder:validation:Optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-	// node affinity configuration
+
+	// Affinity defines pod affinity and anti-affinity rules
+	// +kubebuilder:validation:Optional
 	Affinity corev1.Affinity `json:"affinity,omitempty"`
-	// resources k8s resources cpu, memory
+
+	// Resources defines the compute resources for the AIService pods
+	// +kubebuilder:validation:Optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
-	// metrics configuration
+
+	// Metrics configuration for monitoring
+	// +kubebuilder:validation:Optional
 	Metrics MetricsConfig `json:"metrics,omitempty"`
-	// mtls configuration
+
+	// MTLS configuration for secure communication
+	// +kubebuilder:validation:Optional
 	MTLS MTLSConfig `json:"mtls,omitempty"`
+
 	// ServiceTemplate is a template used to create Kubernetes services
+	// +kubebuilder:validation:Optional
 	ServiceTemplate corev1.Service `json:"serviceTemplate"`
-	// Cluster domain (default: cluster.local)
-	// +kubebuilder:default=cluster.local
+
+	// ClusterDomain is the cluster domain for service DNS
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="cluster.local"
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 }
 
+// MetricsConfig defines the metrics configuration for monitoring
 type MetricsConfig struct {
-	// Enable scraping of SAIA metrics
+	// Enabled determines whether to scrape metrics
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty"`
-	// Path under /metrics, default "/metrics"
+
+	// Path is the metrics endpoint path, default "/metrics"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="/metrics"
+	// +kubebuilder:validation:Pattern=`^/.*$`
 	Path string `json:"path,omitempty"`
-	// Port name or number, default "metrics"
+
+	// Port is the metrics port number
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=9090
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port,omitempty"`
 }
 
+// MTLSConfig defines the mTLS configuration for secure communication
 type MTLSConfig struct {
-	// Enable or disable mTLS on the SAIA service
+	// Enabled determines whether to enable mTLS
+	// +kubebuilder:validation:Required
 	Enabled bool `json:"enabled"`
-	// If Enabled, how to request the cert
-	IssuerRef  cmmeta.ObjectReference `json:"issuerRef,omitempty"`
-	SecretName string                 `json:"secretName,omitempty"`
-	DNSNames   []string               `json:"dnsNames,omitempty"`
-	// Let users declare “I don’t want operator-managed TLS” even if Enabled=true,
-	// e.g. they’re on Istio and will terminate externally.
-	Termination string `json:"termination,omitempty"` // "operator" or "mesh"
+
+	// IssuerRef references the cert-manager Issuer for certificate generation
+	// +kubebuilder:validation:Optional
+	IssuerRef cmmeta.ObjectReference `json:"issuerRef,omitempty"`
+
+	// SecretName is the name of the Secret containing TLS certificates
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:MinLength=1
+	SecretName string `json:"secretName,omitempty"`
+
+	// DNSNames is the list of DNS names for the certificate
+	// +kubebuilder:validation:Optional
+	DNSNames []string `json:"dnsNames,omitempty"`
+
+	// Termination specifies where TLS is terminated: "operator" or "mesh"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="operator"
+	// +kubebuilder:validation:Enum=operator;mesh
+	Termination string `json:"termination,omitempty"`
 }
 
 // AIServiceStatus defines the observed state of AIService
@@ -102,9 +179,12 @@ type AIServiceStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=aiservices,scope=Namespaced,shortName=saia
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:resource:path=aiservices,scope=Namespaced,shortName=saia;aiservice
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Service ready status"
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="Number of replicas"
+// +kubebuilder:printcolumn:name="Platform",type="string",JSONPath=".spec.aiPlatformRef.name",description="AI Platform reference"
+// +kubebuilder:printcolumn:name="VectorDB",type="string",JSONPath=".status.vectorDbStatus",priority=1,description="VectorDB status"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Age of resource"
 type AIService struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

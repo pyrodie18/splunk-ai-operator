@@ -1,0 +1,118 @@
+# Enhanced Skaffold configuration for development
+apiVersion: skaffold/v3
+kind: Config
+metadata:
+  name: splunk-ai-operator-dev
+
+build:
+  local:
+    push: false
+    useBuildkit: true
+    concurrency: 1
+  tagPolicy:
+    gitCommit:
+      variant: AbbrevCommitSha
+  platforms: ["linux/amd64"]
+  artifacts:
+    - image: splunk-ai-operator
+      platforms:
+        - linux/amd64
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        buildArgs:
+          TARGETOS: linux
+          TARGETARCH: amd64
+      sync:
+        manual:
+          - src: "**/*.go"
+            dest: /workspace
+          - src: "config/**/*.yaml"
+            dest: /workspace/config
+      hooks:
+        after:
+          - command: ["sh", "-c", "./prehook.sh"]
+            dir: tools
+            os: [darwin, linux]
+        before:
+          - command: ["sh", "-c", "./cleanup.sh"]
+            dir: tools
+            os: [darwin, linux]
+
+deploy:
+  kubectl:
+    flags:
+      apply:
+        - --server-side
+        - --force-conflicts
+    hooks:
+      after:
+        - host:
+            command: ["sh", "-c", "echo 'Deployment complete. Operator is running.'"]
+
+manifests:
+  kustomize:
+    paths:
+      - config/default
+    buildArgs:
+      - --load-restrictor=LoadRestrictionsNone
+
+portForward:
+  - resourceType: deployment
+    resourceName: splunk-ai-operator-controller-manager
+    namespace: splunk-ai-operator-system
+    port: 8080
+    localPort: 8080
+  - resourceType: deployment
+    resourceName: splunk-ai-operator-controller-manager
+    namespace: splunk-ai-operator-system
+    port: 8081
+    localPort: 8081
+  - resourceType: deployment
+    resourceName: splunk-ai-operator-controller-manager
+    namespace: splunk-ai-operator-system
+    port: 9443
+    localPort: 9443
+
+# Profiles for different environments
+profiles:
+  # Local development with kind
+  - name: kind
+    activation:
+      - kubeContext: kind-.*
+    build:
+      local:
+        push: false
+
+  # Local development with minikube
+  - name: minikube
+    activation:
+      - kubeContext: minikube
+    build:
+      local:
+        push: false
+
+  # Remote cluster development
+  - name: remote
+    activation:
+      - kubeContext: "!kind-.*"
+      - kubeContext: "!minikube"
+    build:
+      local:
+        push: true
+      tagPolicy:
+        gitCommit: {}
+
+  # Debug profile with delve
+  - name: debug
+    build:
+      artifacts:
+        - image: splunk-ai-operator
+          docker:
+            dockerfile: Dockerfile.debug
+    portForward:
+      - resourceType: deployment
+        resourceName: splunk-ai-operator-controller-manager
+        namespace: splunk-ai-operator-system
+        port: 2345
+        localPort: 2345

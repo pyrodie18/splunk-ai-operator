@@ -7,6 +7,7 @@ import (
 	enterpriseApiV3 "github.com/splunk/splunk-operator/api/v3"
 	enterpriseApi "github.com/splunk/splunk-operator/api/v4"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	crdv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -313,4 +314,63 @@ func stringInSlice(a string, list []string) bool {
 		}
 	}
 	return false
+}
+
+// StatefulSetChangedPredicate only triggers on StatefulSet status changes (not spec)
+func StatefulSetChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if _, ok := e.ObjectNew.(*appsv1.StatefulSet); !ok {
+				return false
+			}
+
+			// This update is in fact a Delete event, process it
+			if e.ObjectNew.GetDeletionGracePeriodSeconds() != nil {
+				return true
+			}
+
+			// Only reconcile on status changes, not spec changes
+			newObj, ok := e.ObjectNew.DeepCopyObject().(*appsv1.StatefulSet)
+			if !ok {
+				return false
+			}
+			oldObj, ok := e.ObjectOld.DeepCopyObject().(*appsv1.StatefulSet)
+			if !ok {
+				return false
+			}
+			return !cmp.Equal(newObj.Status, oldObj.Status)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return !e.DeleteStateUnknown
+		},
+	}
+}
+
+// JobChangedPredicate only triggers on Job status changes
+func JobChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			newJob, ok := e.ObjectNew.(*batchv1.Job)
+			if !ok {
+				return false
+			}
+
+			// This update is in fact a Delete event, process it
+			if e.ObjectNew.GetDeletionGracePeriodSeconds() != nil {
+				return true
+			}
+
+			oldJob, ok := e.ObjectOld.(*batchv1.Job)
+			if !ok {
+				return false
+			}
+
+			// Only reconcile if job completion status changed
+			// Check if conditions changed (Complete or Failed)
+			return !cmp.Equal(newJob.Status.Conditions, oldJob.Status.Conditions)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return !e.DeleteStateUnknown
+		},
+	}
 }

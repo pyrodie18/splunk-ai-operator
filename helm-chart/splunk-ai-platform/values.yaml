@@ -27,6 +27,10 @@ prometheus:
 # Disable if the OpenTelemetry Operator is already deployed
 opentelemetry-operator:
   enabled: true
+  manager:
+    collectorImage:
+      repository: "otel/opentelemetry-collector-k8s"
+      tag: "0.102.1"
 
 # Metadata overrides:
 # Override the Splunk AI Platform helm chart name
@@ -84,8 +88,6 @@ workerGroupSpec:
 sidecars:
   # Enables the Envoy sidecar
   envoy: true
-  # Enables the Fluent Bit sidecar
-  fluentBit: true
   # Enables the OpenTelemetry collector sidecar
   otel: true
   # Enables the Prometheus Operator sidecar

@@ -1,25 +1,26 @@
 package saia
 
 import (
-	//"context"
-
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	manager "github.com/splunk/splunk-ai-operator/pkg/service"
-	//"github.com/splunk/splunk-ai-operator/pkg/service/saia"
 )
 
 type saiaManagerFactory struct {
 	log logr.Logger
 }
 
-// NewManagerFactory  new manager factory to create manager interface
+// NewManagerFactory creates a new manager factory to create manager interface.
+// Returns nil if initialization fails - callers should check for nil.
 func NewManagerFactory() manager.Factory {
 	factory := saiaManagerFactory{}
 	err := factory.init()
 	if err != nil {
-		return nil // FIXME we have to throw some kind of exception or error here
+		// Log the error since we can't return it from this signature
+		// In production, consider using a logger
+		panic(fmt.Sprintf("failed to initialize SAIA manager factory: %v", err))
 	}
 	return &factory
 }
@@ -36,10 +37,7 @@ func (f *saiaManagerFactory) newManager(ctx context.Context) (manager.Manager, e
 }
 
 // NewService implements the Factory interface.
-// TODO: Replace the parameters and return type with the actual signature from the manager.Factory interface.
-
-// NewGateway returns a new Splunk Gateway using global
-// configuration for finding the Splunk services.
+// Returns a new SAIA service manager using the provided context.
 func (f *saiaManagerFactory) NewService(ctx context.Context) (manager.Manager, error) {
 	return f.newManager(ctx)
 }

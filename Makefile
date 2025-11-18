@@ -137,6 +137,57 @@ e2e-ai:
 	FORWARD_SERVICE=$(FORWARD_SERVICE) \
 	go test ./test/e2e/specs -run "AIPlatform.*" -v -ginkgo.v -ginkgo.progress
 
+# Comprehensive E2E tests for all AIPlatform features
+.PHONY: e2e-comprehensive
+e2e-comprehensive: ## Run comprehensive E2E tests (storage, ingress, MTLS, status, events)
+	IMG=$(IMG) go test ./test/e2e/specs -run "AIPlatform Comprehensive" -v -ginkgo.v -ginkgo.progress
+
+# Run specific feature tests
+.PHONY: e2e-storage
+e2e-storage: ## Run storage configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Storage Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-ingress
+e2e-ingress: ## Run ingress configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Ingress Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-mtls
+e2e-mtls: ## Run MTLS configuration E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "MTLS Configuration" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-status
+e2e-status: ## Run status condition E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Status Conditions" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-events
+e2e-events: ## Run event tracking E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Event Tracking" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-health
+e2e-health: ## Run component health E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Component Health" -v -ginkgo.v -ginkgo.progress
+
+.PHONY: e2e-webhook
+e2e-webhook: ## Run webhook validation E2E tests
+	IMG=$(IMG) go test ./test/e2e/specs -run "Webhook Validation" -v -ginkgo.v -ginkgo.progress
+
+# Cluster E2E tests - creates cluster and runs full test suite
+.PHONY: e2e-cluster-kind
+e2e-cluster-kind: ## Run E2E tests on kind cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider kind --cleanup-on-success
+
+.PHONY: e2e-cluster-eks
+e2e-cluster-eks: ## Run E2E tests on EKS cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider eks --region us-west-2 --cleanup-on-success
+
+.PHONY: e2e-cluster-gke
+e2e-cluster-gke: ## Run E2E tests on GKE cluster (creates and destroys cluster)
+	./test/e2e/cluster-e2e-test.sh --provider gke --region us-central1 --cleanup-on-success
+
+.PHONY: e2e-cluster-existing
+e2e-cluster-existing: ## Run E2E tests on existing cluster (no creation/deletion)
+	CLEANUP_ON_SUCCESS=false ./test/e2e/cluster-e2e-test.sh --skip-cluster-creation --skip-operator-install --skip-dependencies
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -368,3 +419,233 @@ setup/ginkgo:
 	@go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@latest
 	@echo Installing gomega
 	@go get github.com/onsi/gomega/...
+
+##@ Helm Charts
+
+HELM_CHART_VERSION ?= $(VERSION)
+HELM_CHART_OPERATOR_DIR = helm-chart/splunk-ai-operator
+HELM_CHART_PLATFORM_DIR = helm-chart/splunk-ai-platform
+HELM_OUTPUT_DIR ?= dist/helm
+
+.PHONY: helm-sync
+helm-sync: manifests ## Sync CRDs and RBAC from config/ to helm charts
+	@echo "Syncing CRDs and RBAC to Helm charts..."
+	@echo "  Copying CRDs..."
+	@cp config/crd/bases/*.yaml $(HELM_CHART_OPERATOR_DIR)/crds/
+	@echo "  Extracting RBAC from kustomize build..."
+	@mkdir -p dist
+	@$(KUSTOMIZE) build config/default > dist/install.yaml
+	@echo "  Updating RBAC templates..."
+	@# Extract ClusterRole from kustomize build and update helm template
+	@echo "✓ CRDs synced to $(HELM_CHART_OPERATOR_DIR)/crds/"
+	@echo "⚠️  RBAC sync requires manual review - check dist/install.yaml for latest ClusterRole"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Review dist/install.yaml for ClusterRole changes"
+	@echo "  2. Update $(HELM_CHART_OPERATOR_DIR)/templates/rbac/role.yaml manually"
+	@echo "  3. Run 'make helm-lint' to verify changes"
+
+.PHONY: helm-lint
+helm-lint: ## Lint Helm charts
+	@echo "Linting Helm charts..."
+	@helm lint $(HELM_CHART_OPERATOR_DIR)
+	@helm lint $(HELM_CHART_PLATFORM_DIR)
+	@echo "✓ Helm charts linting complete"
+
+.PHONY: helm-package
+helm-package: helm-lint ## Package Helm charts into tgz archives
+	@echo "Packaging Helm charts..."
+	@mkdir -p $(HELM_OUTPUT_DIR)
+	@helm package $(HELM_CHART_OPERATOR_DIR) --version $(HELM_CHART_VERSION) --app-version $(VERSION) --destination $(HELM_OUTPUT_DIR)
+	@helm package $(HELM_CHART_PLATFORM_DIR) --version $(HELM_CHART_VERSION) --app-version $(VERSION) --destination $(HELM_OUTPUT_DIR)
+	@echo "✓ Helm charts packaged:"
+	@ls -lh $(HELM_OUTPUT_DIR)/*.tgz
+
+.PHONY: helm-index
+helm-index: helm-package ## Generate Helm repository index
+	@echo "Generating Helm repository index..."
+	@helm repo index $(HELM_OUTPUT_DIR) --url https://github.com/splunk/splunk-ai-operator/releases/download/v$(VERSION)
+	@echo "✓ Helm repository index generated: $(HELM_OUTPUT_DIR)/index.yaml"
+
+.PHONY: helm-template
+helm-template: ## Render Helm chart templates locally (for testing)
+	@echo "Rendering splunk-ai-operator chart templates..."
+	@helm template test-operator $(HELM_CHART_OPERATOR_DIR) --debug
+	@echo ""
+	@echo "Rendering splunk-ai-platform chart templates..."
+	@helm template test-platform $(HELM_CHART_PLATFORM_DIR) --debug
+
+.PHONY: helm-install-operator
+helm-install-operator: ## Install splunk-ai-operator chart locally
+	@echo "Installing splunk-ai-operator chart..."
+	@helm upgrade --install splunk-ai-operator $(HELM_CHART_OPERATOR_DIR) \
+		--namespace splunk-ai-operator --create-namespace \
+		--set image.repository=$(IMG)
+	@echo "✓ Operator installed. Check status:"
+	@kubectl get pods -n splunk-ai-operator
+
+.PHONY: helm-install-platform
+helm-install-platform: ## Install splunk-ai-platform chart locally
+	@echo "Installing splunk-ai-platform chart..."
+	@echo "⚠️  Make sure to customize values first!"
+	@helm upgrade --install splunk-ai-platform $(HELM_CHART_PLATFORM_DIR) \
+		--namespace ai-platform --create-namespace
+	@echo "✓ Platform installed. Check status:"
+	@kubectl get aiplatform -n ai-platform
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall both Helm charts
+	@echo "Uninstalling Helm charts..."
+	-@helm uninstall splunk-ai-platform -n ai-platform 2>/dev/null || true
+	-@helm uninstall splunk-ai-operator -n splunk-ai-operator 2>/dev/null || true
+	@echo "✓ Helm charts uninstalled"
+
+.PHONY: helm-clean
+helm-clean: ## Clean Helm build artifacts
+	@echo "Cleaning Helm artifacts..."
+	@rm -rf $(HELM_OUTPUT_DIR)
+	@echo "✓ Helm artifacts cleaned"
+
+.PHONY: helm-docs
+helm-docs: ## Generate Helm chart README from values.yaml (requires helm-docs)
+	@if command -v helm-docs >/dev/null 2>&1; then \
+		echo "Generating Helm chart documentation..."; \
+		helm-docs $(HELM_CHART_OPERATOR_DIR); \
+		helm-docs $(HELM_CHART_PLATFORM_DIR); \
+		echo "✓ Helm documentation generated"; \
+	else \
+		echo "⚠️  helm-docs not installed. Install: https://github.com/norwoodj/helm-docs"; \
+	fi
+
+.PHONY: helm-all
+helm-all: helm-lint helm-package helm-index ## Build and package all Helm charts with index
+	@echo "✓ All Helm operations complete"
+	@echo ""
+	@echo "📦 Packaged charts ready for release:"
+	@ls -lh $(HELM_OUTPUT_DIR)/*.tgz
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Upload .tgz files to GitHub release"
+	@echo "  2. Upload index.yaml to release"
+
+##@ Zarf Operations
+
+ZARF_VERSION ?= $(VERSION)
+ZARF_DIR := tools/cluster_setup/zarf
+
+.PHONY: zarf-check
+zarf-check: ## Check if Zarf CLI is installed
+	@if ! command -v zarf >/dev/null 2>&1; then \
+		echo "❌ Zarf CLI not found. Install from: https://docs.zarf.dev/docs/getting-started#installing-zarf"; \
+		exit 1; \
+	else \
+		echo "✓ Zarf CLI installed: $$(zarf version)"; \
+	fi
+
+.PHONY: zarf-build
+zarf-build: zarf-check helm-package ## Build Zarf package for air-gapped deployment
+	@echo "Building Zarf package..."
+	@echo "⚠️  This will take 15-30 minutes depending on image sizes"
+	@echo "⚠️  Ensure you're authenticated to all required registries (Docker Hub, ECR, etc.)"
+	@cd $(ZARF_DIR) && zarf package create . --confirm
+	@mv $(ZARF_DIR)/zarf-package-*.tar.zst . 2>/dev/null || true
+	@echo "✓ Zarf package created in project root"
+
+.PHONY: zarf-build-complete
+zarf-build-complete: zarf-check helm-package ## Build complete Zarf package (k0s + operator + platform)
+	@echo "=========================================="
+	@echo "Building COMPLETE Zarf Package"
+	@echo "=========================================="
+	@echo "This package includes:"
+	@echo "  • k0s cluster installation"
+	@echo "  • Storage and networking"
+	@echo "  • GPU support (optional)"
+	@echo "  • Monitoring stack (optional)"
+	@echo "  • Splunk AI Operator"
+	@echo "  • Splunk Enterprise"
+	@echo "  • AI Platform instance"
+	@echo ""
+	@echo "⚠️  This will take 45-90 minutes"
+	@echo "⚠️  Package size will be 30-50GB"
+	@echo "⚠️  Ensure you're authenticated to all registries"
+	@echo ""
+	@cd $(ZARF_DIR) && zarf package create . -f zarf-complete.yaml --confirm
+	@mv $(ZARF_DIR)/zarf-package-splunk-ai-platform-complete-*.tar.zst . 2>/dev/null || true
+	@echo ""
+	@echo "=========================================="
+	@echo "✓ Complete package created"
+	@echo "=========================================="
+	@ls -lh zarf-package-splunk-ai-platform-complete-*.tar.zst
+	@echo ""
+	@echo "This package can deploy everything from bare metal to AI Platform"
+	@echo "See tools/cluster_setup/zarf/docs/COMPLETE_DEPLOYMENT.md"
+
+.PHONY: zarf-inspect
+zarf-inspect: ## Inspect the Zarf package contents
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		zarf package inspect zarf-package-*.tar.zst; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy
+zarf-deploy: ## Deploy Zarf package to current Kubernetes cluster
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying Zarf package to cluster..."; \
+		zarf package deploy zarf-package-*.tar.zst --confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy-minimal
+zarf-deploy-minimal: ## Deploy only core operator components (no monitoring)
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying minimal Zarf package (core + operator only)..."; \
+		zarf package deploy zarf-package-*.tar.zst \
+			--components=core-dependencies,splunk-ai-operator,ai-platform-images \
+			--confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-deploy-full
+zarf-deploy-full: ## Deploy full stack including monitoring
+	@if ls zarf-package-*.tar.zst 1> /dev/null 2>&1; then \
+		echo "Deploying full Zarf package (all components)..."; \
+		zarf package deploy zarf-package-*.tar.zst \
+			--components=core-dependencies,monitoring,splunk-ai-operator,ai-platform-images,ai-platform-instances \
+			--confirm; \
+	else \
+		echo "❌ No Zarf package found. Run 'make zarf-build' first"; \
+		exit 1; \
+	fi
+
+.PHONY: zarf-remove
+zarf-remove: ## Remove deployed Zarf package
+	@echo "Removing Zarf package deployment..."
+	@zarf package remove splunk-ai-operator --confirm
+
+.PHONY: zarf-clean
+zarf-clean: ## Clean Zarf build artifacts
+	@echo "Cleaning Zarf artifacts..."
+	@rm -f zarf-package-*.tar.zst
+	@rm -f zarf-sbom-*.tar
+	@echo "✓ Zarf artifacts cleaned"
+
+.PHONY: zarf-all
+zarf-all: helm-all zarf-build zarf-inspect ## Build Helm charts and Zarf package
+	@echo "✓ Zarf package ready for air-gapped deployment"
+	@echo ""
+	@echo "📦 Package files:"
+	@ls -lh zarf-package-*.tar.zst
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Transfer package to air-gapped environment"
+	@echo "  2. Run: zarf init --confirm"
+	@echo "  3. Run: zarf package deploy <package-file> --confirm"
+	@echo ""
+	@echo "See tools/cluster_setup/zarf/docs/zarf-deployment.md for complete guide"
+	@echo "  3. Update docs with new version"

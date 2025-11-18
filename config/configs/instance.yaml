@@ -1,107 +1,54 @@
-aws:
-  p4d.24xlarge:
-    gpuType: nvidia-a100
-    acceleratorType: A100
-    gpus: 8
-    vcpus: 96
-    memory: "1152Gi"
-  g5.12xlarge:
-    gpuType: nvidia-a10g
-    acceleratorType: A10G
-    gpus: 4
-    vcpus: 48
-    memory: "192Gi"
-  g6.12xlarge:
-    gpuType: nvidia-h100
-    acceleratorType: H100
-    gpus: 4
-    vcpus: 48
-    memory: "384Gi"
-  p3.8xlarge:
-    gpuType: nvidia-v100
-    acceleratorType: V100
-    gpus: 4
-    vcpus: 32
-    memory: "244Gi"
-  g4dn.12xlarge:
-    gpuType: nvidia-t4
-    acceleratorType: T4
-    gpus: 4
-    vcpus: 48
-    memory: "192Gi"
-  g6.24xlarge:
-    gpuType: nvidia-l4
-    acceleratorType: L4
-    gpus: 4
-    vcpus: 96
-    memory: "384Gi"
-  fallback:
-    gpuType: nvidia-t4
-    acceleratorType: T4
-    gpus: 1
-    vcpus: 4
-    memory: "16Gi"
-
-gcp:
-  a2-highgpu-1g:
-    gpuType: nvidia-a100
-    acceleratorType: A100
-    gpus: 1
-    vcpus: 12
-    memory: "85Gi"
-  a2-highgpu-8g:
-    gpuType: nvidia-a100
-    acceleratorType: A100
-    gpus: 8
-    vcpus: 96
-    memory: "680Gi"
-  n1-standard-16-l4:
-    gpuType: nvidia-l4
-    acceleratorType: L4
-    gpus: 1
-    vcpus: 16
-    memory: "60Gi"
-  n1-standard-16-t4:
-    gpuType: nvidia-t4
-    acceleratorType: T4
-    gpus: 1
-    vcpus: 16
-    memory: "60Gi"
-  fallback:
-    gpuType: nvidia-t4
-    acceleratorType: T4
-    gpus: 1
-    vcpus: 4
-    memory: "16Gi"
-
-azure:
-  Standard_ND96asr_v4:
-    gpuType: nvidia-a100
-    acceleratorType: A100
-    gpus: 8
-    vcpus: 96
-    memory: "900Gi"
-  Standard_ND40rs_v2:
-    gpuType: nvidia-v100
-    acceleratorType: V100
-    gpus: 4
-    vcpus: 40
-    memory: "672Gi"
-  Standard_NC24s_v3:
-    gpuType: nvidia-v100
-    acceleratorType: V100
-    gpus: 4
-    vcpus: 24
-    memory: "448Gi"
-  Standard_NV12s_v3:
-    gpuType: nvidia-m60
-    acceleratorType: M60
-    gpus: 2
-    vcpus: 12
-    memory: "112Gi"
-  fallback:
-    gpuType: nvidia-t4
-    acceleratorType: T4
-    gpus: 1
-    vcpus: 4
-    memory: "16Gi"
+L40S:
+  - tier: l40s-0-gpu
+    gpusPerPod: 0
+    env:
+      NVIDIA_VISIBLE_DEVICES: void
+    resources:
+      limits:
+        cpu: "16"
+        memory: "32Gi"
+        ephemeral-storage: "10Gi"
+        nvidia.com/gpu: "0"
+      requests:
+        cpu: "4"
+  - tier: l40s-1-gpu
+    gpusPerPod: 1
+    resources:
+      requests:
+        cpu: "4"
+      limits:
+        cpu: "16"
+        memory: "16Gi"
+        ephemeral-storage: "50Gi"
+        nvidia.com/gpu: "1"
+  - tier: l40s-2-gpu
+    gpusPerPod: 2
+    resources:
+      requests:
+        cpu: "1"
+      limits:
+        cpu: "2"
+        memory: "48Gi"
+        ephemeral-storage: "100Gi"
+        nvidia.com/gpu: "2"
+H100_NVL:
+  - tier: h100-nvl-0-gpu
+    gpusPerPod: 0
+    resources:
+      limits:
+        cpu: "16"
+        memory: "32Gi"
+        ephemeral-storage: "10Gi"
+        nvidia.com/gpu: "0"
+      requests:
+        cpu: "4"
+  - tier: h100-nvl-1-gpu
+    gpusPerPod: 1
+    resources:
+      requests:
+        cpu: "4"
+      limits:
+        cpu: "16"
+        memory: "48Gi"
+        ephemeral-storage: "100Gi"
+        nvidia.com/gpu: "1"
