@@ -46,6 +46,8 @@ declare -A IMAGES=(
 # Additional metadata
 MODEL_VERSION="${MODEL_VERSION:-unknown}"
 RAY_VERSION="${RAY_VERSION:-unknown}"
+K8S_VERSION="${EKS_CLUSTER_K8_VERSION:-${KUBECTL_VERSION:-unknown}}"
+GO_VERSION="${GO_VERSION:-unknown}"
 
 # Generate JSON BOM
 cat > "${BOM_JSON}" <<EOF
@@ -69,6 +71,14 @@ cat > "${BOM_JSON}" <<EOF
       {
         "name": "ray_version",
         "value": "${RAY_VERSION}"
+      },
+      {
+        "name": "kubernetes_version",
+        "value": "${K8S_VERSION}"
+      },
+      {
+        "name": "go_version",
+        "value": "${GO_VERSION}"
       }
     ]
   },
@@ -129,6 +139,8 @@ spec:
   dependencies:
     modelVersion: ${MODEL_VERSION}
     rayVersion: ${RAY_VERSION}
+    kubernetesVersion: ${K8S_VERSION}
+    goVersion: ${GO_VERSION}
   containerImages:
 EOF
 
@@ -168,6 +180,8 @@ DEPENDENCY VERSIONS
 -------------------
 Model Version:      ${MODEL_VERSION}
 Ray Version:        ${RAY_VERSION}
+Kubernetes Version: ${K8S_VERSION}
+Go Version:         ${GO_VERSION}
 
 VERIFICATION
 ------------
