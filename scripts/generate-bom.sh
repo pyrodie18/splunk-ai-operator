@@ -48,6 +48,14 @@ MODEL_VERSION="${MODEL_VERSION:-unknown}"
 RAY_VERSION="${RAY_VERSION:-unknown}"
 K8S_VERSION="${EKS_CLUSTER_K8_VERSION:-${KUBECTL_VERSION:-unknown}}"
 GO_VERSION="${GO_VERSION:-unknown}"
+SPLUNK_ENTERPRISE_RELEASE="${SPLUNK_ENTERPRISE_RELEASE_IMAGE:-unknown}"
+
+# Extract Splunk Enterprise version from image tag
+if [[ "$SPLUNK_ENTERPRISE_RELEASE" =~ :([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    SPLUNK_VERSION="${BASH_REMATCH[1]}"
+else
+    SPLUNK_VERSION="unknown"
+fi
 
 # Generate JSON BOM
 cat > "${BOM_JSON}" <<EOF
@@ -79,6 +87,14 @@ cat > "${BOM_JSON}" <<EOF
       {
         "name": "go_version",
         "value": "${GO_VERSION}"
+      },
+      {
+        "name": "splunk_enterprise_version",
+        "value": "${SPLUNK_VERSION}"
+      },
+      {
+        "name": "splunk_enterprise_image",
+        "value": "${SPLUNK_ENTERPRISE_RELEASE}"
       }
     ]
   },
@@ -141,6 +157,8 @@ spec:
     rayVersion: ${RAY_VERSION}
     kubernetesVersion: ${K8S_VERSION}
     goVersion: ${GO_VERSION}
+    splunkEnterpriseVersion: ${SPLUNK_VERSION}
+    splunkEnterpriseImage: ${SPLUNK_ENTERPRISE_RELEASE}
   containerImages:
 EOF
 
@@ -178,10 +196,12 @@ cat >> "${BOM_TXT}" <<EOF
 
 DEPENDENCY VERSIONS
 -------------------
-Model Version:      ${MODEL_VERSION}
-Ray Version:        ${RAY_VERSION}
-Kubernetes Version: ${K8S_VERSION}
-Go Version:         ${GO_VERSION}
+Model Version:           ${MODEL_VERSION}
+Ray Version:             ${RAY_VERSION}
+Kubernetes Version:      ${K8S_VERSION}
+Go Version:              ${GO_VERSION}
+Splunk Enterprise:       ${SPLUNK_VERSION}
+Splunk Enterprise Image: ${SPLUNK_ENTERPRISE_RELEASE}
 
 VERIFICATION
 ------------
