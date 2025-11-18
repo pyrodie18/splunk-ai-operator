@@ -26,6 +26,10 @@ Downloads model artifacts from Hugging Face repositories.
 - Reads configuration from `model_artifacts_configs.yaml`
 - Supports both public and gated Hugging Face models
 - Automatically installs dependencies (wget, yq, git-lfs)
+- **Force re-download**: Removes and re-downloads models if they already exist
+- **Fail-fast error handling**: Exits immediately on any download failure
+- **Detailed error messages**: Prints specific error information for troubleshooting
+- **Credential validation**: Validates HF credentials before attempting gated model downloads
 - Cleans up git files after download
 - Excludes specified files based on configuration
 - Saves downloads to `./model_artifacts/` directory
@@ -44,6 +48,17 @@ sudo ./download_from_huggingface.sh
 - `model_artifacts_configs.yaml` must be present in the same directory
 - For gated models: HF token and username must be configured in the YAML file
 - May require sudo for installing dependencies (wget, yq, git-lfs)
+
+**Error Handling:**
+- The script exits immediately if any download fails (no partial downloads)
+- Existing model directories are automatically removed before re-downloading
+- Error messages include possible causes:
+  - Invalid or expired HF_TOKEN
+  - No access to gated models
+  - Network connectivity issues
+  - Invalid repository URLs
+  - Repository not found or private
+- Script returns non-zero exit code on failure (suitable for CI/CD pipelines)
 
 ### 2. `upload_to_minio.sh`
 Uploads downloaded artifacts to MinIO storage.
@@ -271,6 +286,12 @@ All artifacts in the list will be downloaded and uploaded automatically.
    ./download_from_huggingface.sh
    ```
    This will download all configured artifacts to `./model_artifacts/` directory.
+   
+   **Note:** The script will:
+   - Remove existing artifacts before downloading (ensures fresh copies)
+   - Stop immediately if any download fails
+   - Display detailed error messages if issues occur
+   - Validate credentials before attempting gated model downloads
 
 2. **Upload to storage** (choose one or more):
 
@@ -324,6 +345,8 @@ All artifacts in the list will be downloaded and uploaded automatically.
 ## Notes
 
 - The download script creates a `./model_artifacts/` directory and downloads artifacts based on `model_artifacts_configs.yaml`
+- **Re-download behavior**: If an artifact already exists, it will be automatically removed and re-downloaded to ensure fresh copies
+- **Error handling**: The script fails immediately on any error and provides detailed error messages for troubleshooting
 - All upload scripts are config-free - they simply upload **everything** found in `./model_artifacts/` directory
 - **Buckets are automatically created** if they don't exist:
   - MinIO: Creates bucket using `mc mb` command

@@ -1,6 +1,10 @@
 #!/bin/bash
 # Script to download model artifacts from Hugging Face
 
+# Exit on error
+set -e
+set -o pipefail
+
 CONFIG_FILE="./model_artifacts_configs.yaml"
 DOWNLOAD_DIR="./model_artifacts"
 
@@ -113,6 +117,14 @@ HF_USERNAME=$("$YQ_CMD" -r '.hf-username' "$CONFIG_FILE")
 echo "HF_TOKEN: $HF_TOKEN"
 echo "HF_USERNAME: $HF_USERNAME"
 
+# Validate HF credentials for gated models
+if [[ "$HF_TOKEN" == "null" || -z "$HF_TOKEN" ]]; then
+    echo "WARNING: HF_TOKEN is not set. Downloads of gated models will fail."
+fi
+if [[ "$HF_USERNAME" == "null" || -z "$HF_USERNAME" ]]; then
+    echo "WARNING: HF_USERNAME is not set. Downloads of gated models will fail."
+fi
+
 if ! command -v git-lfs &> /dev/null; then
     echo "git-lfs not found, installing..."
     if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -151,7 +163,10 @@ if ! command -v git-lfs &> /dev/null; then
             exit 1
         fi
     fi
-    git lfs install
+    if ! git lfs install; then
+        echo "ERROR: Failed to initialize git-lfs"
+        exit 1
+    fi
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -177,15 +192,43 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "is-a-gated-model: $is_a_gated_model"
         
         if [[ -n "$hf_url" && "$hf_url" != "null" ]]; then
+            # Remove existing directory if it exists to force re-download
+            if [ -d "$DOWNLOAD_DIR/$id" ]; then
+                echo "Model $id already exists at $DOWNLOAD_DIR/$id, removing for fresh download..."
+                rm -rf "$DOWNLOAD_DIR/$id"
+            fi
+            
             # Clone from Hugging Face
             if [[ "$is_a_gated_model" == "true" ]]; then
+                # Validate credentials for gated model
+                if [[ "$HF_TOKEN" == "null" || -z "$HF_TOKEN" ]] || [[ "$HF_USERNAME" == "null" || -z "$HF_USERNAME" ]]; then
+                    echo "ERROR: Cannot download gated model $id - HF_TOKEN and HF_USERNAME are required"
+                    echo "Please set these in $CONFIG_FILE"
+                    exit 1
+                fi
+                
                 HF_USERNAME_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$HF_USERNAME'''))")
                 auth_hf_url=$(echo "$hf_url" | sed "s#https://#https://$HF_USERNAME_ENC:$HF_TOKEN@#")
                 echo "Cloning gated model $hf_url for $id"
-                git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"
+                if ! git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"; then
+                    echo "ERROR: Failed to clone gated model from $hf_url for artifact $id"
+                    echo "This could be due to:"
+                    echo "  - Invalid or expired HF_TOKEN"
+                    echo "  - No access to the gated model"
+                    echo "  - Network connectivity issues"
+                    echo "  - Invalid repository URL"
+                    exit 1
+                fi
             else
                 echo "Cloning $hf_url for $id"
-                git clone "$hf_url" "$DOWNLOAD_DIR/$id"
+                if ! git clone "$hf_url" "$DOWNLOAD_DIR/$id"; then
+                    echo "ERROR: Failed to clone from $hf_url for artifact $id"
+                    echo "This could be due to:"
+                    echo "  - Network connectivity issues"
+                    echo "  - Invalid repository URL"
+                    echo "  - Repository not found or private"
+                    exit 1
+                fi
             fi
             
             # Clean up git files
