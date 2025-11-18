@@ -119,6 +119,9 @@ EOF
           # Create annotated tag
           git tag -a "$TAG" -F /tmp/tag_message.txt
 
+          # Clean up temporary file
+          rm -f /tmp/tag_message.txt
+
           echo "✅ Created tag: $TAG"
 
       - name: Push tag to remote
