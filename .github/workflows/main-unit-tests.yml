@@ -36,11 +36,11 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: coverage.out
+          path-to-lcov: cover.out
           format: golang
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: code-coverage
-          path: coverage.out
+          path: cover.out
