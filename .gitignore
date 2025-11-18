@@ -25,3 +25,7 @@ Dockerfile.cross
 *.swp
 *.swo
 *~
+
+# Skaffold local configuration
+skaffold.env.local
+.skaffold/
