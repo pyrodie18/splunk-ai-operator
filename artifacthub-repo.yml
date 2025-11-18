@@ -8,7 +8,7 @@ name: splunk-ai-operator
 url: https://github.com/splunk/splunk-ai-operator/releases
 owners:
   - name: Splunk
-    email: opensource@splunk.com
+    email: splunkai@cisco.com
 links:
   - name: Source Code
     url: https://github.com/splunk/splunk-ai-operator

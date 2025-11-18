@@ -41,7 +41,7 @@ annotations:
     - url: https://artifacthub.io/packages/helm/kuberay/kuberay-operator
   artifacthub.io/maintainers: |
     - name: Splunk AI Team
-      email: opensource@splunk.com
+      email: splunkai@cisco.com
   artifacthub.io/changes: |
     - kind: added
       description: Initial release of Splunk AI Operator
