@@ -1,42 +1,48 @@
 # Splunk AI Platform Helm Installation
 
-Helm charts for the Splunk AI Operator are distributed via **GitHub Releases**. This provides versioned, immutable releases with full changelog tracking.
+Helm charts for the Splunk AI Operator are distributed via **OCI Registry (GHCR)** and **GitHub Releases**. The OCI registry is the recommended method for Helm 3.8+.
 
 ## Installation Methods
 
-### Method 1: Direct Install from GitHub Release (Recommended)
+### Method 1: Helm OCI Registry (Recommended)
 
-Install directly from a specific release URL:
+Install directly from the OCI registry using Helm 3.8+:
+
+```bash
+# Latest version: v0.1.0
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator \
+  --create-namespace
+```
+
+**Pros:**
+- ✅ Modern OCI-based distribution
+- ✅ No .tgz files in git repository
+- ✅ Automatic image verification
+- ✅ Native container registry integration
+
+**Requirements:**
+- Helm 3.8+ (for OCI support)
+- Internet access to ghcr.io
+
+### Method 2: Direct Install from GitHub Release
+
+Install directly from a specific release URL (for Helm < 3.8 compatibility):
 
 ```bash
 # Latest version: v0.1.0
 helm install splunk-ai-operator \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator --create-namespace
+  --namespace splunk-ai-operator \
+  --create-namespace
 ```
 
 **Pros:**
+- ✅ Compatible with older Helm versions (3.0+)
 - ✅ Simple one-command installation
 - ✅ Explicit version control
-- ✅ No repository management needed
-
-### Method 2: Using as Helm Repository
-
-Add the release as a Helm repository:
-
-```bash
-# Add the Helm repository (using specific version)
-helm repo add splunk-ai https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/
-helm repo update
-
-# Install from repository
-helm install splunk-ai-operator splunk-ai/splunk-ai-operator \
-  -n splunk-ai-operator --create-namespace
-```
-
-**Pros:**
-- ✅ Familiar `helm repo` workflow
-- ✅ Can use `helm search repo` to find charts
 
 **Available Charts:**
 * `splunk-ai-operator`: Deploys the Splunk AI Operator (controller for CRDs like `AIPlatform`)
@@ -46,7 +52,21 @@ helm install splunk-ai-operator splunk-ai/splunk-ai-operator \
 
 ## Finding Available Versions
 
-View all available releases on GitHub:
+### OCI Registry (Recommended)
+
+View available versions in the GitHub Container Registry:
+
+**GHCR Package:** https://github.com/splunk/splunk-ai-operator/pkgs/container/charts%2Fsplunk-ai-operator
+
+```bash
+# Show chart information
+helm show chart oci://ghcr.io/splunk/charts/splunk-ai-operator --version 0.1.0
+
+# List all versions (using crane CLI)
+crane ls ghcr.io/splunk/charts/splunk-ai-operator
+```
+
+### GitHub Releases
 
 **Latest Releases:** https://github.com/splunk/splunk-ai-operator/releases
 
@@ -80,24 +100,28 @@ make install
 To install the controller that manages `AIPlatform` resources:
 
 ```bash
-# Direct install (recommended)
+# OCI Registry (recommended - Helm 3.8+)
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator \
+  --create-namespace
+
+# Or from GitHub Release (for Helm < 3.8)
 helm install splunk-ai-operator \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator --create-namespace
-
-# Or using helm repo
-helm install splunk-ai-operator splunk-ai/splunk-ai-operator \
-  -n splunk-ai-operator --create-namespace
+  --namespace splunk-ai-operator \
+  --create-namespace
 ```
 
 **View available configuration options:**
 
 ```bash
-# Download and inspect values
-curl -sL https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz | tar -xzO splunk-ai-operator/values.yaml
+# From OCI registry
+helm show values oci://ghcr.io/splunk/charts/splunk-ai-operator --version 0.1.0
 
-# Or if using helm repo
-helm show values splunk-ai/splunk-ai-operator
+# Or download and inspect from GitHub Release
+curl -sL https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz | tar -xzO splunk-ai-operator/values.yaml
 ```
 
 ---
@@ -152,10 +176,20 @@ weaviateImage: "docker.io/semitechnologies/weaviate:stable-v1.28-007846a"
 **Install with custom images:**
 
 ```bash
+# OCI Registry (recommended)
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator \
+  --create-namespace \
+  --values custom-images.yaml
+
+# Or from GitHub Release
 helm install splunk-ai-operator \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator --create-namespace \
-  -f custom-images.yaml
+  --namespace splunk-ai-operator \
+  --create-namespace \
+  --values custom-images.yaml
 ```
 
 ### Example: Using Docker Hub Only
@@ -252,10 +286,20 @@ resources:
 **Install:**
 
 ```bash
+# OCI Registry (recommended)
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator \
+  --create-namespace \
+  --values my-values.yaml
+
+# Or from GitHub Release
 helm install splunk-ai-operator \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator --create-namespace \
-  -f my-values.yaml
+  --namespace splunk-ai-operator \
+  --create-namespace \
+  --values my-values.yaml
 ```
 
 ---
@@ -292,24 +336,37 @@ splunkConfiguration:
 ## Install with the Simplified Config
 
 ```bash
-# Direct install (recommended)
+# OCI Registry (recommended - Helm 3.8+)
+helm install splunk-ai-platform \
+  oci://ghcr.io/splunk/charts/splunk-ai-platform \
+  --version 0.1.0 \
+  --namespace ai-stack \
+  --create-namespace \
+  --values ai-platform-values.yaml
+
+# Or from GitHub Release (for Helm < 3.8)
 helm install splunk-ai-platform \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-platform-0.1.0.tgz \
-  -n ai-stack --create-namespace \
-  -f ai-platform-values.yaml
-
-# Or using helm repo
-helm install splunk-ai-platform splunk-ai/splunk-ai-platform \
-  -n ai-stack --create-namespace \
-  -f ai-platform-values.yaml
+  --namespace ai-stack \
+  --create-namespace \
+  --values ai-platform-values.yaml
 ```
 
 **Upgrade:**
 
 ```bash
+# OCI Registry
+helm upgrade splunk-ai-platform \
+  oci://ghcr.io/splunk/charts/splunk-ai-platform \
+  --version 0.1.0 \
+  --namespace ai-stack \
+  --values ai-platform-values.yaml
+
+# Or from GitHub Release
 helm upgrade splunk-ai-platform \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-platform-0.1.0.tgz \
-  -n ai-stack -f ai-platform-values.yaml
+  --namespace ai-stack \
+  --values ai-platform-values.yaml
 ```
 
 **Uninstall:**
@@ -321,11 +378,11 @@ helm uninstall splunk-ai-platform -n ai-stack
 **View configurable values:**
 
 ```bash
-# Download and inspect
-curl -sL https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-platform-0.1.0.tgz | tar -xzO splunk-ai-platform/values.yaml
+# From OCI registry
+helm show values oci://ghcr.io/splunk/charts/splunk-ai-platform --version 0.1.0
 
-# Or using helm repo
-helm show values splunk-ai/splunk-ai-platform
+# Or download and inspect from GitHub Release
+curl -sL https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-platform-0.1.0.tgz | tar -xzO splunk-ai-platform/values.yaml
 ```
 
 ---

@@ -29,73 +29,96 @@ The Splunk AI Operator is a Kubernetes operator that enables customers to manage
 
 ## Getting Started
 
-### Quick Install with Helm (Recommended)
+### Quick Install
 
 ```bash
-# Install the operator from GitHub Release
+# Install using Helm OCI registry (Recommended - Helm 3.8+)
 helm install splunk-ai-operator \
-  https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator-system --create-namespace
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator-system \
+  --create-namespace
 
-# Deploy the AI Platform
-kubectl apply -f config/samples/ai_v1_aiplatform.yaml
+# Or install using kubectl
+kubectl apply -f https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/install-v0.1.0.yaml
 ```
 
-Images are hosted on GitHub Container Registry (ghcr.io) and Docker Hub.
-
-See [Helm Deployment Guide](docs/deployment/helm-deployment.md) for detailed installation options.
+See [Installation Guide](docs/installation.md) for detailed instructions and all installation methods.
 
 ### Prerequisites
-- Kubernetes v1.11.3+ cluster
-- kubectl v1.11.3+
-- Helm v3.8+ (for Helm installation)
-- go v1.23.0+ (for development)
-- docker 17.03+ (for development)
+- **Kubernetes**: v1.31+ cluster
+- **kubectl**: v1.11.3+
+- **Helm**: v3.8+ (for Helm installation)
+- **Go**: v1.23.0+ (for development only)
+- **Docker**: 17.03+ (for development only)
 
 ### Installation Options
 
-**Option 1: Helm (Recommended for Production)**
+**Option 1: Helm OCI Registry (Recommended)**
 ```bash
-# Install from GitHub Release
+# Requires Helm 3.8+
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0 \
+  --namespace splunk-ai-operator-system \
+  --create-namespace
+```
+
+**Option 2: kubectl (Manifests)**
+```bash
+# Install operator with all dependencies
+kubectl apply -f https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/install-v0.1.0.yaml
+```
+
+**Option 3: Helm (GitHub Release)**
+```bash
+# For compatibility with older Helm versions
 helm install splunk-ai-operator \
   https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-0.1.0.tgz \
-  -n splunk-ai-operator-system --create-namespace
-
-# Or add Helm repository
-helm repo add splunk-ai https://splunk.github.io/splunk-ai-operator/
-helm repo update
-helm install splunk-ai-operator splunk-ai/splunk-ai-operator \
-  -n splunk-ai-operator-system --create-namespace
+  --namespace splunk-ai-operator-system \
+  --create-namespace
 ```
 
-**Option 2: YAML Manifests**
-```bash
-kubectl apply -f https://github.com/splunk/splunk-ai-operator/releases/download/v0.1.0/splunk-ai-operator-cluster.yaml
-```
-
-**Option 3: From Source (Development)**
+**Option 4: From Source (Development)**
 ```bash
 # Install CRDs
 make install
 
-# Build and deploy (uses ghcr.io by default)
+# Build and deploy
 make docker-build docker-push IMG=ghcr.io/splunk/splunk-ai-operator:tag
 make deploy IMG=ghcr.io/splunk/splunk-ai-operator:tag
 ```
 
-### Container Images
+### Helm Charts
 
-The operator is published to multiple registries:
+Charts are published to OCI registry and GitHub Releases:
 
-- **GitHub Container Registry (GHCR)**: `ghcr.io/splunk/splunk-ai-operator:latest` (recommended)
-- **Docker Hub**: `docker.io/splunk/splunk-ai-operator:latest`
+- **OCI Registry (GHCR)**: `oci://ghcr.io/splunk/charts/splunk-ai-operator` (recommended)
+- **GitHub Releases**: Available as `.tgz` files for compatibility
 
 ```bash
-# Pull from GHCR
+# Install from OCI registry
+helm install splunk-ai-operator \
+  oci://ghcr.io/splunk/charts/splunk-ai-operator \
+  --version 0.1.0
+
+# View available versions
+# Visit: https://github.com/splunk/splunk-ai-operator/pkgs/container/charts%2Fsplunk-ai-operator
+```
+
+### Container Images
+
+Images are published to multiple registries:
+
+- **GHCR**: `ghcr.io/splunk/splunk-ai-operator:v0.1.0`
+- **Docker Hub**: `splunk/splunk-ai-operator:v0.1.0`
+
+```bash
+# Pull from GHCR (recommended)
 docker pull ghcr.io/splunk/splunk-ai-operator:v0.1.0
 
 # Pull from Docker Hub
-docker pull docker.io/splunk/splunk-ai-operator:v0.1.0
+docker pull splunk/splunk-ai-operator:v0.1.0
 ```
 
 ### Deploy AI Platform
