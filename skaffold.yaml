@@ -47,14 +47,36 @@ manifests:
 #        timeoutSeconds: 1000
 
 profiles:
-  - name: gke
-    activation:
-      - kubeContext: gke_cmp-gke_us-west1_mixed-gpu-cpu-cluster-gke
-    build:
-      local:
-        push: true
-      platforms:
-        - linux/amd64
+  # Example profile for Google Kubernetes Engine
+  # Uncomment and update with your cluster context
+  # - name: gke
+  #   activation:
+  #     - kubeContext: gke_<project>_<region>_<cluster-name>
+  #   build:
+  #     local:
+  #       push: true
+  #     platforms:
+  #       - linux/amd64
+
+  # Example profile for Amazon EKS
+  # - name: eks
+  #   activation:
+  #     - kubeContext: arn:aws:eks:<region>:<account>:cluster/<cluster-name>
+  #   build:
+  #     local:
+  #       push: true
+  #     platforms:
+  #       - linux/amd64
+
+  # Example profile for Azure AKS
+  # - name: aks
+  #   activation:
+  #     - kubeContext: <cluster-name>
+  #   build:
+  #     local:
+  #       push: true
+  #     platforms:
+  #       - linux/amd64
 
 portForward:
   - resourceType: deployment
