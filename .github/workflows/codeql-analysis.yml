@@ -1,9 +1,19 @@
 name: "CodeQL Advanced"
 
-# NOTE: This workflow requires GitHub's default CodeQL setup to be DISABLED
-# Go to: Settings → Code security and analysis → Code scanning → CodeQL analysis
-# Change from "Default" to "Advanced" or disable default setup
-# Otherwise, you'll get: "CodeQL analyses from advanced configurations cannot be processed"
+# ⚠️ TEMPORARY STATE: Upload disabled to prevent conflicts
+# This workflow runs but doesn't upload results until GitHub default setup is disabled
+#
+# CURRENT: GitHub's default CodeQL is active (provides basic scanning)
+# FUTURE: To use this advanced workflow with custom queries:
+#   1. Go to: Settings → Code security and analysis → Code scanning
+#   2. Under "CodeQL analysis", change from "Default" to "Advanced"
+#   3. Update line 55: upload: false → upload: true
+#   4. Remove line 57: continue-on-error: true
+#
+# Benefits of custom workflow (after enabling):
+#   - Enhanced queries (+security-and-quality)
+#   - Weekly scheduled scans
+#   - More configuration control
 
 on:
   push:
@@ -52,4 +62,6 @@ jobs:
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results
-          upload: true
+          upload: false  # Disabled: conflicts with default setup
+          # Set to 'true' after disabling GitHub's default CodeQL setup
+        continue-on-error: true  # Don't fail workflow if upload conflicts
