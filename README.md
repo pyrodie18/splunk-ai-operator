@@ -12,6 +12,7 @@
 [![License](https://img.shields.io/github/license/splunk/splunk-ai-operator)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/splunk/splunk-ai-operator)](go.mod)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-v1.31+-326CE5.svg?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+<!-- Artifact Hub badge will be added after first release - see .github/ARTIFACTHUB_SETUP.md -->
 
 <!-- Container Registry -->
 [![GHCR](https://img.shields.io/badge/ghcr.io-splunk%2Fsplunk--ai--operator-blue?logo=github)](https://github.com/splunk/splunk-ai-operator/pkgs/container/splunk-ai-operator)
