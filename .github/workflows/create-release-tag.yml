@@ -101,9 +101,7 @@ jobs:
 
           # Create tag message
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          printf "Release %s\n\nAutomated release created from GitHub Actions workflow.\n\nCommit: %s\nCreated: %s\nCreated by: %s\nPre-release: %s\n\nRelease Notes:\n%s\n\nGenerated with Claude Code\n" \
-            "$TAG" "$COMMIT_SHORT" "$TIMESTAMP" "$ACTOR" "$PRERELEASE" "$COMMIT_MSG" \
-            > /tmp/tag_message.txt
+          printf "Release %s\n\nAutomated release created from GitHub Actions workflow.\n\nCommit: %s\nCreated: %s\nCreated by: %s\nPre-release: %s\n\nRelease Notes:\n%s\n\nGenerated with Claude Code\n" "$TAG" "$COMMIT_SHORT" "$TIMESTAMP" "$ACTOR" "$PRERELEASE" "$COMMIT_MSG" > /tmp/tag_message.txt
 
           # Create annotated tag
           git tag -a "$TAG" -F /tmp/tag_message.txt
