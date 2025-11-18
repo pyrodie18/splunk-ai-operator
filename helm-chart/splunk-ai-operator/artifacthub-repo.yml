@@ -1,0 +1,24 @@
+# Artifact Hub repository metadata file
+# https://artifacthub.io/docs/topics/repositories/
+repositoryID: splunk-ai-operator
+owners:
+  - name: Splunk AI Team
+    email: splunkai@cisco.com
+
+# Optional: Add additional metadata
+annotations:
+  # OpenSSF Scorecard badge
+  "artifacthub.io/links": |
+    - name: OpenSSF Scorecard
+      url: https://securityscorecards.dev/viewer/?uri=github.com/splunk/splunk-ai-operator
+  # Change log
+  "artifacthub.io/changes": |
+    - kind: added
+      description: Initial release of Splunk AI Operator
+  # Security updates
+  "artifacthub.io/containsSecurityUpdates": "false"
+  # License
+  "artifacthub.io/license": "Apache-2.0"
+  # Support and documentation
+  "artifacthub.io/operator": "true"
+  "artifacthub.io/operatorCapabilities": "Full Lifecycle"
