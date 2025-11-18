@@ -4,25 +4,28 @@ Welcome to the Splunk AI Operator documentation!
 
 ## Getting Started
 
-1. **[Install](installation.md)** - Install the operator in your Kubernetes cluster
-2. **[Custom Resources](api-reference.md)** - Configure your AI Platform
-3. **[Helm](helm-deployment.md)** - Deploy using Helm charts
+1. **[Installation Guide](installation.md)** - Install the operator in your Kubernetes cluster
+2. **[API Reference](api-reference.md)** - Complete CRD specification
+3. **[Local Development](local-development.md)** - Set up local development environment
+4. **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
+
+## Deployment Guides
+
+- **[Helm Deployment](deployment/helm-deployment.md)** - Deploy using Helm charts
+- **[AWS EKS Deployment](deployment/deployment-aws-eks.md)** - Production deployment on AWS EKS
 
 ## Configuration Guides
 
-### Core Configuration
-- **[Custom Resources](api-reference.md)** - Complete AIPlatform spec reference
-- **[Service Artifacts Storage](storage-artifacts.md)** - Configure S3/GCS/Azure storage for AI models
+- **[Storage Configuration](configuration/storage-configuration.md)** - Persistent storage for Weaviate vector database
+- **[Storage Artifacts](configuration/storage-artifacts.md)** - S3/GCS/Azure storage for AI models
+- **[Ingress Configuration](configuration/ingress-configuration.md)** - Expose AI services externally
+- **[Webhook Certificates](configuration/webhook-certificates.md)** - Configure admission webhook TLS
 
-### Storage & Access
-- **[Storage Configuration](storage-configuration.md)** - Set up persistent storage for Weaviate vector database
-- **[Ingress Usage](ingress-configuration.md)** - Expose your AI services externally with custom domains
+## Project Documentation
 
-### Monitoring & Troubleshooting
-- **[Error Handling and Events](troubleshooting.md)** - Understand status conditions, events, and troubleshoot issues
-
-## Architecture
-- **[Reference Architecture](deployment-aws-eks.md)** - Understand how the system works
+- **[Open Source Readiness](project/OPEN_SOURCE_READINESS.md)** - OSS preparation checklist
+- **[OSS Preparation Summary](project/OSS_PREPARATION_SUMMARY.md)** - Complete summary of OSS prep work
+- **[Documentation Organization](project/DOCUMENTATION_ORGANIZATION.md)** - How docs are organized
 
 ## Quick Reference
 

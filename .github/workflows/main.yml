@@ -9,7 +9,10 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
   security-events: write
+  id-token: write  # Required for artifact attestation
+  attestations: write  # Required for artifact attestation
 
 jobs:
   check-formatting:
@@ -28,6 +31,10 @@ jobs:
     uses: ./.github/workflows/main-vulnerability-scan.yml
     secrets: inherit
     needs: build-image
+
+  helm-lint-test:
+    uses: ./.github/workflows/helm-lint-test.yml
+    needs: unit-tests  # Run in parallel with build-image
 
   # smoke-tests:
   #   uses: ./.github/workflows/main-smoke-tests.yml

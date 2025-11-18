@@ -1,0 +1,33 @@
+# Configuration for chart-testing (ct)
+---
+# Helm chart directories
+chart-dirs:
+  - helm-chart
+
+# Chart repositories for dependency resolution
+chart-repos:
+  - jetstack=https://charts.jetstack.io
+  - prometheus-community=https://prometheus-community.github.io/helm-charts
+  - opentelemetry=https://open-telemetry.github.io/opentelemetry-helm-charts
+  - kuberay=https://ray-project.github.io/kuberay-helm
+
+# Target branch for comparison (used in PRs)
+target-branch: main
+
+# Upgrade testing
+upgrade: true
+
+# Skip missing values files
+skip-missing-values: true
+
+# Validate maintainers field in Chart.yaml
+validate-maintainers: true
+
+# Validate chart version bump
+check-version-increment: true
+
+# Helm extra arguments
+helm-extra-args: --timeout 5m
+
+# Excluded charts (if any)
+excluded-charts: []
