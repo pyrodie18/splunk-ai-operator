@@ -77,6 +77,10 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
+      # Ignore Go toolchain updates (we manage Go version manually)
+      - dependency-name: "go"
+      - dependency-name: "golang.org/toolchain"
+
     # Add labels to PRs for easy filtering
     labels:
       - "dependencies"

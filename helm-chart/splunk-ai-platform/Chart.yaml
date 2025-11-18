@@ -1,7 +1,7 @@
 ---
 apiVersion: v2
 name: splunk-ai-platform
-description: A Helm chart for deploying Splunk AIPlatform custom resources
+description: A Helm chart for deploying Splunk AIPlatform custom resources with observability stack
 type: application
 version: "0.1.0"
 appVersion: "v4.0.0"
@@ -10,12 +10,42 @@ keywords:
   - splunk
   - ai
   - kuberay
+  - platform
+  - observability
+  - machine-learning
 home: https://github.com/splunk/splunk-ai-operator
 sources:
   - https://github.com/splunk/splunk-ai-operator
 maintainers:
   - name: Splunk AI Team
     email: splunkai@cisco.com
+
+# Artifact Hub annotations
+annotations:
+  artifacthub.io/category: machine-learning
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/links: |
+    - name: Source Code
+      url: https://github.com/splunk/splunk-ai-operator
+    - name: Documentation
+      url: https://github.com/splunk/splunk-ai-operator/tree/main/docs
+    - name: Installation Guide
+      url: https://github.com/splunk/splunk-ai-operator/blob/main/docs/installation.md
+    - name: Compatibility Matrix
+      url: https://github.com/splunk/splunk-ai-operator/blob/main/compatibility-matrix.yaml
+  artifacthub.io/recommendations: |
+    - url: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+    - url: https://artifacthub.io/packages/helm/kuberay/kuberay-operator
+    - url: https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack
+  artifacthub.io/maintainers: |
+    - name: Splunk AI Team
+      email: opensource@splunk.com
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release with full observability stack
+
 dependencies:
   - name: splunk-ai-operator
     version: "0.1.0"

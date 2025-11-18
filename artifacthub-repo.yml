@@ -1,0 +1,20 @@
+# Artifact Hub repository metadata file
+# This file provides metadata about the Helm chart repository for Artifact Hub
+# See: https://artifacthub.io/docs/topics/repositories/#helm-charts-repositories
+
+repositoryID: splunk-ai-operator
+displayName: Splunk AI Operator
+name: splunk-ai-operator
+url: https://github.com/splunk/splunk-ai-operator/releases
+owners:
+  - name: Splunk
+    email: opensource@splunk.com
+links:
+  - name: Source Code
+    url: https://github.com/splunk/splunk-ai-operator
+  - name: Issues
+    url: https://github.com/splunk/splunk-ai-operator/issues
+  - name: Documentation
+    url: https://github.com/splunk/splunk-ai-operator/blob/main/README.md
+  - name: Helm Charts (OCI)
+    url: https://github.com/orgs/splunk/packages?repo_name=splunk-ai-operator
