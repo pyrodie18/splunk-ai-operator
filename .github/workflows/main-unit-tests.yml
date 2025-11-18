@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
 
       - name: Read .env file
         id: dotenv
@@ -24,24 +24,23 @@ jobs:
           fi
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
           go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
           cache: true
-      - name: Run Unit Tests with Coverage
-        run: |
-          go install github.com/mattn/goveralls@latest
-          make test
-      #- run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
-      #- uses: actions/upload-artifact@v4.4.0
-      #  with:
-      #    name: coverage.out
-      #    path: coverage.out
-      # - name: Run Unit Tests and E2E Tests with Coverage
-      #   run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
 
-      - name: Upload coverage file
-        uses: actions/upload-artifact@v4
+      - name: Run Unit Tests with Coverage
+        run: make test
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: cover.out
+          format: golang
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: code-coverage
-          path: coverage.out
+          path: cover.out
