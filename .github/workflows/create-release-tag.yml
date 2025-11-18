@@ -100,30 +100,10 @@ jobs:
           COMMIT_MSG="${{ steps.commit.outputs.message }}"
 
           # Create tag message
-          cat > /tmp/tag_message.txt <<'EOF'
-Release $TAG
-
-Automated release created from GitHub Actions workflow.
-
-Commit: $COMMIT_SHORT
-Created: $TIMESTAMP
-Created by: $ACTOR
-Pre-release: $PRERELEASE
-
-Release Notes:
-$COMMIT_MSG
-
-Generated with Claude Code
-EOF
-
-          # Replace variables in the file
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          sed -i "s/\$TAG/$TAG/g" /tmp/tag_message.txt
-          sed -i "s/\$COMMIT_SHORT/$COMMIT_SHORT/g" /tmp/tag_message.txt
-          sed -i "s/\$TIMESTAMP/$TIMESTAMP/g" /tmp/tag_message.txt
-          sed -i "s/\$ACTOR/$ACTOR/g" /tmp/tag_message.txt
-          sed -i "s/\$PRERELEASE/$PRERELEASE/g" /tmp/tag_message.txt
-          sed -i "s/\$COMMIT_MSG/$COMMIT_MSG/g" /tmp/tag_message.txt
+          printf "Release %s\n\nAutomated release created from GitHub Actions workflow.\n\nCommit: %s\nCreated: %s\nCreated by: %s\nPre-release: %s\n\nRelease Notes:\n%s\n\nGenerated with Claude Code\n" \
+            "$TAG" "$COMMIT_SHORT" "$TIMESTAMP" "$ACTOR" "$PRERELEASE" "$COMMIT_MSG" \
+            > /tmp/tag_message.txt
 
           # Create annotated tag
           git tag -a "$TAG" -F /tmp/tag_message.txt
