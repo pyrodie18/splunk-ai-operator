@@ -36,8 +36,8 @@ platform:
 
   splunkEnterprise:
     minVersion: "9.2.0"
-    maxVersion: "9.4.99"
-    recommended: "9.4.1"
+    maxVersion: "10.2.99"
+    recommended: "10.2.0"
     notes: "Operator can manage Splunk Enterprise instances"
 
 # Required External Dependencies
@@ -104,9 +104,14 @@ managedComponents:
         image: "splunk/splunk:9.2.3"
         notes: "Minimum supported version"
       - version: "9.4.1"
+        status: supported
+        releaseDate: "2024-Q3"
+        image: "splunk/splunk:9.4.1"
+        notes: "Previous stable version"
+      - version: "10.2.0"
         status: recommended
         releaseDate: "2024-Q4"
-        image: "splunk/splunk:9.4.1"
+        image: "splunk/splunk:10.2.0"
         notes: "Latest tested and recommended version"
 
   saiaApi:
