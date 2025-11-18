@@ -114,15 +114,18 @@ fi
 # HF_TOKEN and HF_USERNAME are set in the model_artifacts_configs.yaml file
 HF_TOKEN=$("$YQ_CMD" -r '.hf-token' "$CONFIG_FILE")
 HF_USERNAME=$("$YQ_CMD" -r '.hf-username' "$CONFIG_FILE")
-echo "HF_TOKEN: $HF_TOKEN"
-echo "HF_USERNAME: $HF_USERNAME"
 
-# Validate HF credentials for gated models
-if [[ "$HF_TOKEN" == "null" || -z "$HF_TOKEN" ]]; then
-    echo "WARNING: HF_TOKEN is not set. Downloads of gated models will fail."
+# SECURITY: Redact credentials in logs to prevent exposure
+if [[ "$HF_TOKEN" != "null" && -n "$HF_TOKEN" ]]; then
+    # Show only last 4 characters of token for verification
+    echo "HF_TOKEN: ${HF_TOKEN:0:3}...${HF_TOKEN: -4}"
+else
+    echo "HF_TOKEN: not set"
 fi
-if [[ "$HF_USERNAME" == "null" || -z "$HF_USERNAME" ]]; then
-    echo "WARNING: HF_USERNAME is not set. Downloads of gated models will fail."
+if [[ "$HF_USERNAME" != "null" && -n "$HF_USERNAME" ]]; then
+    echo "HF_USERNAME: $HF_USERNAME"
+else
+    echo "HF_USERNAME: not set"
 fi
 
 if ! command -v git-lfs &> /dev/null; then
@@ -169,6 +172,23 @@ if ! command -v git-lfs &> /dev/null; then
     fi
 fi
 
+# Check for Python 3 (required for URL encoding gated model credentials)
+if ! command -v python3 &> /dev/null; then
+    echo "ERROR: python3 is required but not found"
+    echo "Python 3 is needed to securely encode credentials for gated model downloads"
+    echo ""
+    echo "Installation instructions:"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "  macOS: brew install python3"
+        echo "  or download from: https://www.python.org/downloads/"
+    else
+        echo "  Ubuntu/Debian: sudo apt-get install python3"
+        echo "  RHEL/CentOS: sudo yum install python3"
+        echo "  Fedora: sudo dnf install python3"
+    fi
+    exit 1
+fi
+
 if [ -f "$CONFIG_FILE" ]; then
     echo "Reading $CONFIG_FILE"
     
@@ -208,9 +228,12 @@ if [ -f "$CONFIG_FILE" ]; then
                 fi
                 
                 HF_USERNAME_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$HF_USERNAME'''))")
+                # SECURITY: auth_hf_url contains credentials - NEVER log or echo this variable
                 auth_hf_url=$(echo "$hf_url" | sed "s#https://#https://$HF_USERNAME_ENC:$HF_TOKEN@#")
+                # Log the non-authenticated URL only (NOT auth_hf_url which contains credentials)
                 echo "Cloning gated model $hf_url for $id"
                 if ! git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"; then
+                    # Use non-authenticated URL in error messages to avoid credential leaks
                     echo "ERROR: Failed to clone gated model from $hf_url for artifact $id"
                     echo "This could be due to:"
                     echo "  - Invalid or expired HF_TOKEN"

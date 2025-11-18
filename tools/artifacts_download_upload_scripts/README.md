@@ -26,10 +26,12 @@ Downloads model artifacts from Hugging Face repositories.
 - Reads configuration from `model_artifacts_configs.yaml`
 - Supports both public and gated Hugging Face models
 - Automatically installs dependencies (wget, yq, git-lfs)
+- Validates Python 3 availability (required for gated model credential encoding)
 - **Force re-download**: Removes and re-downloads models if they already exist
 - **Fail-fast error handling**: Exits immediately on any download failure
 - **Detailed error messages**: Prints specific error information for troubleshooting
 - **Credential validation**: Validates HF credentials before attempting gated model downloads
+- **Security**: Redacts sensitive credentials in logs to prevent exposure
 - Cleans up git files after download
 - Excludes specified files based on configuration
 - Saves downloads to `./model_artifacts/` directory
@@ -46,6 +48,7 @@ sudo ./download_from_huggingface.sh
 
 **Prerequisites:**
 - `model_artifacts_configs.yaml` must be present in the same directory
+- Python 3 must be installed (required for URL encoding credentials)
 - For gated models: HF token and username must be configured in the YAML file
 - May require sudo for installing dependencies (wget, yq, git-lfs)
 
@@ -359,7 +362,7 @@ All artifacts in the list will be downloaded and uploaded automatically.
 - You can upload to both MinIO and S3 if needed - just run both upload scripts
 - All scripts support macOS (Darwin) and Linux environments
 - Dependencies are automatically installed if missing:
-  - **Download script**: wget, yq, git-lfs
+  - **Download script**: wget, yq, git-lfs (Note: Python 3 is required but must be manually installed)
   - **MinIO upload script (mc)**: MinIO Client (mc) - native client for MinIO
   - **MinIO upload script (AWS CLI)**: AWS CLI - S3-compatible API for MinIO
   - **S3 upload script**: AWS CLI - official AWS command line tool
@@ -369,6 +372,11 @@ All artifacts in the list will be downloaded and uploaded automatically.
 ## Dependency Installation Methods
 
 ### Download Script Dependencies:
+- **Python 3** (required, must be manually installed if not present):
+  - macOS: `brew install python3` or download from https://www.python.org/downloads/
+  - Ubuntu/Debian: `sudo apt-get install python3`
+  - RHEL/CentOS: `sudo yum install python3`
+  - Fedora: `sudo dnf install python3`
 - wget, yq, git-lfs (automatically installed based on OS)
 
 ### MinIO Upload Script Dependencies:
