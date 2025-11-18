@@ -1,6 +1,10 @@
 #!/bin/bash
 # Script to download model artifacts from Hugging Face
 
+# Exit on error
+set -e
+set -o pipefail
+
 CONFIG_FILE="./model_artifacts_configs.yaml"
 DOWNLOAD_DIR="./model_artifacts"
 
@@ -110,8 +114,19 @@ fi
 # HF_TOKEN and HF_USERNAME are set in the model_artifacts_configs.yaml file
 HF_TOKEN=$("$YQ_CMD" -r '.hf-token' "$CONFIG_FILE")
 HF_USERNAME=$("$YQ_CMD" -r '.hf-username' "$CONFIG_FILE")
-echo "HF_TOKEN: $HF_TOKEN"
-echo "HF_USERNAME: $HF_USERNAME"
+
+# SECURITY: Redact credentials in logs to prevent exposure
+if [[ "$HF_TOKEN" != "null" && -n "$HF_TOKEN" ]]; then
+    # Show only last 4 characters of token for verification
+    echo "HF_TOKEN: ${HF_TOKEN:0:3}...${HF_TOKEN: -4}"
+else
+    echo "HF_TOKEN: not set"
+fi
+if [[ "$HF_USERNAME" != "null" && -n "$HF_USERNAME" ]]; then
+    echo "HF_USERNAME: $HF_USERNAME"
+else
+    echo "HF_USERNAME: not set"
+fi
 
 if ! command -v git-lfs &> /dev/null; then
     echo "git-lfs not found, installing..."
@@ -151,7 +166,27 @@ if ! command -v git-lfs &> /dev/null; then
             exit 1
         fi
     fi
-    git lfs install
+    if ! git lfs install; then
+        echo "ERROR: Failed to initialize git-lfs"
+        exit 1
+    fi
+fi
+
+# Check for Python 3 (required for URL encoding gated model credentials)
+if ! command -v python3 &> /dev/null; then
+    echo "ERROR: python3 is required but not found"
+    echo "Python 3 is needed to securely encode credentials for gated model downloads"
+    echo ""
+    echo "Installation instructions:"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "  macOS: brew install python3"
+        echo "  or download from: https://www.python.org/downloads/"
+    else
+        echo "  Ubuntu/Debian: sudo apt-get install python3"
+        echo "  RHEL/CentOS: sudo yum install python3"
+        echo "  Fedora: sudo dnf install python3"
+    fi
+    exit 1
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -177,15 +212,46 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "is-a-gated-model: $is_a_gated_model"
         
         if [[ -n "$hf_url" && "$hf_url" != "null" ]]; then
+            # Remove existing directory if it exists to force re-download
+            if [ -d "$DOWNLOAD_DIR/$id" ]; then
+                echo "Model $id already exists at $DOWNLOAD_DIR/$id, removing for fresh download..."
+                rm -rf "$DOWNLOAD_DIR/$id"
+            fi
+            
             # Clone from Hugging Face
             if [[ "$is_a_gated_model" == "true" ]]; then
+                # Validate credentials for gated model
+                if [[ "$HF_TOKEN" == "null" || -z "$HF_TOKEN" ]] || [[ "$HF_USERNAME" == "null" || -z "$HF_USERNAME" ]]; then
+                    echo "ERROR: Cannot download gated model $id - HF_TOKEN and HF_USERNAME are required"
+                    echo "Please set these in $CONFIG_FILE"
+                    exit 1
+                fi
+                
                 HF_USERNAME_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$HF_USERNAME'''))")
+                # SECURITY: auth_hf_url contains credentials - NEVER log or echo this variable
                 auth_hf_url=$(echo "$hf_url" | sed "s#https://#https://$HF_USERNAME_ENC:$HF_TOKEN@#")
+                # Log the non-authenticated URL only (NOT auth_hf_url which contains credentials)
                 echo "Cloning gated model $hf_url for $id"
-                git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"
+                if ! git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"; then
+                    # Use non-authenticated URL in error messages to avoid credential leaks
+                    echo "ERROR: Failed to clone gated model from $hf_url for artifact $id"
+                    echo "This could be due to:"
+                    echo "  - Invalid or expired HF_TOKEN"
+                    echo "  - No access to the gated model"
+                    echo "  - Network connectivity issues"
+                    echo "  - Invalid repository URL"
+                    exit 1
+                fi
             else
                 echo "Cloning $hf_url for $id"
-                git clone "$hf_url" "$DOWNLOAD_DIR/$id"
+                if ! git clone "$hf_url" "$DOWNLOAD_DIR/$id"; then
+                    echo "ERROR: Failed to clone from $hf_url for artifact $id"
+                    echo "This could be due to:"
+                    echo "  - Network connectivity issues"
+                    echo "  - Invalid repository URL"
+                    echo "  - Repository not found or private"
+                    exit 1
+                fi
             fi
             
             # Clean up git files
