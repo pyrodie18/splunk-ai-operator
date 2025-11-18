@@ -28,19 +28,18 @@ jobs:
         with:
           go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
           cache: true
-      - name: Run Unit Tests with Coverage
-        run: |
-          go install github.com/mattn/goveralls@latest
-          make test
-      #- run: goveralls -coverprofile=coverage.out -service=circle-ci -repotoken ${{ secrets.COVERALLS_TOKEN }}
-      #- uses: actions/upload-artifact@v4.4.0
-      #  with:
-      #    name: coverage.out
-      #    path: coverage.out
-      # - name: Run Unit Tests and E2E Tests with Coverage
-      #   run: go test $(go list ./... | grep -v '/tests') -coverprofile=coverage.out
 
-      - name: Upload coverage file
+      - name: Run Unit Tests with Coverage
+        run: make test
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: coverage.out
+          format: golang
+
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: code-coverage
