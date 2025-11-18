@@ -95,25 +95,29 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           VERSION="${{ steps.version.outputs.version }}"
           PRERELEASE="${{ github.event.inputs.prerelease }}"
+          COMMIT_SHORT="${{ steps.commit.outputs.short }}"
+          ACTOR="${{ github.actor }}"
+          COMMIT_MSG="${{ steps.commit.outputs.message }}"
 
           # Create tag message
-          TAG_MESSAGE="Release $TAG
+          cat > /tmp/tag_message.txt <<EOF
+Release $TAG
 
 Automated release created from GitHub Actions workflow.
 
-Commit: ${{ steps.commit.outputs.short }}
+Commit: $COMMIT_SHORT
 Created: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-Created by: ${{ github.actor }}
+Created by: $ACTOR
 Pre-release: $PRERELEASE
 
 Release Notes:
-${{ steps.commit.outputs.message }}
+$COMMIT_MSG
 
 🤖 Generated with Claude Code
-"
+EOF
 
           # Create annotated tag
-          git tag -a "$TAG" -m "$TAG_MESSAGE"
+          git tag -a "$TAG" -F /tmp/tag_message.txt
 
           echo "✅ Created tag: $TAG"
 
