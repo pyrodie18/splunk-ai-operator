@@ -119,6 +119,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Read .env file
+        id: dotenv
+        run: |
+          if [ -f .env ]; then
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              [[ "$key" =~ ^#.*$ ]] && continue
+              [[ -z "$key" ]] && continue
+              # Remove quotes and export
+              value=$(echo "$value" | sed -e 's/^\"//' -e 's/\"$//' -e "s/^'//" -e "s/'$//")
+              echo "$key=$value" >> $GITHUB_OUTPUT
+            done < .env
+          fi
+
       - name: Install Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
         with:
@@ -127,7 +141,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version-file: '.env'
+          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
           cache: true
 
       - name: Extract version
