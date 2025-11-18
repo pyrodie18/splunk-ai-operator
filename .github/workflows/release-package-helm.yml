@@ -30,6 +30,12 @@ jobs:
         with:
           version: 'v3.14.0'
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: '.env'
+          cache: true
+
       - name: Extract version
         id: version
         run: |
@@ -84,6 +90,26 @@ jobs:
             echo "✅ Platform chart updated successfully: version=$PLAT_VER, appVersion=$PLAT_APPVER"
           fi
 
+      - name: Generate Kubernetes manifests
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Generate install.yaml with version-specific image tag
+          echo "Generating Kubernetes manifests for version $VERSION..."
+          make build-installer
+
+          # Update image tag in the generated manifest
+          sed -i "s|ghcr.io/splunk/splunk-ai-operator:.*|ghcr.io/splunk/splunk-ai-operator:v$VERSION|g" dist/install.yaml
+
+          # Rename to version-specific filename
+          cp dist/install.yaml dist/install-v$VERSION.yaml
+
+          echo "Generated manifests:"
+          ls -lh dist/install*.yaml
+
+          echo "Manifest preview (first 50 lines):"
+          head -50 dist/install-v$VERSION.yaml
+
       - name: Package Helm charts
         run: |
           mkdir -p .helm-releases
@@ -115,29 +141,52 @@ jobs:
           files: |
             .helm-releases/*.tgz
             .helm-releases/index.yaml
+            dist/install-v${{ steps.version.outputs.version }}.yaml
           generate_release_notes: true
           draft: false
           prerelease: false
           body: |
-            ## Splunk AI Operator Helm Charts
+            ## Splunk AI Operator v${{ steps.version.outputs.version }}
 
-            This release includes Helm charts for the Splunk AI Operator.
+            This release includes Helm charts and Kubernetes manifests for the Splunk AI Operator.
 
-            ### Installation
+            ### Installation Options
 
-            #### Direct Install from GitHub Release
+            #### Option 1: Using Kubernetes Manifests (kubectl)
+            ```bash
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/install-v${{ steps.version.outputs.version }}.yaml
+            ```
+
+            #### Option 2: Using Helm (Direct Install)
             ```bash
             helm install splunk-ai-operator \
               https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/splunk-ai-operator-${{ steps.version.outputs.version }}.tgz
             ```
 
-            #### Using as Helm Repository
+            #### Option 3: Using Helm Repository
             ```bash
             helm repo add splunk-ai https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/
             helm repo update
             helm install splunk-ai-operator splunk-ai/splunk-ai-operator --version ${{ steps.version.outputs.version }}
             ```
 
-            See [Helm Deployment Guide](https://github.com/${{ github.repository }}/blob/main/docs/deployment/helm-deployment.md) for detailed instructions.
+            ### Release Assets
+
+            - **install-v${{ steps.version.outputs.version }}.yaml** - Complete Kubernetes manifests (CRDs + Operator)
+            - **splunk-ai-operator-${{ steps.version.outputs.version }}.tgz** - Operator Helm chart
+            - **splunk-ai-platform-${{ steps.version.outputs.version }}.tgz** - Platform Helm chart (includes dependencies)
+            - **index.yaml** - Helm repository index
+
+            ### Documentation
+
+            - [Helm Deployment Guide](https://github.com/${{ github.repository }}/blob/main/docs/helm-deployment.md)
+            - [Installation Guide](https://github.com/${{ github.repository }}/blob/main/docs/installation.md)
+            - [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/api-reference.md)
+
+            ### Container Images
+
+            ```
+            ghcr.io/splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}
+            ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
