@@ -147,37 +147,37 @@ cat >> "${BOM_JSON}" <<EOF
 }
 EOF
 
-# Generate YAML BOM
-cat > "${BOM_YAML}" <<EOF
-apiVersion: v1
-kind: BillOfMaterials
-metadata:
-  name: splunk-ai-operator
-  version: ${VERSION}
-  timestamp: ${TIMESTAMP}
-  annotations:
-    compatibilityMatrix: "compatibility-matrix.yaml"
-    compatibilityMatrixVersion: "${VERSION}"
-spec:
-  operatorImage: ${OPERATOR_IMAGE}
-  dependencies:
-    modelVersion: ${MODEL_VERSION}
-    rayVersion: ${RAY_VERSION}
-    kubernetesVersion: ${K8S_VERSION}
-    goVersion: ${GO_VERSION}
-    splunkEnterpriseVersion: ${SPLUNK_VERSION}
-    splunkEnterpriseImage: ${SPLUNK_ENTERPRISE_RELEASE}
-    splunkOperatorForKubernetesVersion: ${SPLUNK_OPERATOR_VERSION}
-  containerImages:
-EOF
-
-for name in "${!IMAGES[@]}"; do
-    image="${IMAGES[$name]}"
-    cat >> "${BOM_YAML}" <<YAML_IMAGE
-    - name: ${name}
-      image: ${image}
-YAML_IMAGE
-done
+# Generate YAML BOM (commented out to reduce release assets)
+# cat > "${BOM_YAML}" <<EOF
+# apiVersion: v1
+# kind: BillOfMaterials
+# metadata:
+#   name: splunk-ai-operator
+#   version: ${VERSION}
+#   timestamp: ${TIMESTAMP}
+#   annotations:
+#     compatibilityMatrix: "compatibility-matrix.yaml"
+#     compatibilityMatrixVersion: "${VERSION}"
+# spec:
+#   operatorImage: ${OPERATOR_IMAGE}
+#   dependencies:
+#     modelVersion: ${MODEL_VERSION}
+#     rayVersion: ${RAY_VERSION}
+#     kubernetesVersion: ${K8S_VERSION}
+#     goVersion: ${GO_VERSION}
+#     splunkEnterpriseVersion: ${SPLUNK_VERSION}
+#     splunkEnterpriseImage: ${SPLUNK_ENTERPRISE_RELEASE}
+#     splunkOperatorForKubernetesVersion: ${SPLUNK_OPERATOR_VERSION}
+#   containerImages:
+# EOF
+#
+# for name in "${!IMAGES[@]}"; do
+#     image="${IMAGES[$name]}"
+#     cat >> "${BOM_YAML}" <<YAML_IMAGE
+#     - name: ${name}
+#       image: ${image}
+# YAML_IMAGE
+# done
 
 # Generate human-readable text BOM
 cat > "${BOM_TXT}" <<EOF
@@ -229,8 +229,7 @@ For security scanning, use:
 EOF
 
 echo "✅ Generated BOM files:"
-echo "   - ${BOM_JSON} (CycloneDX format)"
-echo "   - ${BOM_YAML} (Kubernetes-friendly YAML)"
+echo "   - ${BOM_JSON} (CycloneDX format - machine-readable)"
 echo "   - ${BOM_TXT} (Human-readable text)"
 
 # Print summary

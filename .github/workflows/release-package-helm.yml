@@ -251,18 +251,16 @@ jobs:
 
           echo "Generating SBOM for operator image: $OPERATOR_IMAGE"
 
-          # Generate SBOM in multiple formats
+          # Generate SBOM in CycloneDX format (industry standard)
           syft "$OPERATOR_IMAGE" -o cyclonedx-json=dist/sbom-operator-v$VERSION.cyclonedx.json
-          syft "$OPERATOR_IMAGE" -o spdx-json=dist/sbom-operator-v$VERSION.spdx.json
-          syft "$OPERATOR_IMAGE" -o syft-json=dist/sbom-operator-v$VERSION.syft.json
 
           echo ""
-          echo "Generated SBOM files:"
-          ls -lh dist/sbom-operator-v$VERSION.*
+          echo "Generated SBOM file:"
+          ls -lh dist/sbom-operator-v$VERSION.cyclonedx.json
 
           echo ""
           echo "SBOM Statistics:"
-          jq -r '.artifacts // .packages // [] | length' dist/sbom-operator-v$VERSION.syft.json || echo "SBOM contains package inventory"
+          jq -r '.components | length' dist/sbom-operator-v$VERSION.cyclonedx.json || echo "SBOM contains package inventory"
 
       - name: Package Helm charts
         run: |
@@ -328,11 +326,8 @@ jobs:
             dist/install-v${{ steps.version.outputs.version }}.yaml
             compatibility-matrix.yaml
             dist/bom-v${{ steps.version.outputs.version }}.json
-            dist/bom-v${{ steps.version.outputs.version }}.yaml
             dist/bom-v${{ steps.version.outputs.version }}.txt
             dist/sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json
-            dist/sbom-operator-v${{ steps.version.outputs.version }}.spdx.json
-            dist/sbom-operator-v${{ steps.version.outputs.version }}.syft.json
           generate_release_notes: true
           draft: false
           prerelease: false
