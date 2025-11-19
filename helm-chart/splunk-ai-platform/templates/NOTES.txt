@@ -1,7 +1,33 @@
-1. Your AIPlatform custom resource has been created:
-   kubectl get aiplatform {{ include "splunk-ai-platform.fullname" . }} -n {{ include "splunk-ai-platform.namespace" . }}
+Thank you for installing {{ .Chart.Name }}!
 
-2. If you enabled Ingress:
-   * Host: {{ (index .Values.ingress.hosts 0).host }}
-   * Port: 80 / 443
-   * Try: curl http://{{ (index .Values.ingress.hosts 0).host }}
+Your Splunk AI Platform "{{ include "splunk-ai-platform.fullname" . }}" has been deployed to namespace "{{ include "splunk-ai-platform.namespace" . }}".
+
+To check the status of your AIPlatform:
+  kubectl get aiplatform {{ include "splunk-ai-platform.fullname" . }} -n {{ include "splunk-ai-platform.namespace" . }}
+
+To view detailed information:
+  kubectl describe aiplatform {{ include "splunk-ai-platform.fullname" . }} -n {{ include "splunk-ai-platform.namespace" . }}
+
+To check Ray cluster status:
+  kubectl get rayservices -n {{ include "splunk-ai-platform.namespace" . }}
+
+To view platform pods:
+  kubectl get pods -n {{ include "splunk-ai-platform.namespace" . }}
+
+{{- if .Values.features }}
+Enabled Features:
+{{- range .Values.features }}
+  - {{ .name }}{{ if .version }} (v{{ .version }}){{ end }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.splunkConfiguration }}
+{{- if .Values.splunkConfiguration.endpoint }}
+
+Splunk Configuration:
+  Endpoint: {{ .Values.splunkConfiguration.endpoint }}
+{{- end }}
+{{- end }}
+
+For more information, visit:
+  https://github.com/splunk/splunk-ai-operator

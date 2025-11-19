@@ -59,14 +59,14 @@ serviceAccountName: ""
 # e.g. "g6.24xlarge" or "p4d.24xlarge"
 gpuInstanceType: "g6.24xlarge"
 
-# List of defined features to enable in the AI platform and version
+# List of defined features to enable in the AI platform
 # Options include: saia, seca
-features:
-  - name: ""  # Name of the feature, e.g. "saia" or "seca"
-    # Name of service account to use for the AI feature
-    serviceAccountName: ""
-    # Version of the feature, e.g. "1.0.0"
-    version: ""
+features: []
+# Example:
+# - name: "saia"
+#   serviceAccountName: "saia-service-sa"
+#   version: "1.1.0"
+#   scaleFactor: 1  # Optional: fixed number of replicas
 
 # headGroupSpec:
 #   # Service account name for the Ray head group
@@ -78,11 +78,26 @@ features:
 #   tolerations: []
 
 # Define the Ray worker group configuration
-workerGroupSpec:
+workerGroupConfig:
   # Service account to use for Ray worker groups
   serviceAccountName: ""
   # Image registry to use for Ray worker groups
   imageRegistry: ""
+  # GPU configurations for different worker tiers
+  gpuConfigs: []
+  # Example gpuConfigs:
+  # - tier: "g6e.12xlarge-1-gpu"
+  #   minReplicas: 0
+  #   maxReplicas: 10
+  #   gpusPerPod: 1
+  #   resources:
+  #     requests:
+  #       cpu: "4"
+  #       memory: "16Gi"
+  #     limits:
+  #       cpu: "16"
+  #       memory: "32Gi"
+  #       nvidia.com/gpu: "1"
 
 # Toggles injection of sidecars
 sidecars:
@@ -98,17 +113,22 @@ certificateRef: ""
 # Internal cluster DNS suffix
 clusterDomain: "cluster.local"
 
-# List of image registries to use for Ray
-# TODO: is this needed? There are related image environment variables in the splunk ai operator chart/deployment
+# Container images for platform components
+# These override the default images set in the operator's environment variables
 images:
-  # Image for SAIA
-  saiaImage: "splunkai/saia:latest"
-  # Image for Weaviate
-  weaviateImage: "docker.io/weaviate:latest"
+  # Image for SAIA API service
+  saiaImage: ""
+  # Image for Weaviate vector database
+  weaviateImage: ""
   # Image for Ray head group
-  rayHeadGroupImage: "rayproject/ray-head:latest"
+  rayHeadGroupImage: ""
   # Image for Ray worker group
-  rayWorkerGroupImage: "rayproject/ray-worker:latest"
+  rayWorkerGroupImage: ""
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+  # Example:
+  # - name: ecr-registry-secret
+  # - name: dockerhub-secret
 
 # Default GPU type to use for Ray worker groups
 defaultAcceleratorType: ""
@@ -145,26 +165,57 @@ storage:
     # Optional StorageClassName to use for dynamic PVC provisioning
     storageClassName: ""  # e.g., "gp2", "standard", "azurefile"
 
-# GPU instance type
-instanceType: ""
+# GPU and CPU scheduling configurations
+gpuScheduler: {}
+# Example:
+# gpuScheduler:
+#   tolerations:
+#     - key: nvidia.com/gpu
+#       operator: Exists
+#       effect: NoSchedule
+#   affinity:
+#     nodeAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         nodeSelectorTerms:
+#           - matchExpressions:
+#               - key: node.kubernetes.io/instance-type
+#                 operator: In
+#                 values:
+#                   - g6e.12xlarge
 
-# Ingress settings (fully optional)
-ingress:
-  enabled: false
-  className: ""
-  annotations:
-    {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
-  hosts:
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
+cpuScheduler: {}
+# Example:
+# cpuScheduler:
+#   tolerations: []
+#   affinity:
+#     nodeAffinity:
+#       preferredDuringSchedulingIgnoredDuringExecution:
+#         - weight: 1
+#           preference:
+#             matchExpressions:
+#               - key: node.kubernetes.io/instance-type
+#                 operator: In
+#                 values:
+#                   - m5.xlarge
+
+# Ingress settings (optional)
+# Note: This configures ingress at the AIPlatform CR level
+ingress: {}
+# Example:
+# ingress:
+#   enabled: true
+#   className: "nginx"
+#   annotations:
+#     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#   hosts:
+#     - host: ai-platform.example.com
+#       paths:
+#         - path: /
+#           pathType: Prefix
+#   tls:
+#     - secretName: ai-platform-tls
+#       hosts:
+#         - ai-platform.example.com
 
 # mTLS configuration for the AIPlatform
 mtls:
