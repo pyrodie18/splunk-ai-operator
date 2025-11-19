@@ -199,5 +199,13 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          helm list --all-namespaces
-          kubectl get all --all-namespaces
+          echo "::group::Cleanup"
+          # Only run if cluster is available
+          if kubectl cluster-info &> /dev/null; then
+            echo "Cluster is available, listing resources..."
+            helm list --all-namespaces || true
+            kubectl get all --all-namespaces || true
+          else
+            echo "Cluster not available, skipping cleanup commands"
+          fi
+          echo "::endgroup::"
