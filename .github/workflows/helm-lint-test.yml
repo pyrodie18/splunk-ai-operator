@@ -74,6 +74,12 @@ jobs:
           helm template test-release helm-chart/splunk-ai-platform \
             --namespace ai-platform \
             --create-namespace \
+            --set objectStorage.path="s3://test-bucket/artifacts" \
+            --set objectStorage.region="us-west-2" \
+            --set features[0].name="saia" \
+            --set features[0].version="1.1.0" \
+            --set features[0].serviceAccountName="default" \
+            --set workerGroupConfig.serviceAccountName="default" \
             --debug > /tmp/platform-template.yaml
           echo "Chart templates generated successfully"
           echo "::endgroup::"
@@ -192,6 +198,42 @@ jobs:
             --debug \
             --set image.repository=ghcr.io/splunk/splunk-ai-operator \
             --set image.tag=0.1.0
+
+          echo "✅ Dry-run upgrade successful"
+          echo "::endgroup::"
+
+      - name: Test install splunk-ai-platform chart (dry-run)
+        run: |
+          echo "::group::Testing splunk-ai-platform installation (dry-run)"
+          helm install test-platform helm-chart/splunk-ai-platform \
+            --namespace ai-platform \
+            --create-namespace \
+            --dry-run \
+            --debug \
+            --set objectStorage.path="s3://test-bucket/artifacts" \
+            --set objectStorage.region="us-west-2" \
+            --set features[0].name="saia" \
+            --set features[0].version="1.1.0" \
+            --set features[0].serviceAccountName="default" \
+            --set workerGroupConfig.serviceAccountName="default"
+
+          echo "✅ Dry-run installation successful"
+          echo "::endgroup::"
+
+      - name: Test upgrade splunk-ai-platform chart (dry-run)
+        run: |
+          echo "::group::Testing splunk-ai-platform upgrade (dry-run)"
+          helm upgrade test-platform helm-chart/splunk-ai-platform \
+            --namespace ai-platform \
+            --install \
+            --dry-run \
+            --debug \
+            --set objectStorage.path="s3://test-bucket/artifacts" \
+            --set objectStorage.region="us-west-2" \
+            --set features[0].name="saia" \
+            --set features[0].version="1.1.0" \
+            --set features[0].serviceAccountName="default" \
+            --set workerGroupConfig.serviceAccountName="default"
 
           echo "✅ Dry-run upgrade successful"
           echo "::endgroup::"
