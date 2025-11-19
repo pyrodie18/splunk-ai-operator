@@ -372,7 +372,7 @@ jobs:
 
             **Bill of Materials (BOM):**
             - **bom-v${{ steps.version.outputs.version }}.txt** - Human-readable BOM with all container images
-            - **bom-v${{ steps.version.outputs.version }}.json** - Machine-readable JSON BOM
+            - **bom-v${{ steps.version.outputs.version }}.json** - CycloneDX format BOM
 
             **Software Bill of Materials (SBOM):**
             - **sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json** - CycloneDX format SBOM for operator image
