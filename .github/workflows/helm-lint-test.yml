@@ -80,6 +80,8 @@ jobs:
             --set features[0].version="1.1.0" \
             --set features[0].serviceAccountName="default" \
             --set workerGroupConfig.serviceAccountName="default" \
+            --set prometheus.enabled=false \
+            --set opentelemetry-operator.enabled=false \
             --debug > /tmp/platform-template.yaml
           echo "Chart templates generated successfully"
           echo "::endgroup::"
@@ -162,12 +164,15 @@ jobs:
           # Install cert-manager CRDs
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.crds.yaml
 
-          # Install prometheus operator CRDs
-          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
-          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
+          # Install our operator CRDs
+          kubectl apply -f helm-chart/splunk-ai-operator/crds/
 
-          # Install OpenTelemetry CRDs
-          kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.102.0/opentelemetry-operator.yaml || true
+          # Install prometheus operator CRDs (only if testing with prometheus enabled)
+          # kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml || true
+          # kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml || true
+
+          # Install OpenTelemetry CRDs (only if testing with otel enabled)
+          # kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.102.0/opentelemetry-operator.yaml || true
 
           echo "CRDs installed successfully"
           echo "::endgroup::"
@@ -215,7 +220,9 @@ jobs:
             --set features[0].name="saia" \
             --set features[0].version="1.1.0" \
             --set features[0].serviceAccountName="default" \
-            --set workerGroupConfig.serviceAccountName="default"
+            --set workerGroupConfig.serviceAccountName="default" \
+            --set prometheus.enabled=false \
+            --set opentelemetry-operator.enabled=false
 
           echo "✅ Dry-run installation successful"
           echo "::endgroup::"
@@ -233,7 +240,9 @@ jobs:
             --set features[0].name="saia" \
             --set features[0].version="1.1.0" \
             --set features[0].serviceAccountName="default" \
-            --set workerGroupConfig.serviceAccountName="default"
+            --set workerGroupConfig.serviceAccountName="default" \
+            --set prometheus.enabled=false \
+            --set opentelemetry-operator.enabled=false
 
           echo "✅ Dry-run upgrade successful"
           echo "::endgroup::"
