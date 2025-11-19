@@ -89,13 +89,24 @@ spec:
             capabilities:
               drop:
               - ALL
-{{- with .Values.volumeMounts }}
           volumeMounts:
-{{- toYaml .| nindent 12 }}
+{{- if .Values.webhook.enabled }}
+          - mountPath: /tmp/k8s-webhook-server/serving-certs
+            name: cert
+            readOnly: true
+{{- end }}
+{{- with .Values.volumeMounts }}
+{{- toYaml .| nindent 10 }}
+{{- end }}
+      volumes:
+{{- if .Values.webhook.enabled }}
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "splunk-ai-operator.fullname" . }}-webhook-server-cert
 {{- end }}
 {{- with .Values.volumes }}
-      volumes:
-{{- toYaml .| nindent 8 }}
+{{- toYaml .| nindent 6 }}
 {{- end }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       tolerations:
