@@ -1,10 +1,11 @@
 name: OSS Scan
 on:
-  pull_request: {}
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
-      - develop
 jobs:
   fossa-scan:
     uses: splunk/oss-scanning/.github/workflows/oss-scan.yml@main

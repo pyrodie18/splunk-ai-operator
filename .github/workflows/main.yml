@@ -16,10 +16,6 @@ permissions:
   attestations: write  # Required for artifact attestation
 
 jobs:
-  prodsec-workflow:
-    uses: ./.github/workflows/main-prodsec-workflow.yml
-    secrets: inherit
-
   check-formatting:
     uses: ./.github/workflows/main-check-formatting.yml
 
