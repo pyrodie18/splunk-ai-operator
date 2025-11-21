@@ -1,0 +1,102 @@
+{{- if .Values.webhook.enabled }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "splunk-ai-operator.fullname" . }}-mutating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "splunk-ai-operator.fullname" . }}-serving-cert
+  labels:
+    {{- include "splunk-ai-operator.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "splunk-ai-operator.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-ai-splunk-com-v1-aiplatform
+  failurePolicy: Fail
+  name: maiplatform-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiplatforms
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "splunk-ai-operator.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-ai-splunk-com-v1-aiservice
+  failurePolicy: Fail
+  name: maiservice-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiservices
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "splunk-ai-operator.fullname" . }}-validating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "splunk-ai-operator.fullname" . }}-serving-cert
+  labels:
+    {{- include "splunk-ai-operator.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "splunk-ai-operator.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-ai-splunk-com-v1-aiplatform
+  failurePolicy: Fail
+  name: vaiplatform-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiplatforms
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "splunk-ai-operator.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-ai-splunk-com-v1-aiservice
+  failurePolicy: Fail
+  name: vaiservice-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiservices
+  sideEffects: None
+{{- end }}

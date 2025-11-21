@@ -1,0 +1,142 @@
+# Dependabot configuration for Splunk AI Operator
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Go module dependencies
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"  # Reduced from weekly to reduce noise
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5  # Reduced from 10
+
+    # Group related updates together to reduce PR count
+    groups:
+      # Kubernetes core dependencies
+      kubernetes-core:
+        patterns:
+          - "k8s.io/api"
+          - "k8s.io/apimachinery"
+          - "k8s.io/client-go"
+          - "k8s.io/apiextensions-apiserver"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Kubernetes SIG dependencies
+      kubernetes-sigs:
+        patterns:
+          - "sigs.k8s.io/controller-runtime"
+          - "sigs.k8s.io/yaml"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Cloud provider SDKs
+      cloud-providers:
+        patterns:
+          - "github.com/Azure/azure-sdk-for-go/*"
+          - "github.com/aws/aws-sdk-go*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Observability (metrics, logging)
+      observability:
+        patterns:
+          - "github.com/prometheus/*"
+          - "github.com/go-logr/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Testing dependencies
+      testing:
+        patterns:
+          - "github.com/stretchr/testify"
+          - "github.com/onsi/ginkgo*"
+          - "github.com/onsi/gomega"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Certificate management
+      cert-manager:
+        patterns:
+          - "github.com/cert-manager/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # Ignore specific dependencies or update types
+    ignore:
+      # Ignore major version updates for manual review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+      # Ignore Go toolchain updates (we manage Go version manually)
+      - dependency-name: "go"
+      - dependency-name: "golang.org/toolchain"
+
+    # Add labels to PRs for easy filtering
+    labels:
+      - "dependencies"
+      - "go"
+      - "automated"
+
+    # Commit message configuration
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # GitHub Actions (we pin to commit hashes, so less frequent updates needed)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "quarterly"  # Reduced from weekly since we pin to commits
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 3  # Reduced from 10
+
+    # Group all GitHub Actions updates together
+    groups:
+      github-actions-all:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Docker base images (Dockerfile)
+  # Disabled: Images reference private ECR repositories that Dependabot cannot access
+  # - package-ecosystem: "docker"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "monthly"  # Reduced from weekly
+  #     day: "monday"
+  #     time: "09:00"
+  #     timezone: "America/Los_Angeles"
+  #   open-pull-requests-limit: 2  # Reduced from 5
+  #
+  #   labels:
+  #     - "dependencies"
+  #     - "docker"
+  #     - "automated"
+  #
+  #   commit-message:
+  #     prefix: "chore(deps)"
+  #     include: "scope"

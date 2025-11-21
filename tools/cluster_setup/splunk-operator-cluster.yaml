@@ -55428,7 +55428,7 @@ spec:
         - name: WATCH_NAMESPACE
           value: ""
         - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-          value: vivekrsplunk/splunk:ef65e8205e4d-6d943f7-28228924
+          value: docker.io/splunk/splunk:10.2.0-dev1
         - name: OPERATOR_NAME
           value: splunk-operator
         - name: SPLUNK_GENERAL_TERMS
@@ -55437,7 +55437,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        image: docker.io/vivekrsplunk/splunk-operator:3.0.1
+        image: docker.io/splunk/splunk-operator:3.0.0
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

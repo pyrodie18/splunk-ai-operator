@@ -21,18 +21,28 @@ podLabels: {}
 # Default watches the entire cluster
 # TODO: should we have an extra clusterWideAccess flag? If so, all of the rbac templates need to be updated
 watchNamespace: ""
-# Splunk image
-splunkEnterpriseImage: "splunk/splunk:9.4.1"
-# Ray Head image
-rayHeadImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-5"
-# Ray Worker image
-rayWorkerImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-6"
-# Weaviate image
-weaviateImage: "semitechnologies/weaviate:stable-v1.28-007846a"
-# SAIA API image
-saiaApiImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-6"
-# SAIA Schema image
-saiaSchemaImage: "667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:0.0.5"
+
+# Webhook configuration
+webhook:
+  enabled: true  # Enable webhook server for validating/mutating admission control
+  port: 9443     # Webhook server port
+# Container Images Configuration
+# Configure all container images used by the AI Platform
+# Supports both Docker Hub (docker.io/...) and private registries (ECR, GCR, etc.)
+
+# Splunk Enterprise image
+splunkEnterpriseImage: "docker.io/splunk/splunk:10.2.0"
+
+# Ray cluster images
+rayHeadImage: "docker.io/rayproject/ray:2.44.0"
+rayWorkerImage: "docker.io/rayproject/ray:2.44.0-gpu"
+
+# Weaviate vector database image
+weaviateImage: "docker.io/semitechnologies/weaviate:stable-v1.28-007846a"
+
+# SAIA (Splunk AI Assistant) images
+saiaApiImage: "docker.io/splunk/saia-api:1.1.0"
+saiaSchemaImage: "docker.io/splunk/saia-data-loader:1.1.0"
 
 # Set security context for Splunk Operator pod
 # reference: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#podsecuritycontext-v1-core
@@ -43,8 +53,11 @@ securityContext:
 
 # Splunk AI Operator image and pull policy
 # reference: https://github.com/splunk/splunk-ai-operator
+# Default uses GitHub Container Registry (ghcr.io) for official releases
+# You can also use Docker Hub: docker.io/splunk/splunk-ai-operator
 image:
-  repository: docker.io/splunk/splunk-ai-operator:0.1.0
+  repository: ghcr.io/splunk/splunk-ai-operator
+  tag: "v0.1.0"
   pullPolicy: IfNotPresent
 
 # Define liveness probe to check if manager container is running

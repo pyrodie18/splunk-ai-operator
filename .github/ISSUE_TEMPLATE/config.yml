@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a Question
+    url: https://github.com/splunk/splunk-ai-operator/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Security Vulnerability
+    url: https://github.com/splunk/splunk-ai-operator/security/advisories/new
+    about: Report security vulnerabilities privately
+  - name: Documentation
+    url: https://github.com/splunk/splunk-ai-operator/tree/main/docs
+    about: Read the full documentation
+  - name: Splunk Support
+    url: mailto:splunkai@cisco.com
+    about: Contact the maintainers directly

@@ -27,6 +27,7 @@ type StorageClient interface {
 }
 
 func NewStorageClient(
+	ctx context.Context,
 	k8sClient client.Client,
 	namespace string,
 	vs ai.ObjectStorageSpec,
@@ -42,15 +43,15 @@ func NewStorageClient(
 
 	switch u.Scheme {
 	case "s3":
-		return NewS3Client(k8sClient, namespace, u.Host, prefix, vs)
+		return NewS3Client(ctx, k8sClient, namespace, u.Host, prefix, vs)
 	case "gs", "gcs":
-		return NewGCSClient(k8sClient, namespace, u.Host, prefix, vs)
+		return NewGCSClient(ctx, k8sClient, namespace, u.Host, prefix, vs)
 	case "azure":
-		return NewAzureClient(k8sClient, namespace, u.Host, prefix, vs)
+		return NewAzureClient(ctx, k8sClient, namespace, u.Host, prefix, vs)
 	case "minio":
 		// everything after "//" is host (bucket) and path.  We treat u.Host as bucket,
 		// vs.Endpoint *must* be set to our MinIO URL for this case.
-		return NewMinioClient(k8sClient, namespace, u.Host, prefix, vs)
+		return NewMinioClient(ctx, k8sClient, namespace, u.Host, prefix, vs)
 	case "fixture":
 		// fixture:// is a special scheme for testing purposes, using a fake client.
 		// It does not require any credentials or endpoint.

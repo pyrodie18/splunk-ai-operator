@@ -21,14 +21,30 @@ spec:
     plural: aiplatforms
     shortNames:
     - spai
+    - aiplatform
     singular: aiplatform
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+    - description: Platform ready status
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - jsonPath: .metadata.creationTimestamp
+    - description: Ray service status
+      jsonPath: .status.conditions[?(@.type=='RayServiceReady')].status
+      name: RayService
+      type: string
+    - description: VectorDB status
+      jsonPath: .status.conditions[?(@.type=='WeaviateDatabaseReady')].status
+      name: VectorDB
+      type: string
+    - description: Ingress status
+      jsonPath: .status.conditions[?(@.type=='IngressReady')].status
+      name: Ingress
+      priority: 1
+      type: string
+    - description: Age of resource
+      jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1
@@ -57,18 +73,20 @@ spec:
             description: AIPlatformSpec defines the desired state
             properties:
               certificateRef:
-                description: cert-manager Certificate for mTLS
+                description: CertificateRef references a cert-manager Certificate
+                  or Issuer for mTLS
                 type: string
               clusterDomain:
                 default: cluster.local
-                description: 'Cluster domain (default: cluster.local)'
+                description: ClusterDomain is the cluster domain for service DNS
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               cpuScheduler:
                 description: CPUSchedulingSpec defines the scheduling configuration
                   for CPU-based Ray worker groups
                 properties:
                   affinity:
-                    description: Affinity is a group of affinity scheduling rules.
+                    description: Affinity defines pod affinity and anti-affinity rules
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -989,8 +1007,12 @@ spec:
                   nodeSelector:
                     additionalProperties:
                       type: string
+                    description: NodeSelector is a map of key-value pairs for node
+                      selection
                     type: object
                   tolerations:
+                    description: Tolerations allows pods to schedule onto nodes with
+                      matching taints
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches
@@ -1030,13 +1052,12 @@ spec:
                     type: array
                 type: object
               defaultAcceleratorType:
-                description: DefaultAcceleratorType is the default GPU type to use
-                  for Ray worker groups
+                description: |-
+                  DefaultAcceleratorType is the default GPU type to use for Ray worker groups
+                  Examples: "nvidia-tesla-t4", "nvidia-tesla-v100", "nvidia-a100"
                 type: string
               features:
-                description: |-
-                  options are "saia", "seca"
-                  Features to enable in the AIPlatform
+                description: Features defines the AI features to enable in the platform
                 items:
                   description: FeatureSpec defines the features to enable in the AIPlatform
                   properties:
@@ -1046,6 +1067,12 @@ spec:
                       - saia
                       - seca
                       type: string
+                    scaleFactor:
+                      description: ScaleFactor is the desired fixed number of replicas
+                        for the feature.
+                      format: int32
+                      minimum: 1
+                      type: integer
                     serviceAccountName:
                       description: ServiceAccountName is the name of the service account
                         to use for the feature
@@ -1054,17 +1081,19 @@ spec:
                       description: Version of the feature, e.g. "1.0.0"
                       type: string
                   type: object
+                maxItems: 10
                 type: array
               gpuInstanceType:
-                description: GpuInstanceType is the type of GPU instance to use for
-                  Ray worker groups
+                description: |-
+                  GpuInstanceType is the type of GPU instance to use for Ray worker groups
+                  Examples: "g6.24xlarge", "p4d.24xlarge", "nvidia-tesla-t4"
                 type: string
               gpuScheduler:
                 description: GPUSchedulingSpec defines the scheduling configuration
                   for GPU-based Ray worker groups
                 properties:
                   affinity:
-                    description: Affinity is a group of affinity scheduling rules.
+                    description: Affinity defines pod affinity and anti-affinity rules
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -1985,8 +2014,12 @@ spec:
                   nodeSelector:
                     additionalProperties:
                       type: string
+                    description: NodeSelector is a map of key-value pairs for node
+                      selection
                     type: object
                   tolerations:
+                    description: Tolerations allows pods to schedule onto nodes with
+                      matching taints
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches
@@ -2026,7 +2059,32 @@ spec:
                     type: array
                 type: object
               images:
+                description: Images defines custom container images for platform components
                 properties:
+                  imagePullSecrets:
+                    description: |-
+                      ImagePullSecrets is a list of secret names for pulling container images from private registries
+                      If specified, these secrets will be added to ALL pods created by the operator
+                      (Ray head, Ray workers, Weaviate, SAIA, jobs, etc.)
+                      Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+                      Kubernetes will gracefully handle the case where imagePullSecrets are provided but images are public
+                    items:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    type: array
                   rayHeadGroupImage:
                     description: Ray head group image, e.g. "rayproject/ray-head:latest"
                     type: string
@@ -2034,52 +2092,87 @@ spec:
                     description: Ray worker group image, e.g. "rayproject/ray-worker:latest"
                     type: string
                   saiaImage:
+                    description: SAIA service image
                     type: string
                   weaviateImage:
-                    description: Weaviate image, e.g. "docker.io/weaviate:latest"
+                    description: Weaviate vector database image, e.g. "docker.io/weaviate:latest"
                     type: string
                 type: object
               ingress:
-                description: Ingress defines the Ingress configuration for the AIPlatform
+                description: Ingress defines the Ingress configuration for external
+                  access
                 properties:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations for the Ingress resource
                     type: object
                   className:
+                    description: ClassName specifies the Ingress class (e.g., "nginx",
+                      "traefik")
+                    minLength: 1
                     type: string
                   enabled:
+                    default: false
+                    description: Enabled determines whether to create an Ingress resource
                     type: boolean
                   hosts:
+                    description: Hosts defines the list of host rules for the Ingress
                     items:
+                      description: IngressHost defines a host and its paths for Ingress
+                        routing
                       properties:
                         host:
+                          description: Host is the FQDN for the Ingress rule
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         paths:
+                          description: Paths defines the list of paths for this host
                           items:
+                            description: IngressPath defines a path for Ingress routing
                             properties:
                               path:
+                                description: Path is the URL path for the Ingress
+                                  rule
+                                minLength: 1
                                 type: string
                               pathType:
+                                description: PathType determines how the path is matched
+                                  (Prefix, Exact, or ImplementationSpecific)
+                                enum:
+                                - Prefix
+                                - Exact
+                                - ImplementationSpecific
                                 type: string
                             required:
                             - path
                             - pathType
                             type: object
+                          minItems: 1
                           type: array
                       required:
                       - host
                       - paths
                       type: object
+                    minItems: 1
                     type: array
                   tls:
+                    description: TLS configuration for the Ingress
                     items:
+                      description: IngressTLS defines TLS configuration for Ingress
                       properties:
                         hosts:
+                          description: Hosts is the list of hosts covered by this
+                            TLS certificate
                           items:
                             type: string
+                          minItems: 1
                           type: array
                         secretName:
+                          description: SecretName is the name of the Secret containing
+                            the TLS certificate
+                          minLength: 1
                           type: string
                       required:
                       - hosts
@@ -2088,17 +2181,19 @@ spec:
                     type: array
                 type: object
               mtls:
-                description: MTLS defines the mTLS configuration for the AIPlatform
+                description: MTLS defines the mTLS configuration for secure communication
                 properties:
                   dnsNames:
+                    description: DNSNames is the list of DNS names for the certificate
                     items:
                       type: string
                     type: array
                   enabled:
-                    description: Enable or disable mTLS on the SAIA service
+                    description: Enabled determines whether to enable mTLS
                     type: boolean
                   issuerRef:
-                    description: If Enabled, how to request the cert
+                    description: IssuerRef references the cert-manager Issuer for
+                      certificate generation
                     properties:
                       group:
                         description: Group of the resource being referred to.
@@ -2113,37 +2208,47 @@ spec:
                     - name
                     type: object
                   secretName:
+                    description: SecretName is the name of the Secret containing TLS
+                      certificates
+                    minLength: 1
                     type: string
                   termination:
-                    description: |-
-                      Let users declare “I don’t want operator-managed TLS” even if Enabled=true,
-                      e.g. they’re on Istio and will terminate externally.
+                    default: operator
+                    description: 'Termination specifies where TLS is terminated: "operator"
+                      or "mesh"'
+                    enum:
+                    - operator
+                    - mesh
                     type: string
                 required:
                 - enabled
                 type: object
               objectStorage:
                 description: |-
-                  user needs to create directory structure
-                  s3://bucket/artifacts for AI artifacts
-                  s3://bucket/tasks for AI tasks (read and write permission)
-                  s3://bucket/models for AI models
-                  preferred authentication is via IAM role
+                  ObjectStorage defines the object storage configuration for AI artifacts, tasks, and models
+                  Supported providers: S3, GCS, Azure Blob Storage, MinIO
                 properties:
                   endpoint:
-                    description: optional override endpoint (only really needed for
-                      S3-compatible like MinIO)
+                    description: |-
+                      Optional override endpoint (only needed for S3-compatible services like MinIO)
+                      Must be a valid HTTP/HTTPS URL
+                    pattern: ^https?://.*$
                     type: string
                   path:
-                    description: Remote volume URI in the format s3://bucketname/<path
-                      prefix>
+                    description: |-
+                      Remote volume URI in the format s3://bucketname/<path prefix>, gs://bucketname/<path prefix>,
+                      azure://containername/<path prefix>, or minio://bucketname/<path prefix>
+                    pattern: ^(s3|gs|azure|minio)://[a-zA-Z0-9.\-_]+(/.*)?$
                     type: string
                   region:
-                    description: Region of the remote storage volume where apps reside.
-                      Used for aws, if provided. Not used for minio and azure.
+                    description: Region of the remote storage volume. Required for
+                      S3, optional for other providers
+                    minLength: 1
                     type: string
                   secretRef:
-                    description: Secret object name
+                    description: Secret name containing storage credentials
+                    maxLength: 253
+                    minLength: 1
                     type: string
                 required:
                 - path
@@ -2152,11 +2257,14 @@ spec:
               serviceAccountName:
                 description: |-
                   ServiceAccountName is the name of the service account to use for the AIPlatform
-                  used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
+                  Used for Ray, Weaviate, SAIA, etc and also IAM role for S3 access
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
               serviceTemplate:
-                description: ' ServiceTemplate is a template used to create Kubernetes
-                  services'
+                description: ServiceTemplate is a template used to create Kubernetes
+                  services
                 properties:
                   apiVersion:
                     description: |-
@@ -2667,25 +2775,31 @@ spec:
                     type: object
                 type: object
               sidecars:
-                description: Which sidecars to inject
+                description: Sidecars defines which sidecars to inject into pods
                 properties:
                   envoy:
-                    default: true
+                    default: false
+                    description: Envoy enables Envoy sidecar injection
                     type: boolean
                   otel:
                     default: true
+                    description: Otel enables OpenTelemetry sidecar injection
                     type: boolean
                   prometheusOperator:
                     default: true
+                    description: PrometheusOperator enables Prometheus Operator sidecar
                     type: boolean
                 type: object
               splunkConfiguration:
-                description: SplunkConfigurationSpec instance reference
+                description: SplunkConfiguration defines the Splunk integration configuration
                 properties:
                   endpoint:
+                    description: |-
+                      Endpoint is the Splunk HEC endpoint URL or service name (mutually exclusive with SplunkCustomResourceRef)
+                      Either Endpoint or SplunkCustomResourceRef must be provided
                     type: string
                   secretRef:
-                    description: Splunk secret reference
+                    description: SecretRef references a Secret containing Splunk credentials
                     properties:
                       name:
                         description: name is unique within a namespace to reference
@@ -2698,11 +2812,12 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   secretSource:
-                    description: 'SecretSource:  Whether token comes from Kubernetes
-                      Secret or Vault Agent'
+                    description: SecretSource indicates whether token comes from Kubernetes
+                      Secret or Vault Agent
                     type: string
                   splunkCustomResourceRef:
-                    description: CRNamespace string `json:"crNamespace,omitempty"`
+                    description: SplunkCustomResourceRef references an existing SplunkConfiguration
+                      custom resource
                     properties:
                       apiVersion:
                         description: API version of the referent.
@@ -2745,24 +2860,32 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   token:
+                    description: Token is the Splunk HEC token (consider using SecretRef
+                      instead)
                     type: string
                   vaultFilePath:
-                    description: VaultFilePath Path where Vault Agent injects the
-                      Splunk HEC token
+                    description: VaultFilePath is the path where Vault Agent injects
+                      the Splunk HEC token
                     type: string
                 type: object
               storage:
-                description: Weaviate       WeaviateSpec     `json:"weaviate,omitempty"`
+                description: Storage defines persistent storage configuration for
+                  platform components
                 properties:
                   vectorDB:
+                    description: VectorDB storage configuration
                     properties:
                       pvcName:
-                        description: Optional name of an existing PVC to use
+                        description: Optional name of an existing PVC to use (mutually
+                          exclusive with Size)
+                        maxLength: 253
+                        minLength: 1
                         type: string
                       size:
                         default: 50Gi
                         description: Size of the volume to create if PVCName is not
                           provided
+                        pattern: ^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$
                         type: string
                       storageClassName:
                         description: Optional StorageClassName to use for dynamic
@@ -2770,97 +2893,9 @@ spec:
                         type: string
                     type: object
                 type: object
-              workerGroupSpec:
-                description: |-
-                  RayService defines the Ray cluster configuration
-                  HeadGroupSpec *HeadGroupSpec `json:"headGroupSpec,omitempty"`
-                  WorkerGroupSpec defines the Ray worker group configuration
+              workerGroupConfig:
+                description: WorkerGroupConfig defines the Ray worker group configuration
                 properties:
-                  gpuConfigs:
-                    description: GPUConfigs defines the GPU worker tiers
-                    items:
-                      description: GPUConfig defines one worker-tier with scheduling
-                        and accelerator settings.
-                      properties:
-                        gpusPerPod:
-                          format: int32
-                          type: integer
-                        maxReplicas:
-                          format: int32
-                          type: integer
-                        minReplicas:
-                          format: int32
-                          type: integer
-                        resources:
-                          description: ResourceRequirements describes the compute
-                            resource requirements.
-                          properties:
-                            claims:
-                              description: |-
-                                Claims lists the names of resources, defined in spec.resourceClaims,
-                                that are used by this container.
-
-                                This is an alpha field and requires enabling the
-                                DynamicResourceAllocation feature gate.
-
-                                This field is immutable. It can only be set for containers.
-                              items:
-                                description: ResourceClaim references one entry in
-                                  PodSpec.ResourceClaims.
-                                properties:
-                                  name:
-                                    description: |-
-                                      Name must match the name of one entry in pod.spec.resourceClaims of
-                                      the Pod where this field is used. It makes that resource available
-                                      inside a container.
-                                    type: string
-                                  request:
-                                    description: |-
-                                      Request is the name chosen for a request in the referenced claim.
-                                      If empty, everything from the claim is made available, otherwise
-                                      only the result of this request.
-                                    type: string
-                                required:
-                                - name
-                                type: object
-                              type: array
-                              x-kubernetes-list-map-keys:
-                              - name
-                              x-kubernetes-list-type: map
-                            limits:
-                              additionalProperties:
-                                anyOf:
-                                - type: integer
-                                - type: string
-                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                x-kubernetes-int-or-string: true
-                              description: |-
-                                Limits describes the maximum amount of compute resources allowed.
-                                More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                              type: object
-                            requests:
-                              additionalProperties:
-                                anyOf:
-                                - type: integer
-                                - type: string
-                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                x-kubernetes-int-or-string: true
-                              description: |-
-                                Requests describes the minimum amount of compute resources required.
-                                If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                                otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                                More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                              type: object
-                          type: object
-                        tier:
-                          type: string
-                      required:
-                      - gpusPerPod
-                      - maxReplicas
-                      - minReplicas
-                      - tier
-                      type: object
-                    type: array
                   imageRegistry:
                     description: ImageRegistry is the image registry to use for Ray
                       worker groups
@@ -2868,6 +2903,9 @@ spec:
                   serviceAccountName:
                     description: ServiceAccountName is the name of the service account
                       to use for Ray worker groups
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
                 type: object
             required:
@@ -3023,14 +3061,30 @@ spec:
     plural: aiservices
     shortNames:
     - saia
+    - aiservice
     singular: aiservice
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+    - description: Service ready status
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - jsonPath: .metadata.creationTimestamp
+    - description: Number of replicas
+      jsonPath: .spec.replicas
+      name: Replicas
+      type: integer
+    - description: AI Platform reference
+      jsonPath: .spec.aiPlatformRef.name
+      name: Platform
+      type: string
+    - description: VectorDB status
+      jsonPath: .status.vectorDbStatus
+      name: VectorDB
+      priority: 1
+      type: string
+    - description: Age of resource
+      jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1
@@ -3059,7 +3113,7 @@ spec:
             description: AIServiceSpec defines the desired state of AIService
             properties:
               affinity:
-                description: node affinity configuration
+                description: Affinity defines pod affinity and anti-affinity rules
                 properties:
                   nodeAffinity:
                     description: Describes node affinity scheduling rules for the
@@ -4014,11 +4068,13 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               aiPlatformUrl:
-                description: AIPlatformUrl specifies the URL for the AI Platform
+                description: AIPlatformUrl specifies the URL for the AI Platform (deprecated,
+                  use AIPlatformRef)
                 type: string
               clusterDomain:
                 default: cluster.local
-                description: 'Cluster domain (default: cluster.local)'
+                description: ClusterDomain is the cluster domain for service DNS
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               env:
                 additionalProperties:
@@ -4026,7 +4082,7 @@ spec:
                 description: Env specifies environment variables for the AIService
                 type: object
               features:
-                description: Features defines the features to be enabled for the AIService
+                description: Feature defines the features to be enabled for the AIService
                 properties:
                   name:
                     description: Name of the feature, e.g. "saia" or "seca"
@@ -4034,6 +4090,12 @@ spec:
                     - saia
                     - seca
                     type: string
+                  scaleFactor:
+                    description: ScaleFactor is the desired fixed number of replicas
+                      for the feature.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   serviceAccountName:
                     description: ServiceAccountName is the name of the service account
                       to use for the feature
@@ -4042,32 +4104,62 @@ spec:
                     description: Version of the feature, e.g. "1.0.0"
                     type: string
                 type: object
+              imagePullSecrets:
+                description: |-
+                  ImagePullSecrets is a list of secret names for pulling container images from private registries
+                  If specified, these secrets will be added to ALL pods created for this AIService
+                  Use this when your container images are hosted in private registries like AWS ECR, Docker Hub, GCR, or ACR
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
               metrics:
-                description: metrics configuration
+                description: Metrics configuration for monitoring
                 properties:
                   enabled:
-                    description: Enable scraping of SAIA metrics
+                    default: false
+                    description: Enabled determines whether to scrape metrics
                     type: boolean
                   path:
-                    description: Path under /metrics, default "/metrics"
+                    default: /metrics
+                    description: Path is the metrics endpoint path, default "/metrics"
+                    pattern: ^/.*$
                     type: string
                   port:
-                    description: Port name or number, default "metrics"
+                    default: 9090
+                    description: Port is the metrics port number
                     format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                 type: object
               mtls:
-                description: mtls configuration
+                description: MTLS configuration for secure communication
                 properties:
                   dnsNames:
+                    description: DNSNames is the list of DNS names for the certificate
                     items:
                       type: string
                     type: array
                   enabled:
-                    description: Enable or disable mTLS on the SAIA service
+                    description: Enabled determines whether to enable mTLS
                     type: boolean
                   issuerRef:
-                    description: If Enabled, how to request the cert
+                    description: IssuerRef references the cert-manager Issuer for
+                      certificate generation
                     properties:
                       group:
                         description: Group of the resource being referred to.
@@ -4082,25 +4174,38 @@ spec:
                     - name
                     type: object
                   secretName:
+                    description: SecretName is the name of the Secret containing TLS
+                      certificates
+                    minLength: 1
                     type: string
                   termination:
-                    description: |-
-                      Let users declare “I don’t want operator-managed TLS” even if Enabled=true,
-                      e.g. they’re on Istio and will terminate externally.
+                    default: operator
+                    description: 'Termination specifies where TLS is terminated: "operator"
+                      or "mesh"'
+                    enum:
+                    - operator
+                    - mesh
                     type: string
                 required:
                 - enabled
                 type: object
               port:
-                description: Port specifies the default port for the service
+                default: 80
+                description: Port specifies the service port
                 format: int32
+                maximum: 65535
+                minimum: 1
                 type: integer
               replicas:
+                default: 1
                 description: Replicas specifies the number of replicas for the AIService
                 format: int32
+                maximum: 100
+                minimum: 0
                 type: integer
               resources:
-                description: resources k8s resources cpu, memory
+                description: Resources defines the compute resources for the AIService
+                  pods
                 properties:
                   claims:
                     description: |-
@@ -4161,6 +4266,9 @@ spec:
               serviceAccountName:
                 description: ServiceAccountName specifies the service account to be
                   used by the AIService
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
               serviceTemplate:
                 description: ServiceTemplate is a template used to create Kubernetes
@@ -4675,13 +4783,16 @@ spec:
                     type: object
                 type: object
               splunkConfiguration:
-                description: SplunkConfigurationSpec specifies the Splunk configuration
+                description: SplunkConfiguration specifies the Splunk configuration
                   for the AIService
                 properties:
                   endpoint:
+                    description: |-
+                      Endpoint is the Splunk HEC endpoint URL or service name (mutually exclusive with SplunkCustomResourceRef)
+                      Either Endpoint or SplunkCustomResourceRef must be provided
                     type: string
                   secretRef:
-                    description: Splunk secret reference
+                    description: SecretRef references a Secret containing Splunk credentials
                     properties:
                       name:
                         description: name is unique within a namespace to reference
@@ -4694,11 +4805,12 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   secretSource:
-                    description: 'SecretSource:  Whether token comes from Kubernetes
-                      Secret or Vault Agent'
+                    description: SecretSource indicates whether token comes from Kubernetes
+                      Secret or Vault Agent
                     type: string
                   splunkCustomResourceRef:
-                    description: CRNamespace string `json:"crNamespace,omitempty"`
+                    description: SplunkCustomResourceRef references an existing SplunkConfiguration
+                      custom resource
                     properties:
                       apiVersion:
                         description: API version of the referent.
@@ -4741,29 +4853,38 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   token:
+                    description: Token is the Splunk HEC token (consider using SecretRef
+                      instead)
                     type: string
                   vaultFilePath:
-                    description: VaultFilePath Path where Vault Agent injects the
-                      Splunk HEC token
+                    description: VaultFilePath is the path where Vault Agent injects
+                      the Splunk HEC token
                     type: string
                 type: object
               taskVolume:
-                description: TaskVolume specifies the volume to be used for tasks
+                description: TaskVolume specifies the object storage volume for tasks
                 properties:
                   endpoint:
-                    description: optional override endpoint (only really needed for
-                      S3-compatible like MinIO)
+                    description: |-
+                      Optional override endpoint (only needed for S3-compatible services like MinIO)
+                      Must be a valid HTTP/HTTPS URL
+                    pattern: ^https?://.*$
                     type: string
                   path:
-                    description: Remote volume URI in the format s3://bucketname/<path
-                      prefix>
+                    description: |-
+                      Remote volume URI in the format s3://bucketname/<path prefix>, gs://bucketname/<path prefix>,
+                      azure://containername/<path prefix>, or minio://bucketname/<path prefix>
+                    pattern: ^(s3|gs|azure|minio)://[a-zA-Z0-9.\-_]+(/.*)?$
                     type: string
                   region:
-                    description: Region of the remote storage volume where apps reside.
-                      Used for aws, if provided. Not used for minio and azure.
+                    description: Region of the remote storage volume. Required for
+                      S3, optional for other providers
+                    minLength: 1
                     type: string
                   secretRef:
-                    description: Secret object name
+                    description: Secret name containing storage credentials
+                    maxLength: 253
+                    minLength: 1
                     type: string
                 required:
                 - path
@@ -4810,14 +4931,14 @@ spec:
                   type: object
                 type: array
               vectorDbUrl:
-                description: VectorDbUrl specifies the URL for the vector database
+                description: VectorDbUrl specifies the URL or service name for the
+                  vector database
                 type: string
               version:
                 description: Version specifies the version of the AIService
                 type: string
             required:
             - aiPlatformRef
-            - serviceTemplate
             - vectorDbUrl
             type: object
           status:
@@ -5198,6 +5319,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - opentelemetry.io
   resources:
   - opentelemetrycollectors
@@ -5212,7 +5345,6 @@ rules:
 - apiGroups:
   - ray.io
   resources:
-  - jobs
   - rayclusters
   - rayjobs
   - rayservices
@@ -5331,6 +5463,23 @@ spec:
     app.kubernetes.io/name: splunk-ai-operator
     control-plane: controller-manager
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: splunk-ai-operator
+  name: splunk-ai-operator-webhook-service
+  namespace: splunk-ai-operator-system
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: splunk-ai-operator
+    control-plane: controller-manager
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5359,13 +5508,14 @@ spec:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
         env:
         - name: WATCH_NAMESPACE
           value: WATCH_NAMESPACE_VALUE
         - name: RELATED_IMAGE_SPLUNK_ENTERPRISE
-          value: SPLUNK_ENTERPRISE_IMAGE
+          value: splunk/splunk:10.2.0-dev1
         - name: OPERATOR_NAME
           value: splunk-operator
         - name: POD_NAME
@@ -5373,20 +5523,24 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         - name: RELATED_IMAGE_RAY_HEAD
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-13
+          value: splunk/ai/ray/ray-head:build-17
         - name: RELATED_IMAGE_RAY_WORKER
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-worker-gpu:build-13
+          value: splunk/ai/ray/ray-worker-gpu:build-17
         - name: RELATED_IMAGE_WEAVIATE
-          value: semitechnologies/weaviate:stable-v1.28-007846a
+          value: docker.io/semitechnologies/weaviate:stable-v1.28-007846a
         - name: RELATED_IMAGE_SAIA_API
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/saia-api:build-10
+          value: splunk/ai/saia/saia-api:build-1
         - name: RELATED_IMAGE_POST_INSTALL_HOOK
-          value: 667741767953.dkr.ecr.us-west-2.amazonaws.com/vivek/ml-platform/saia/ai-helm-post-hook:build-10
+          value: splunk/ai/saia/saia-data-loader:build-1
+        - name: SPLUNK_METRICS_INDEX_NAME
+          value: _metrics
+        - name: RELATED_IMAGE_FLUENT_BIT
+          value: docker.io/fluent/fluent-bit:1.9.6
         - name: MODEL_VERSION
           value: v0.3.14-36-g1549f5a
         - name: RAY_VERSION
           value: 2.44.0
-        image: vivekrsplunk/splunk-ai-operator:ai-31
+        image: splunk/ai/splunk-ai-operator:build-v1alpha1
         livenessProbe:
           httpGet:
             path: /healthz
@@ -5394,7 +5548,10 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
-        ports: []
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz
@@ -5413,16 +5570,180 @@ spec:
           capabilities:
             drop:
             - ALL
-        volumeMounts: []
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: webhook-certs
+          readOnly: true
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: splunk-ai-operator-controller-manager
       terminationGracePeriodSeconds: 10
-      tolerations:
-      - effect: NoSchedule
-        key: dedicated
-        operator: Equal
-        value: cpu
-      volumes: []
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: splunk-ai-operator
+  name: splunk-ai-operator-metrics-certs
+  namespace: splunk-ai-operator-system
+spec:
+  dnsNames:
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: splunk-ai-operator-selfsigned-issuer
+  secretName: metrics-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: splunk-ai-operator
+  name: splunk-ai-operator-serving-cert
+  namespace: splunk-ai-operator-system
+spec:
+  dnsNames:
+  - splunk-ai-operator-webhook-service.splunk-ai-operator-system.svc
+  - splunk-ai-operator-webhook-service.splunk-ai-operator-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: splunk-ai-operator-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: splunk-ai-operator
+  name: splunk-ai-operator-selfsigned-issuer
+  namespace: splunk-ai-operator-system
+spec:
+  selfSigned: {}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: splunk-ai-operator
+    control-plane: controller-manager
+  name: splunk-ai-operator-controller-manager-metrics-monitor
+  namespace: splunk-ai-operator-system
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    path: /metrics
+    port: https
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: splunk-ai-operator
+      control-plane: controller-manager
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: splunk-ai-operator-system/splunk-ai-operator-serving-cert
+  name: splunk-ai-operator-mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: splunk-ai-operator-webhook-service
+      namespace: splunk-ai-operator-system
+      path: /mutate-ai-splunk-com-v1-aiplatform
+  failurePolicy: Fail
+  name: maiplatform-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiplatforms
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: splunk-ai-operator-webhook-service
+      namespace: splunk-ai-operator-system
+      path: /mutate-ai-splunk-com-v1-aiservice
+  failurePolicy: Fail
+  name: maiservice-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiservices
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: splunk-ai-operator-system/splunk-ai-operator-serving-cert
+  name: splunk-ai-operator-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: splunk-ai-operator-webhook-service
+      namespace: splunk-ai-operator-system
+      path: /validate-ai-splunk-com-v1-aiplatform
+  failurePolicy: Fail
+  name: vaiplatform-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiplatforms
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: splunk-ai-operator-webhook-service
+      namespace: splunk-ai-operator-system
+      path: /validate-ai-splunk-com-v1-aiservice
+  failurePolicy: Fail
+  name: vaiservice-v1.kb.io
+  rules:
+  - apiGroups:
+    - ai.splunk.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - aiservices
+  sideEffects: None

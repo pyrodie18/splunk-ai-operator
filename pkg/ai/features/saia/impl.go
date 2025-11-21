@@ -2,6 +2,7 @@ package saia
 
 import (
 	"context"
+	"strings"
 
 	"fmt"
 	"os"
@@ -56,6 +57,7 @@ func (r *SaiaReconciler) Reconcile(ctx context.Context, aiservice *aiv1.AIServic
 		{"Validate", r.validateAIService},
 		{"ServiceAccount", r.reconcileServiceAccount},
 		{"SAIAConfigMap", r.reconcileSAIAConfigMap},
+		{"FeatureConfigMap", r.reconcileFeatureConfigMap},
 		{"Certificate", r.reconcileCertificate},
 		{"PostInstallHook", r.reconcilePostInstallHook},
 		{"SAIADeployment", r.reconcileSAIADeployment},
@@ -104,54 +106,60 @@ func (r *SaiaReconciler) validateAIService(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
+	// Clean ServiceTemplate at the start to remove any server-generated fields
+	cleanServiceTemplate(&ai.Spec.ServiceTemplate)
+
 	if os.Getenv("RELATED_IMAGE_POST_INSTALL_HOOK") == "" {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "RELATED_IMAGE_POST_INSTALL_HOOK must be set")
 		return fmt.Errorf("RELATED_IMAGE_POST_INSTALL_HOOK must be set")
 	}
-	// Populate URLs from AIPlatformRef if provided
+	// Validate that either AIPlatformRef or explicit URLs are provided
+	if ai.Spec.AIPlatformRef.Name == "" && ai.Spec.AIPlatformUrl == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")
+		return fmt.Errorf("either AIPlatformRef.Name or AIPlatformUrl must be set")
+	}
+
+	// Fetch and validate AIPlatform if using AIPlatformRef
 	if ai.Spec.AIPlatformRef.Name != "" {
-		plat := &aiv1.AIPlatform{}
-		if err := r.Get(
-			ctx,
-			client.ObjectKey{Namespace: ai.Namespace, Name: ai.Spec.AIPlatformRef.Name},
-			plat,
-		); err != nil {
+		aiPlatform, err := r.getAIPlatform(ctx, ai.Spec.AIPlatformRef)
+		if err != nil {
 			r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "fetching AIPlatform failed")
 			return fmt.Errorf("fetching AIPlatform: %w", err)
 		}
-		ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000", plat.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local") // FIXME domain name
-		ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s", plat.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, "cluster.local")   // FIXME domain name
-	}
-	if ai.Spec.AIPlatformRef.Name == "" && ai.Spec.AIPlatformUrl == "" {
-		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformRef.Name or AIPlatformUrl must be set")
-		return fmt.Errorf(
-			"either AIPlatformRef.Name or AIPlatformUrl must be set",
-		)
-	}
-	if ai.Spec.AIPlatformUrl == "" && ai.Spec.VectorDbUrl == "" {
-		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformUrl or VectorDbUrl must be set")
-		return fmt.Errorf(
-			"either AIPlatformUrl or VectorDbUrl must be set",
-		)
+
+		// Validate AIPlatform infrastructure is ready before using its status fields
+		if err := r.validateAIPlatformReady(ctx, aiPlatform); err != nil {
+			return fmt.Errorf("AIPlatform infrastructure not ready: %w", err)
+		}
+
+		// Validate Vector Database readiness
+		if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
+			return fmt.Errorf("vector database not ready: %w", err)
+		}
+
+		// Only populate URLs if not already set (preserve explicit user values)
+		clusterDomain := ai.Spec.ClusterDomain
+		if clusterDomain == "" {
+			clusterDomain = "cluster.local"
+		}
+		if ai.Spec.AIPlatformUrl == "" {
+			ai.Spec.AIPlatformUrl = fmt.Sprintf("%s.%s.svc.%s:8000",
+				aiPlatform.Status.RayServiceName, ai.Spec.AIPlatformRef.Namespace, clusterDomain)
+		}
+		if ai.Spec.VectorDbUrl == "" {
+			ai.Spec.VectorDbUrl = fmt.Sprintf("%s.%s.svc.%s",
+				aiPlatform.Status.VectorDbServiceName, ai.Spec.AIPlatformRef.Namespace, clusterDomain)
+		}
 	}
 
-	// Fetch AIPlatform using AIPlatformRef
-	aiPlatform, err := r.getAIPlatform(ctx, ai.Spec.AIPlatformRef)
-	if err != nil {
-		return fmt.Errorf("failed to fetch AIPlatform: %w", err)
+	// Final validation that URLs are populated (either from AIPlatform or provided explicitly)
+	if ai.Spec.AIPlatformUrl == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "AIPlatformUrl is not set")
+		return fmt.Errorf("AIPlatformUrl must be set (either from AIPlatformRef or explicitly)")
 	}
-
-	// Extract RayService endpoint from AIPlatform status
-	rayServiceEndpoint := aiPlatform.Status.RayServiceName
-
-	// Validate AIPlatform readiness
-	if err := r.validateAIPlatformReady(ctx, aiPlatform, rayServiceEndpoint); err != nil {
-		return fmt.Errorf("AIPlatform not ready: %w", err)
-	}
-
-	// Validate Vector Database readiness
-	if err := r.validateVectorDatabaseReady(ctx, aiPlatform); err != nil {
-		return fmt.Errorf("vector database not ready: %w", err)
+	if ai.Spec.VectorDbUrl == "" {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "VectorDbUrl is not set")
+		return fmt.Errorf("VectorDbUrl must be set (either from AIPlatformRef or explicitly)")
 	}
 
 	// Default resources
@@ -211,38 +219,42 @@ func (r *SaiaReconciler) getAIPlatform(ctx context.Context, ref corev1.ObjectRef
 	return &aiPlatform, nil
 }
 
-func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform *aiv1.AIPlatform, rayServiceEndpoint string) error {
-	// Check if AIPlatform is in Ready state
-	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "Ready") {
-		return fmt.Errorf("AIPlatform is not in Ready state")
+func (r *SaiaReconciler) validateAIPlatformReady(ctx context.Context, aiPlatform *aiv1.AIPlatform) error {
+	// Check if RayService infrastructure is ready (not the overall Ready condition to avoid circular dependency)
+	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "RayServiceStatusReady") {
+		return fmt.Errorf("RayService is not ready")
+	}
+
+	// Verify RayService endpoint name is populated in status
+	if aiPlatform.Status.RayServiceName == "" {
+		return fmt.Errorf("RayServiceName not populated in AIPlatform status")
 	}
 
 	// Check RayService endpoint is reachable
-	if err := common.CheckRayHeadService(ctx, rayServiceEndpoint); err != nil {
-		//return fmt.Errorf("RayService endpoint %s is not reachable: %w", rayServiceEndpoint, err) FIXME
-		return nil
-	}
+	// TODO: Re-enable once we have a way to skip in test environments
+	// if err := common.CheckRayHeadService(ctx, aiPlatform.Status.RayServiceName); err != nil {
+	// 	return fmt.Errorf("RayService endpoint %s is not reachable: %w", aiPlatform.Status.RayServiceName, err)
+	// }
 
 	return nil
 }
 
 func (r *SaiaReconciler) validateVectorDatabaseReady(ctx context.Context, aiPlatform *aiv1.AIPlatform) error {
-	// Check VectorDatabase condition
-	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "WeaviateDatabaseReady") {
+	// Check VectorDatabase status condition (not just the creation condition to ensure it's actually running)
+	if !common.IsConditionTrue(aiPlatform.Status.Conditions, "WeaviateDatabaseStatusReady") {
 		return fmt.Errorf("vector database is not ready")
 	}
 
-	// Extract the VectorDB service endpoint from status or spec
-	vectorDBEndpoint := aiPlatform.Status.VectorDbServiceName
-	if vectorDBEndpoint == "" {
-		return fmt.Errorf("no VectorDbServiceName found in AIPlatform status")
+	// Verify VectorDB service name is populated in status
+	if aiPlatform.Status.VectorDbServiceName == "" {
+		return fmt.Errorf("VectorDbServiceName not populated in AIPlatform status")
 	}
 
 	// Check if VectorDB service endpoint is accessible
-	if err := common.CheckWeaviateService(ctx, vectorDBEndpoint); err != nil {
-		//return fmt.Errorf("vector database endpoint %s is not reachable: %w", vectorDBEndpoint, err)
-		return nil
-	}
+	// TODO: Re-enable once we have a way to skip in test environments
+	// if err := common.CheckWeaviateService(ctx, aiPlatform.Status.VectorDbServiceName); err != nil {
+	// 	return fmt.Errorf("vector database endpoint %s is not reachable: %w", aiPlatform.Status.VectorDbServiceName, err)
+	// }
 
 	return nil
 }
@@ -253,6 +265,8 @@ func (r *SaiaReconciler) reconcileServiceAccount(
 	ai *aiv1.AIService,
 ) error {
 	if ai.Spec.ServiceAccountName == "" {
+		// Clean ServiceTemplate before updating the spec
+		cleanServiceTemplate(&ai.Spec.ServiceTemplate)
 
 		ai.Spec.ServiceAccountName = ai.Name + "-sa"
 		if err := r.Update(ctx, ai); err != nil {
@@ -331,6 +345,89 @@ func (r *SaiaReconciler) reconcileSAIAConfigMap(
 	return nil
 }
 
+// reconcileFeatureConfigMap manages the feature-config ConfigMap with default content.
+// This ConfigMap is used by SAIA deployment for feature flags and customization.
+// If the ConfigMap doesn't exist, it creates it with default values.
+// If it exists, it preserves user modifications.
+func (r *SaiaReconciler) reconcileFeatureConfigMap(
+	ctx context.Context,
+	ai *aiv1.AIService,
+) error {
+	cmName := fmt.Sprintf("splunk-%s-feature-config", ai.Name)
+
+	// Check if ConfigMap already exists
+	found := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: ai.Namespace}, found)
+
+	if err == nil {
+		// ConfigMap exists - check if it has owner reference
+		if !hasOwnerReference(found, ai) {
+			// Add owner reference to existing ConfigMap
+			if err := controllerutil.SetControllerReference(ai, found, r.Scheme); err != nil {
+				r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+					fmt.Sprintf("Failed to set owner reference on ConfigMap %q", cmName))
+				return fmt.Errorf("failed to set owner reference on ConfigMap %q: %w", cmName, err)
+			}
+			if err := r.Update(ctx, found); err != nil {
+				return fmt.Errorf("failed to update owner reference on ConfigMap %q: %w", cmName, err)
+			}
+			r.Recorder.Event(ai, corev1.EventTypeNormal, "FeatureConfigMapUpdated",
+				fmt.Sprintf("Added owner reference to existing ConfigMap %q", cmName))
+		}
+		// ConfigMap exists and has owner reference - preserve user modifications
+		return nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to retrieve ConfigMap %q", cmName))
+		return fmt.Errorf("failed to get ConfigMap %q: %w", cmName, err)
+	}
+
+	// ConfigMap doesn't exist - create it with default content
+	defaultData := map[string]string{
+		"features_config.yaml": `customization:
+  enabled_by_default: true
+`,
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmName,
+			Namespace: ai.Namespace,
+		},
+		Data: defaultData,
+	}
+
+	// Set owner reference so it gets deleted with AIService
+	if err := controllerutil.SetControllerReference(ai, cm, r.Scheme); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to set owner reference on ConfigMap %q", cmName))
+		return fmt.Errorf("failed to set owner reference on ConfigMap %q: %w", cmName, err)
+	}
+
+	if err := r.Create(ctx, cm); err != nil {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "FeatureConfigMapError",
+			fmt.Sprintf("Failed to create ConfigMap %q", cmName))
+		return fmt.Errorf("failed to create ConfigMap %q: %w", cmName, err)
+	}
+
+	r.Recorder.Event(ai, corev1.EventTypeNormal, "FeatureConfigMapCreated",
+		fmt.Sprintf("Created feature-config ConfigMap %q with default content", cmName))
+
+	return nil
+}
+
+// hasOwnerReference checks if the object has an owner reference to the given owner
+func hasOwnerReference(obj metav1.Object, owner metav1.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() {
+			return true
+		}
+	}
+	return false
+}
+
 // reconcileCertificate manages cert-manager Certificate for mTLS.
 func (r *SaiaReconciler) reconcileCertificate(
 	ctx context.Context,
@@ -339,6 +436,18 @@ func (r *SaiaReconciler) reconcileCertificate(
 	if !ai.Spec.MTLS.Enabled || ai.Spec.MTLS.Termination != "operator" {
 		return nil
 	}
+
+	// Check if Certificate already exists to emit creation event
+	certExists := true
+	existingCert := &certmanagerv1.Certificate{}
+	certKey := types.NamespacedName{Name: ai.Name + "-tls", Namespace: ai.Namespace}
+	if err := r.Get(ctx, certKey, existingCert); err != nil {
+		if apierrors.IsNotFound(err) {
+			certExists = false
+			r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateCreating", "Creating mTLS certificate")
+		}
+	}
+
 	cert := &certmanagerv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ai.Name + "-tls",
@@ -355,22 +464,47 @@ func (r *SaiaReconciler) reconcileCertificate(
 		},
 	}
 	if err := controllerutil.SetControllerReference(ai, cert, r.Scheme); err != nil {
-		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Certificate failed")
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "MTLSCertificateError", "Failed to set owner reference on Certificate")
 		return fmt.Errorf("ownerref on Certificate: %w", err)
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
+		// Update Certificate spec
+		cert.Spec = certmanagerv1.CertificateSpec{
+			SecretName: ai.Spec.MTLS.SecretName,
+			IssuerRef:  ai.Spec.MTLS.IssuerRef,
+			DNSNames:   ai.Spec.MTLS.DNSNames,
+			Usages: []certmanagerv1.KeyUsage{
+				certmanagerv1.UsageServerAuth,
+				certmanagerv1.UsageClientAuth,
+			},
+		}
 		return nil
 	}); err != nil {
+		r.Recorder.Eventf(ai, corev1.EventTypeWarning, "MTLSCertificateCreationFailed", "Failed to create/update Certificate: %v", err)
 		return fmt.Errorf("create/update Certificate: %w", err)
 	}
+
+	if !certExists {
+		r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateCreated", "mTLS Certificate created successfully")
+	}
+
 	// Wait until Certificate is Ready
+	certReady := false
 	for _, cond := range cert.Status.Conditions {
 		if cond.Type == certmanagerv1.CertificateConditionReady && cond.Status == cmmeta.ConditionTrue {
-			return nil
+			certReady = true
+			break
 		}
 	}
-	r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "Certificate is not Ready")
-	return fmt.Errorf("waiting for Certificate %q to become Ready", cert.Name)
+
+	if !certReady {
+		r.Recorder.Event(ai, corev1.EventTypeWarning, "MTLSCertificateNotReady", "Waiting for cert-manager to issue certificate")
+		return fmt.Errorf("waiting for Certificate %q to become Ready", cert.Name)
+	}
+
+	// Emit success event when certificate becomes ready
+	r.Recorder.Event(ai, corev1.EventTypeNormal, "MTLSCertificateReady", "mTLS certificate issued successfully")
+	return nil
 }
 
 // reconcilePostInstallHook creates and watches the schema setup Job.
@@ -430,6 +564,8 @@ func (r *SaiaReconciler) reconcilePostInstallHook(
 					},
 					Tolerations: ai.Spec.Tolerations,
 					Affinity:    &ai.Spec.Affinity,
+					// Propagate imagePullSecrets from AIService spec
+					ImagePullSecrets: ai.Spec.ImagePullSecrets,
 				},
 			},
 		},
@@ -451,14 +587,15 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
-	optional := true
+	// Use standardized ConfigMap name: splunk-<aiservice-name>-feature-config
+	featureConfigName := fmt.Sprintf("splunk-%s-feature-config", ai.Name)
+
 	volumes := []corev1.Volume{
 		{
 			Name: "config-volume",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: "features-config"},
-					Optional:             &optional,
+					LocalObjectReference: corev1.LocalObjectReference{Name: featureConfigName},
 				},
 			},
 		},
@@ -477,9 +614,38 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		// Dynamic or runtime-derived values:
 		{Name: "PLATFORM_URL", Value: ai.Spec.AIPlatformUrl},
 		{Name: "VECTOR_DB_URL", Value: ai.Spec.VectorDbUrl},
-		//{Name: "SAIA_STORAGE", Value: "local"}, //FIXME TODO
-		{Name: "S3_BUCKET", Value: "ai-platform-bucket-us-east-1"}, // FIXME, TODO
-		//{Name: "S3_BUCKET", Value: ai.Spec.TaskVolume.Path}, // FIXME , TODO
+		// SAIA uses /tasks subdirectory within its feature path
+		// Extract just the bucket name from the full path (e.g., "s3://bucket-name" -> "bucket-name")
+		{Name: "S3_BUCKET", Value: extractBucketName(ai.Spec.TaskVolume.Path)},
+	}
+
+	// MinIO support: Add MinIO-specific environment variables if endpoint is configured
+	if strings.HasPrefix(ai.Spec.TaskVolume.Path, "minio") && ai.Spec.TaskVolume.Endpoint != "" {
+		env = append(env, corev1.EnvVar{Name: "MINIO_ENDPOINT_URL", Value: ai.Spec.TaskVolume.Endpoint})
+	}
+
+	// MinIO credentials: If secretRef is provided, add MINIO_ACCESS_KEY and MINIO_SECRET_KEY from secret
+	if ai.Spec.TaskVolume.SecretRef != "" {
+		env = append(env,
+			corev1.EnvVar{
+				Name: "MINIO_ACCESS_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: ai.Spec.TaskVolume.SecretRef},
+						Key:                  "s3_access_key",
+					},
+				},
+			},
+			corev1.EnvVar{
+				Name: "MINIO_SECRET_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: ai.Spec.TaskVolume.SecretRef},
+						Key:                  "s3_secret_key",
+					},
+				},
+			},
+		)
 	}
 
 	// mTLS handling (dynamic)
@@ -519,85 +685,99 @@ func (r *SaiaReconciler) reconcileSAIADeployment(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ai.Name + "-saia-deployment",
 			Namespace: ai.Namespace,
-			Labels: map[string]string{
-				"app":       ai.Name,
-				"component": ai.Name,
-				"area":      "ml",
-				"team":      "ml",
-			},
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &ai.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": ai.Name, "component": ai.Name},
-					Annotations: map[string]string{
-						"prometheus.io/port":   "8088",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/scheme": "http",
-					},
-				},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: ai.Spec.ServiceAccountName,
-					Containers: []corev1.Container{{
-						Name:            ai.Name,
-						Image:           os.Getenv("RELATED_IMAGE_SAIA_API"),
-						ImagePullPolicy: corev1.PullAlways,
-						Ports:           ports,
-						VolumeMounts:    mounts,
-						Resources:       ai.Spec.Resources,
-						Env:             env,
-						EnvFrom:         envFrom, // <— bring in ALL static config keys
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							PeriodSeconds:    30,
-							FailureThreshold: 5,
-						},
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							PeriodSeconds:    30,
-							FailureThreshold: 5,
-						},
-						StartupProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
-							},
-							InitialDelaySeconds: 10,
-							PeriodSeconds:       30,
-							FailureThreshold:    5,
-						},
-					}},
-					Volumes:     volumes,
-					Affinity:    &ai.Spec.Affinity,
-					Tolerations: ai.Spec.Tolerations,
-				},
-			},
 		},
 	}
 
 	// Merge labels/annotations from AIService
+	labels := map[string]string{
+		"app":       ai.Name,
+		"component": ai.Name,
+		"area":      "ml",
+		"team":      "ml",
+	}
 	for k, v := range ai.Labels {
-		deployment.ObjectMeta.Labels[k] = v
+		labels[k] = v
+	}
+
+	annotations := map[string]string{
+		"prometheus.io/port":   "8088",
+		"prometheus.io/path":   "/metrics",
+		"prometheus.io/scheme": "http",
 	}
 	for k, v := range ai.Annotations {
 		if k == "kubectl.kubernetes.io/last-applied-configuration" || k == "kubectl.kubernetes.io/restartedAt" {
 			continue
 		}
-		deployment.ObjectMeta.Annotations[k] = v
+		annotations[k] = v
 	}
 
 	if err := controllerutil.SetControllerReference(ai, deployment, r.Scheme); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Deployment failed")
 		return fmt.Errorf("ownerref on Deployment: %w", err)
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error { return nil }); err != nil {
+
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+		// Set mutable fields that can be updated
+		deployment.ObjectMeta.Labels = labels
+		deployment.ObjectMeta.Annotations = annotations
+		deployment.Spec.Replicas = &ai.Spec.Replicas
+
+		// Set selector only on creation (immutable field)
+		if deployment.Spec.Selector == nil {
+			deployment.Spec.Selector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
+			}
+		}
+
+		// Always update the pod template
+		deployment.Spec.Template = corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      map[string]string{"app": ai.Name, "component": ai.Name},
+				Annotations: annotations,
+			},
+			Spec: corev1.PodSpec{
+				ServiceAccountName: ai.Spec.ServiceAccountName,
+				Containers: []corev1.Container{{
+					Name:            ai.Name,
+					Image:           os.Getenv("RELATED_IMAGE_SAIA_API"),
+					ImagePullPolicy: corev1.PullAlways,
+					Ports:           ports,
+					VolumeMounts:    mounts,
+					Resources:       ai.Spec.Resources,
+					Env:             env,
+					EnvFrom:         envFrom,
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						PeriodSeconds:    30,
+						FailureThreshold: 5,
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						PeriodSeconds:    30,
+						FailureThreshold: 5,
+					},
+					StartupProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)},
+						},
+						InitialDelaySeconds: 10,
+						PeriodSeconds:       30,
+						FailureThreshold:    5,
+					},
+				}},
+				Volumes:     volumes,
+				Affinity:    &ai.Spec.Affinity,
+				Tolerations: ai.Spec.Tolerations,
+				// Propagate imagePullSecrets from AIService spec
+				ImagePullSecrets: ai.Spec.ImagePullSecrets,
+			},
+		}
+		return nil
+	}); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Deployment failed")
 		return fmt.Errorf("create/update Deployment: %w", err)
 	}
@@ -609,6 +789,10 @@ func (r *SaiaReconciler) reconcileSAIAService(
 	ctx context.Context,
 	ai *aiv1.AIService,
 ) error {
+	// Clean the ServiceTemplate to remove server-generated fields
+	serviceTemplate := ai.Spec.ServiceTemplate.DeepCopy()
+	cleanServiceTemplate(serviceTemplate)
+
 	ports := []corev1.ServicePort{
 		{Name: "http", Port: 8080, TargetPort: intstr.FromInt(8080)},
 		{Name: "metrics", Port: 8088, TargetPort: intstr.FromInt(8088)},
@@ -643,14 +827,14 @@ func (r *SaiaReconciler) reconcileSAIAService(
 		svc.ObjectMeta.Annotations[k] = v
 	}
 
-	switch ai.Spec.ServiceTemplate.Spec.Type {
+	switch serviceTemplate.Spec.Type {
 	case corev1.ServiceTypeLoadBalancer:
 		svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 	case corev1.ServiceTypeNodePort:
 		svc.Spec.Type = corev1.ServiceTypeNodePort
 		// If NodePort values are specified, set them
 		for i, port := range svc.Spec.Ports {
-			for _, tplPort := range ai.Spec.ServiceTemplate.Spec.Ports {
+			for _, tplPort := range serviceTemplate.Spec.Ports {
 				if port.Name == tplPort.Name && tplPort.NodePort != 0 {
 					svc.Spec.Ports[i].NodePort = tplPort.NodePort
 				}
@@ -664,7 +848,13 @@ func (r *SaiaReconciler) reconcileSAIAService(
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "ownerref on Service failed")
 		return fmt.Errorf("ownerref on Service: %w", err)
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error { return nil }); err != nil {
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+		// Update mutable fields
+		svc.Spec.Selector = map[string]string{"app": ai.Name, "component": ai.Name}
+		svc.Spec.Ports = ports
+		// Type is already set above based on ServiceTemplate
+		return nil
+	}); err != nil {
 		r.Recorder.Event(ai, corev1.EventTypeWarning, "InvalidSpec", "create/update Service failed")
 		return fmt.Errorf("create/update Service: %w", err)
 	}
@@ -693,7 +883,18 @@ func (r *SaiaReconciler) reconcileServiceMonitor(
 	if err := controllerutil.SetControllerReference(ai, sm, r.Scheme); err != nil {
 		return err
 	}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error { return nil })
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error {
+		// Update ServiceMonitor spec
+		sm.Spec = monitoringv1.ServiceMonitorSpec{
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": ai.Name, "component": ai.Name},
+			},
+			Endpoints: []monitoringv1.Endpoint{
+				{Port: "metrics", Path: ai.Spec.Metrics.Path, Scheme: "http"},
+			},
+		}
+		return nil
+	})
 	return err
 }
 
@@ -728,4 +929,49 @@ func (r *SaiaReconciler) createOrUpdateConfigMap(
 		return r.Update(ctx, found)
 	}
 	return nil
+}
+
+// extractBucketName extracts the bucket name from an object storage path.
+// Supports s3://, minio://, gs://, and azure:// prefixes.
+// Examples:
+//   - "s3://my-bucket/path/to/dir" -> "my-bucket"
+//   - "minio://bucket-name" -> "bucket-name"
+//   - "gs://my-bucket" -> "my-bucket"
+func extractBucketName(path string) string {
+	// Remove supported prefixes
+	prefixes := []string{"s3://", "minio://", "gs://", "azure://"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) {
+			path = strings.TrimPrefix(path, prefix)
+			break
+		}
+	}
+
+	// Extract just the bucket name (first part before any slash)
+	if idx := strings.Index(path, "/"); idx > 0 {
+		return path[:idx]
+	}
+
+	return path
+}
+
+// cleanServiceTemplate removes server-generated metadata fields that shouldn't be set during updates.
+// This prevents "unknown field" warnings in logs.
+func cleanServiceTemplate(template *corev1.Service) {
+	if template == nil {
+		return
+	}
+
+	// Clear server-generated metadata fields
+	template.ObjectMeta.CreationTimestamp = metav1.Time{}
+	template.ObjectMeta.DeletionTimestamp = nil
+	template.ObjectMeta.DeletionGracePeriodSeconds = nil
+	template.ObjectMeta.UID = ""
+	template.ObjectMeta.ResourceVersion = ""
+	template.ObjectMeta.Generation = 0
+	template.ObjectMeta.SelfLink = ""
+	template.ObjectMeta.ManagedFields = nil
+
+	// Clear status - it's not used in templates
+	template.Status = corev1.ServiceStatus{}
 }

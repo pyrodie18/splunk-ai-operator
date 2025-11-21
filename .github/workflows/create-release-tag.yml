@@ -1,0 +1,148 @@
+name: Create Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0 or v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Validate and normalize version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+
+          # Remove 'v' prefix if present for validation
+          VERSION_NUMBER="${VERSION#v}"
+
+          # Validate semantic version format
+          if ! echo "$VERSION_NUMBER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'; then
+            echo "❌ Invalid version format: $VERSION_NUMBER"
+            echo "Expected format: X.Y.Z or X.Y.Z-prerelease or X.Y.Z+build"
+            echo "Examples: 1.0.0, 1.0.0-beta.1, 1.0.0+build.123"
+            exit 1
+          fi
+
+          # Always use 'v' prefix for git tag
+          TAG_NAME="v${VERSION_NUMBER}"
+
+          echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Validated version: $TAG_NAME"
+
+      - name: Check if tag already exists
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+
+          # Check local tags
+          if git tag -l "$TAG" | grep -q "$TAG"; then
+            echo "❌ Tag $TAG already exists locally"
+            exit 1
+          fi
+
+          # Check remote tags
+          git fetch --tags
+          if git tag -l "$TAG" | grep -q "$TAG"; then
+            echo "❌ Tag $TAG already exists on remote"
+            exit 1
+          fi
+
+          echo "✅ Tag $TAG is available"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get latest commit info
+        id: commit
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+
+          echo "sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "short=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+
+          # Export commit message for tag annotation
+          {
+            echo 'message<<EOF'
+            echo "$COMMIT_MSG"
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Create annotated tag
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          PRERELEASE="${{ github.event.inputs.prerelease }}"
+          COMMIT_SHORT="${{ steps.commit.outputs.short }}"
+          ACTOR="${{ github.actor }}"
+          COMMIT_MSG="${{ steps.commit.outputs.message }}"
+
+          # Create tag message
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          printf "Release %s\n\nAutomated release created from GitHub Actions workflow.\n\nCommit: %s\nCreated: %s\nCreated by: %s\nPre-release: %s\n\nRelease Notes:\n%s\n\nGenerated with Claude Code\n" "$TAG" "$COMMIT_SHORT" "$TIMESTAMP" "$ACTOR" "$PRERELEASE" "$COMMIT_MSG" > /tmp/tag_message.txt
+
+          # Create annotated tag
+          git tag -a "$TAG" -F /tmp/tag_message.txt
+
+          # Clean up temporary file
+          rm -f /tmp/tag_message.txt
+
+          echo "✅ Created tag: $TAG"
+
+      - name: Push tag to remote
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+
+          git push origin "$TAG"
+
+          echo "✅ Pushed tag $TAG to remote"
+          echo "🚀 Release workflow will now be triggered automatically"
+
+      - name: Summary
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "## ✅ Release Tag Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: \`$TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ steps.commit.outputs.short }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pre-release**: \`${{ github.event.inputs.prerelease }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Created by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The \`release-package-helm.yml\` workflow has been automatically triggered." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Monitor progress:**" >> $GITHUB_STEP_SUMMARY
+          echo "- [View Release Workflow](https://github.com/${{ github.repository }}/actions/workflows/release-package-helm.yml)" >> $GITHUB_STEP_SUMMARY
+          echo "- [View All Actions](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**After workflow completes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- [View Releases](https://github.com/${{ github.repository }}/releases)" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker images will be available at:" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`ghcr.io/${{ github.repository }}:$TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`splunk/splunk-ai-operator:$TAG\`" >> $GITHUB_STEP_SUMMARY

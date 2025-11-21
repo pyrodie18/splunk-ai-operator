@@ -1,29 +1,396 @@
-name: Package Helm Chart
+name: Package and Release Helm Charts
 on:
   workflow_call:
+    inputs:
+      old_operator_version:
+        description: 'OLD OPERATOR VERSION'
+        required: false
+        type: string
+      new_operator_version:
+        description: 'NEW OPERATOR VERSION'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
-  package:
+  build-and-push-images:
     runs-on: ubuntu-latest
     permissions:
-      # Need the write permission because this job commits changes to some folders like dist
-      contents: write
-      pull-requests: write
+      contents: read
+      packages: write
+      id-token: write  # Required for artifact attestation
+      attestations: write  # Required for artifact attestation
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Dotenv Action
-        uses: falti/dotenv-action@d4d12eaa0e1dd06d5bdc3d7af3bf4c8c93cb5359
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Read .env file
         id: dotenv
+        run: |
+          if [ -f .env ]; then
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              [[ "$key" =~ ^#.*$ ]] && continue
+              [[ -z "$key" ]] && continue
+              # Remove quotes and export
+              value=$(echo "$value" | sed -e 's/^\"//' -e 's/\"$//' -e "s/^'//" -e "s/'$//")
+              echo "$key=$value" >> $GITHUB_OUTPUT
+            done < .env
+          fi
+
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
           go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
-      - name: Run helm chart package creation
+          cache: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
         run: |
-          helm package helm-chart/splunk-ai-operator
-          cp splunk-ai-operator-${{ github.event.inputs.new_operator_version }}.tgz docs/
-          mv splunk-ai-operator-${{ github.event.inputs.new_operator_version }}.tgz helm-chart/splunk-enterprise/charts
-          helm package helm-chart/splunk-enterprise
-          mv splunk-enterprise-${{ github.event.inputs.new_operator_version }}.tgz docs/
-          helm repo index --url https://splunk.github.io/splunk-ai-operator/ docs/
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            splunk/splunk-ai-operator
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker images
+        id: build
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@92c65d2898f1f53cfdc910b962cecff86e7f8fcc # v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  package:
+    runs-on: ubuntu-latest
+    needs: build-and-push-images
+    permissions:
+      contents: write
+      packages: write  # For pushing to GHCR OCI registry
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Read .env file
+        id: dotenv
+        run: |
+          if [ -f .env ]; then
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              [[ "$key" =~ ^#.*$ ]] && continue
+              [[ -z "$key" ]] && continue
+              # Remove quotes and export
+              value=$(echo "$value" | sed -e 's/^\"//' -e 's/\"$//' -e "s/^'//" -e "s/'$//")
+              echo "$key=$value" >> $GITHUB_OUTPUT
+            done < .env
+          fi
+
+      - name: Install Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: ${{ steps.dotenv.outputs.GO_VERSION }}
+          cache: true
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Extract from git tag (remove 'v' prefix)
+            VERSION=${GITHUB_REF_NAME#v}
+          elif [ -n "${{ inputs.new_operator_version }}" ]; then
+            # Use input version (for workflow_call)
+            VERSION="${{ inputs.new_operator_version }}"
+          else
+            # Fallback to Chart.yaml version
+            VERSION=$(grep '^version:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Packaging version: $VERSION"
+
+      - name: Update Chart versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update operator chart
+          sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-operator/Chart.yaml
+
+          # Validate operator chart update
+          OP_VER=$(grep '^version:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          OP_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-operator/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+          if [ "$OP_VER" != "$VERSION" ] || [ "$OP_APPVER" != "$VERSION" ]; then
+            echo "ERROR: Failed to update operator chart version/appVersion to $VERSION"
+            echo "Expected: $VERSION"
+            echo "Got version: $OP_VER, appVersion: $OP_APPVER"
+            cat helm-chart/splunk-ai-operator/Chart.yaml
+            exit 1
+          fi
+          echo "✅ Operator chart updated successfully: version=$OP_VER, appVersion=$OP_APPVER"
+
+          # Update platform chart if it exists
+          if [ -f helm-chart/splunk-ai-platform/Chart.yaml ]; then
+            sed -i "s/^version:.*/version: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
+            sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" helm-chart/splunk-ai-platform/Chart.yaml
+
+            # Validate platform chart update
+            PLAT_VER=$(grep '^version:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            PLAT_APPVER=$(grep '^appVersion:' helm-chart/splunk-ai-platform/Chart.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+            if [ "$PLAT_VER" != "$VERSION" ] || [ "$PLAT_APPVER" != "$VERSION" ]; then
+              echo "ERROR: Failed to update platform chart version/appVersion to $VERSION"
+              echo "Expected: $VERSION"
+              echo "Got version: $PLAT_VER, appVersion: $PLAT_APPVER"
+              cat helm-chart/splunk-ai-platform/Chart.yaml
+              exit 1
+            fi
+            echo "✅ Platform chart updated successfully: version=$PLAT_VER, appVersion=$PLAT_APPVER"
+          fi
+
+      - name: Generate Kubernetes manifests
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Generate install.yaml with version-specific image tag
+          echo "Generating Kubernetes manifests for version $VERSION..."
+          IMG="ghcr.io/splunk/splunk-ai-operator:v$VERSION" make build-installer
+
+          # Rename to version-specific filename
+          cp dist/install.yaml dist/install-v$VERSION.yaml
+
+          echo "Generated manifests:"
+          ls -lh dist/install*.yaml
+
+          echo "Verifying image tag in manifest:"
+          grep "image: ghcr.io/splunk/splunk-ai-operator" dist/install-v$VERSION.yaml || echo "Warning: Image tag not found"
+
+          echo ""
+          echo "Manifest preview (first 50 lines):"
+          head -50 dist/install-v$VERSION.yaml
+
+      - name: Generate Bill of Materials (BOM)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "Generating custom BOM for version $VERSION..."
+          make generate-bom VERSION=$VERSION
+
+          echo ""
+          echo "Generated BOM files:"
+          ls -lh dist/bom-v$VERSION.*
+
+          echo ""
+          echo "BOM Summary:"
+          cat dist/bom-v$VERSION.txt
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@ab5d7b5f48981941c4c5d6bf33aeb98fe3bae38c # v0.15.10
+
+      - name: Generate SBOM for operator image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          OPERATOR_IMAGE="ghcr.io/splunk/splunk-ai-operator:v$VERSION"
+
+          echo "Generating SBOM for operator image: $OPERATOR_IMAGE"
+
+          # Generate SBOM in CycloneDX format (industry standard)
+          syft "$OPERATOR_IMAGE" -o cyclonedx-json=dist/sbom-operator-v$VERSION.cyclonedx.json
+
+          echo ""
+          echo "Generated SBOM file:"
+          ls -lh dist/sbom-operator-v$VERSION.cyclonedx.json
+
+          echo ""
+          echo "SBOM Statistics:"
+          jq -r '.components | length' dist/sbom-operator-v$VERSION.cyclonedx.json || echo "SBOM contains package inventory"
+
+      - name: Package Helm charts
+        run: |
+          mkdir -p .helm-releases
+
+          # Package operator chart
+          helm package helm-chart/splunk-ai-operator --destination .helm-releases
+
+          # Package platform chart if it exists
+          if [ -f helm-chart/splunk-ai-platform/Chart.yaml ]; then
+            helm package helm-chart/splunk-ai-platform --destination .helm-releases
+          fi
+
+          echo "Packaged charts:"
+          ls -lh .helm-releases/
+
+      - name: Generate Helm repository index
+        run: |
+          RELEASE_TAG="v${{ steps.version.outputs.version }}"
+          helm repo index .helm-releases \
+            --url "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}"
+
+          echo "Generated index.yaml:"
+          cat .helm-releases/index.yaml
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm charts to OCI registry (GHCR)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Push operator chart to GHCR OCI registry
+          if [ -f .helm-releases/splunk-ai-operator-${VERSION}.tgz ]; then
+            echo "📦 Pushing splunk-ai-operator chart to OCI registry..."
+            helm push .helm-releases/splunk-ai-operator-${VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+            echo "✅ Pushed: oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${VERSION}"
+          fi
+
+          # Push platform chart to GHCR OCI registry
+          if [ -f .helm-releases/splunk-ai-platform-${VERSION}.tgz ]; then
+            echo "📦 Pushing splunk-ai-platform chart to OCI registry..."
+            helm push .helm-releases/splunk-ai-platform-${VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+            echo "✅ Pushed: oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${VERSION}"
+          fi
+
+          echo ""
+          echo "📊 Charts published to OCI registry:"
+          echo "  oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${VERSION}"
+          echo "  oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${VERSION}"
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            .helm-releases/*.tgz
+            .helm-releases/index.yaml
+            dist/install-v${{ steps.version.outputs.version }}.yaml
+            compatibility-matrix.yaml
+            dist/bom-v${{ steps.version.outputs.version }}.json
+            dist/bom-v${{ steps.version.outputs.version }}.txt
+            dist/sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## Splunk AI Operator v${{ steps.version.outputs.version }}
+
+            This release includes Helm charts and Kubernetes manifests for the Splunk AI Operator.
+
+            ### Installation Options
+
+            #### Option 1: Using Kubernetes Manifests (kubectl)
+            ```bash
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/install-v${{ steps.version.outputs.version }}.yaml
+            ```
+
+            #### Option 2: Using Helm OCI Registry (Recommended)
+            ```bash
+            # Requires Helm 3.8+
+            helm install splunk-ai-operator \
+              oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator \
+              --version ${{ steps.version.outputs.version }}
+            ```
+
+            #### Option 3: Using Helm (Direct from GitHub Release)
+            ```bash
+            helm install splunk-ai-operator \
+              https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/splunk-ai-operator-${{ steps.version.outputs.version }}.tgz
+            ```
+
+            ### Release Assets
+
+            **Kubernetes Manifests:**
+            - **install-v${{ steps.version.outputs.version }}.yaml** - Complete Kubernetes manifests (CRDs + Operator)
+
+            **Helm Charts:**
+            - **splunk-ai-operator-${{ steps.version.outputs.version }}.tgz** - Operator Helm chart
+            - **splunk-ai-platform-${{ steps.version.outputs.version }}.tgz** - Platform Helm chart (includes dependencies)
+            - **index.yaml** - Helm repository index
+
+            **Compatibility Matrix:**
+            - **compatibility-matrix.yaml** - Version compatibility information, supported platforms, and dependencies
+
+            **Bill of Materials (BOM):**
+            - **bom-v${{ steps.version.outputs.version }}.txt** - Human-readable BOM with all container images
+            - **bom-v${{ steps.version.outputs.version }}.json** - CycloneDX format BOM
+
+            **Software Bill of Materials (SBOM):**
+            - **sbom-operator-v${{ steps.version.outputs.version }}.cyclonedx.json** - CycloneDX format SBOM for operator image
+
+            **OCI Registry (GHCR):**
+            - `oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-operator:${{ steps.version.outputs.version }}`
+            - `oci://ghcr.io/${{ github.repository_owner }}/charts/splunk-ai-platform:${{ steps.version.outputs.version }}`
+
+            ### Container Images
+
+            **Docker Images:**
+            - `ghcr.io/splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}`
+            - `splunk/splunk-ai-operator:v${{ steps.version.outputs.version }}`
+
+            ### Documentation
+
+            - [Helm Deployment Guide](https://github.com/${{ github.repository }}/blob/main/docs/deployment/helm-deployment.md)
+            - [Installation Guide](https://github.com/${{ github.repository }}/blob/main/docs/installation.md)
+            - [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/api-reference.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

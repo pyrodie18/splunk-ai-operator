@@ -1,0 +1,17 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "splunk-ai-operator.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "splunk-ai-operator.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+  - {{ include "splunk-ai-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ include "splunk-ai-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "splunk-ai-operator.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "splunk-ai-operator.fullname" . }}-webhook-server-cert
+{{- end }}

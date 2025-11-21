@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 
 	aiApi "github.com/splunk/splunk-ai-operator/api/v1"
@@ -171,7 +172,8 @@ func (s *Builder) reconcileOpenTelemetryCollector(ctx context.Context, p *aiApi.
 // If the user edits the ConfigMap later, those changes are preserved.
 func (s *Builder) reconcileOtelConfigMap(ctx context.Context, p *aiApi.AIPlatform) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling OpenTelemetry ConfigMap")
+	// Use V(1) for verbose logging - reduces noise
+	logger.V(1).Info("Reconciling OpenTelemetry ConfigMap")
 
 	cmName := fmt.Sprintf("%s-otel-config", p.Name)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: p.Namespace}}
@@ -210,6 +212,10 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 	}
 
 	endpoint := fmt.Sprintf("%s/services/collector", cr.Spec.SplunkConfiguration.Endpoint)
+	metricsIndexName, exists := os.LookupEnv("SPLUNK_METRICS_INDEX_NAME")
+	if !exists {
+		metricsIndexName = "_metrics"
+	}
 	return map[string]interface{}{
 		"exporters": map[string]interface{}{
 			"splunk_hec": map[string]interface{}{
@@ -217,7 +223,7 @@ func (s *Builder) renderOtelConf(ctx context.Context, cr *aiApi.AIPlatform) map[
 				"endpoint":            endpoint,
 				"source":              "otel",
 				"sourcetype":          "otel",
-				"index":               "metrics",
+				"index":               metricsIndexName,
 				"disable_compression": false,
 				"timeout":             "10s",
 				"tls":                 map[string]interface{}{"insecure_skip_verify": true},
