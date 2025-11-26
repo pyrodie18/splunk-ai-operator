@@ -97,7 +97,7 @@ images:
     # Option 2: Full path (ignores registry prefix)
     #   image: "docker.io/myorg/splunk-ai-operator:v1.0.0"
     #   Result: "docker.io/myorg/splunk-ai-operator:v1.0.0"
-    image: "docker.io/splunk/splunk-ai-operator:FRC-32"
+    image: "docker.io/splunk/splunk-ai-operator:0.1.0"
 
   # Splunk Enterprise Images
   splunk:
@@ -105,7 +105,7 @@ images:
     # Default behavior: If no registry in path, uses Docker Hub
     #   "splunk/splunk:10.2.0" → Docker Hub
     #   "123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk/splunk:10.2.0" → ECR
-    image: "docker.io/splunk/splunk:10.2.0-dev1"
+    image: "splunk/splunk:10-2-ai-custom"
 
     # Splunk Operator image (optional - has default)
     # Default: "docker.io/splunk/splunk-operator:3.0.0"
