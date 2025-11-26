@@ -218,7 +218,11 @@ if [ -f "$CONFIG_FILE" ]; then
                 rm -rf "$DOWNLOAD_DIR/$id"
             fi
             
-            # Clone from Hugging Face
+            # Clone from Hugging Face with optimizations for large repos
+            # Use GIT_LFS_SKIP_SMUDGE to avoid downloading LFS files during clone
+            # Then download them with git lfs pull which is more memory efficient
+            export GIT_LFS_SKIP_SMUDGE=1
+            
             if [[ "$is_a_gated_model" == "true" ]]; then
                 # Validate credentials for gated model
                 if [[ "$HF_TOKEN" == "null" || -z "$HF_TOKEN" ]] || [[ "$HF_USERNAME" == "null" || -z "$HF_USERNAME" ]]; then
@@ -231,8 +235,8 @@ if [ -f "$CONFIG_FILE" ]; then
                 # SECURITY: auth_hf_url contains credentials - NEVER log or echo this variable
                 auth_hf_url=$(echo "$hf_url" | sed "s#https://#https://$HF_USERNAME_ENC:$HF_TOKEN@#")
                 # Log the non-authenticated URL only (NOT auth_hf_url which contains credentials)
-                echo "Cloning gated model $hf_url for $id"
-                if ! git clone "$auth_hf_url" "$DOWNLOAD_DIR/$id"; then
+                echo "Cloning gated model $hf_url for $id (memory-optimized)"
+                if ! git clone --depth 1 --single-branch "$auth_hf_url" "$DOWNLOAD_DIR/$id"; then
                     # Use non-authenticated URL in error messages to avoid credential leaks
                     echo "ERROR: Failed to clone gated model from $hf_url for artifact $id"
                     echo "This could be due to:"
@@ -243,8 +247,8 @@ if [ -f "$CONFIG_FILE" ]; then
                     exit 1
                 fi
             else
-                echo "Cloning $hf_url for $id"
-                if ! git clone "$hf_url" "$DOWNLOAD_DIR/$id"; then
+                echo "Cloning $hf_url for $id (memory-optimized)"
+                if ! git clone --depth 1 --single-branch "$hf_url" "$DOWNLOAD_DIR/$id"; then
                     echo "ERROR: Failed to clone from $hf_url for artifact $id"
                     echo "This could be due to:"
                     echo "  - Network connectivity issues"
@@ -253,6 +257,17 @@ if [ -f "$CONFIG_FILE" ]; then
                     exit 1
                 fi
             fi
+            
+            # Now download LFS files if needed (more memory efficient than during clone)
+            cd "$DOWNLOAD_DIR/$id"
+            if [ -f .gitattributes ] && grep -q "filter=lfs" .gitattributes; then
+                echo "Downloading LFS files for $id..."
+                if ! git lfs pull; then
+                    echo "WARNING: Failed to download some LFS files for $id"
+                fi
+            fi
+            cd - > /dev/null
+            unset GIT_LFS_SKIP_SMUDGE
             
             # Clean up git files
             find "$DOWNLOAD_DIR/$id" -type f \( -name ".gitattributes" -o -name ".gitignore" -o -name ".gitmodules" \) -exec rm -f {} +
