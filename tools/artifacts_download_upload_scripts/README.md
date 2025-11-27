@@ -27,6 +27,10 @@ Downloads model artifacts from Hugging Face repositories.
 - Supports both public and gated Hugging Face models
 - Automatically installs dependencies (wget, yq, git-lfs)
 - Validates Python 3 availability (required for gated model credential encoding)
+- **Memory-optimized cloning**: Uses shallow clone and separate LFS pull to minimize memory usage
+  - Uses `--depth 1 --single-branch` to reduce clone size
+  - Downloads LFS files separately for better memory efficiency
+  - Prevents OOM (Out of Memory) kills on resource-constrained instances
 - **Force re-download**: Removes and re-downloads models if they already exist
 - **Fail-fast error handling**: Exits immediately on any download failure
 - **Detailed error messages**: Prints specific error information for troubleshooting
@@ -55,12 +59,14 @@ sudo ./download_from_huggingface.sh
 **Error Handling:**
 - The script exits immediately if any download fails (no partial downloads)
 - Existing model directories are automatically removed before re-downloading
+- Memory-optimized to prevent OOM (Out of Memory) kills on cloud instances
 - Error messages include possible causes:
   - Invalid or expired HF_TOKEN
   - No access to gated models
   - Network connectivity issues
   - Invalid repository URLs
   - Repository not found or private
+  - Out of memory (OOM) - see Troubleshooting section
 - Script returns non-zero exit code on failure (suitable for CI/CD pipelines)
 
 ### 2. `upload_to_minio.sh`
@@ -291,10 +297,16 @@ All artifacts in the list will be downloaded and uploaded automatically.
    This will download all configured artifacts to `./model_artifacts/` directory.
    
    **Note:** The script will:
+   - Use memory-optimized cloning to prevent OOM issues
    - Remove existing artifacts before downloading (ensures fresh copies)
    - Stop immediately if any download fails
    - Display detailed error messages if issues occur
    - Validate credentials before attempting gated model downloads
+   
+   **For large models on cloud instances:**
+   - Monitor memory usage: `watch -n 1 free -h` (in another terminal)
+   - If script gets killed (OOM), see the **Troubleshooting** section below
+   - Consider adding swap space before downloading (especially for 70B+ models)
 
 2. **Upload to storage** (choose one or more):
 
@@ -348,6 +360,7 @@ All artifacts in the list will be downloaded and uploaded automatically.
 ## Notes
 
 - The download script creates a `./model_artifacts/` directory and downloads artifacts based on `model_artifacts_configs.yaml`
+- **Memory optimization**: The script uses shallow cloning and separate LFS downloads to minimize memory usage, making it suitable for cloud instances with limited RAM
 - **Re-download behavior**: If an artifact already exists, it will be automatically removed and re-downloaded to ensure fresh copies
 - **Error handling**: The script fails immediately on any error and provides detailed error messages for troubleshooting
 - All upload scripts are config-free - they simply upload **everything** found in `./model_artifacts/` directory
@@ -368,6 +381,89 @@ All artifacts in the list will be downloaded and uploaded automatically.
   - **S3 upload script**: AWS CLI - official AWS command line tool
 - Architecture support: Intel/AMD64 and ARM64 (Apple Silicon, AWS Graviton, etc.)
 - The original combined script is retained for backwards compatibility
+
+## Troubleshooting
+
+### Out of Memory (OOM) Issues on EC2/Cloud Instances
+
+If the download script gets killed with messages like `Killed` or `line 298: 28141 Killed`, this indicates the system ran out of memory during large model downloads.
+
+**The script now includes memory optimizations** that should prevent most OOM issues:
+- Shallow cloning with `--depth 1 --single-branch`
+- Separate LFS file download using `GIT_LFS_SKIP_SMUDGE=1`
+- Downloads LFS files one at a time instead of all at once
+
+However, for **very large models** (like 70B parameter models) on small instances, you may still need additional steps:
+
+#### Solution 1: Add Swap Space (Recommended)
+
+Create a swap file to supplement RAM:
+
+```bash
+# Create 8GB swap file
+sudo dd if=/dev/zero of=/swapfile bs=1G count=8
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Verify swap is active
+free -h
+
+# Make swap permanent (optional)
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+#### Solution 2: Increase Instance Size
+
+For downloading 70B+ parameter models, consider:
+- **Minimum recommended**: 8GB RAM (t3.large, t3a.large)
+- **Recommended for multiple large models**: 16GB+ RAM (r6i.xlarge, r6a.xlarge)
+- Check current memory: `free -h`
+- Monitor memory during download: `watch -n 1 free -h`
+
+#### Solution 3: Download Models Selectively
+
+Edit `model_artifacts_configs.yaml` to comment out models and download them one at a time:
+
+```yaml
+artifact-configs:
+  # Download one model at a time
+  - artifact-id: llama31-70b-instruct-awq
+    hf-url: https://huggingface.co/hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4
+    is-a-gated-model: false
+  
+  # Uncomment others after first completes
+  # - artifact-id: all-minilm-l6-v2
+  #   hf-url: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+  #   is-a-gated-model: false
+```
+
+#### What is GIT_LFS_SKIP_SMUDGE?
+
+The script uses `GIT_LFS_SKIP_SMUDGE=1` to optimize memory usage:
+
+- **Normal git clone**: Downloads all LFS files during clone (10-20+ GB in memory)
+- **With GIT_LFS_SKIP_SMUDGE**: 
+  1. Clone only downloads small pointer files (~200 bytes each)
+  2. Large files are downloaded separately with `git lfs pull`
+  3. Files stream directly to disk without loading into memory
+
+This prevents OOM kills by keeping memory usage low throughout the download process.
+
+### Other Common Issues
+
+#### Git LFS Installation Failed
+If git-lfs installation fails, manually install it:
+- **macOS**: `brew install git-lfs`
+- **Ubuntu/Debian**: `sudo apt-get install git-lfs`
+- **RHEL/CentOS**: `sudo yum install git-lfs`
+
+Then run: `git lfs install`
+
+#### Gated Model Access Denied
+- Ensure you have accepted the model license on Hugging Face
+- Verify your HF token has correct permissions
+- Check token at: https://huggingface.co/settings/tokens
 
 ## Dependency Installation Methods
 
