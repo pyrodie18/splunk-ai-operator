@@ -30,14 +30,21 @@ The `eks_cluster_with_stack.sh` script deploys the complete Splunk AI Platform o
 - **IAM Roles for Service Accounts (IRSA)** for secure AWS access
 - **Fully managed control plane** with AWS-managed etcd and API servers
 
-### What is AWS EKS?
+### Basic Commands
 
-[Amazon Elastic Kubernetes Service (EKS)](https://aws.amazon.com/eks/) is a managed Kubernetes service that:
-- Runs and scales the Kubernetes control plane across multiple AWS Availability Zones
-- Automatically replaces unhealthy control plane nodes
-- Provides automated version upgrades and patching
-- Integrates with AWS services (IAM, VPC, CloudWatch, ELB)
-- Offers 99.95% uptime SLA for the control plane
+```bash
+# Install EKS cluster and AI Platform
+./eks_cluster_with_stack.sh install
+
+# Delete entire cluster and all AWS resources
+./eks_cluster_with_stack.sh delete
+
+# Full cleanup (including S3 buckets, IAM roles)
+./eks_cluster_with_stack.sh delete-full
+
+# Check AIPlatform status
+./eks_cluster_with_stack.sh status
+```
 
 ---
 
@@ -47,58 +54,88 @@ The `eks_cluster_with_stack.sh` script deploys the complete Splunk AI Platform o
 
 The script installs everything needed for the AI Platform:
 
-1. **EKS Cluster** (Kubernetes 1.31-1.34) - AWS-managed control plane
-2. **VPC CNI** - Native AWS VPC networking for pods
-3. **S3 Bucket** - Object storage for AI artifacts and models
-4. **EBS CSI Driver** - Persistent volumes backed by AWS EBS
-5. **Cluster Autoscaler** - Automatic node scaling based on demand
-6. **Cert-Manager** - Automated certificate management
+1. **Splunk AI Platform Operator** - AI platform orchestration
+13. **AI Platform CR** - Complete AI deployment with features
+*TROY NOTE:  Is it Splunk Operator or Splunk Operator for Kubrenetes?*
+11. **Splunk Operator** - Splunk Enterprise management
+1. **Cert-Manager** - Automated certificate management
 7. **Kube-Prometheus Stack** - Monitoring with Prometheus + Grafana
 8. **OpenTelemetry Operator** - Distributed tracing and telemetry
 9. **NVIDIA Device Plugin** - GPU support for AI workloads
 10. **KubeRay Operator** - Ray cluster management for distributed AI
-11. **Splunk Operator** - Splunk Enterprise management
-12. **Splunk AI Platform Operator** - AI platform orchestration
-13. **AI Platform CR** - Complete AI deployment with features
+
 
 ### AWS Integration Features
 
-✅ **IAM Roles for Service Accounts (IRSA)** - Secure AWS access without credentials
-✅ **S3 Storage** - Native AWS object storage with versioning and encryption
-✅ **EBS Volumes** - High-performance block storage for stateful workloads
-✅ **Application Load Balancer (ALB)** - Managed ingress with AWS Load Balancer Controller
-✅ **VPC Networking** - Secure private networking with security groups
-✅ **CloudWatch Integration** - Centralized logging and monitoring
-✅ **Auto Scaling** - Dynamic cluster scaling based on workload demand
-✅ **Multi-AZ Deployment** - High availability across availability zones
-
-### Image Pull Secrets Support 🔐
-
-Automatically creates and configures secrets for private container registries:
-- **AWS ECR** - Elastic Container Registry (auto-token refresh)
-- **Docker Hub** - Docker Hub private repositories (manual setup)
-- **GCR** - Google Container Registry (manual setup)
-- **ACR** - Azure Container Registry (manual setup)
-- **Custom** - Any Docker registry (manual setup)
+- ✅ **EKS Cluster** (Kubernetes 1.31-1.34) - AWS-managed control plane
+- ✅ **Cluster Autoscaler** - Automatic node scaling based on demand
+- ✅ **Multi-AZ Deployment** - High availability across availability zones
+- ✅ **VPC Networking** - Secure private networking with security groups
+- ✅ **Application Load Balancer (ALB)** - Managed ingress with AWS Load Balancer Controller
+- ✅ **IAM Roles for Service Accounts (IRSA)** - Secure AWS access without credentials
+- ✅ **S3 Storage** - Native AWS object storage with versioning and encryption
+- ✅ **EBS Volumes** - High-performance block storage for stateful workloads
+- ✅ **CloudWatch Integration** - Centralized logging and monitoring
 
 ---
 
 ## Prerequisites
 
-### AWS Requirements
-
-#### 1. AWS Account and Credentials
+### 1. Local Tools
+*TROY NOTE:  Need to add docker to the local tools*
+Install the required tools on your local machine:
 
 ```bash
-# Install AWS CLI (macOS)
-brew install awscli
+# macOS
+brew install kubectl helm git jq yq eksctl awscli
 
-# Install AWS CLI (Linux)
+# Linux
+
+# AWS
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
 sudo ./aws/install
 
-# Configure AWS credentials
+# kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# helm
+*TROY NOTE:  This one failed for me*
+
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# jq
+sudo apt-get install -y jq
+
+# yq
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+chmod +x /usr/local/bin/yq
+
+# eksctl
+# IMPORTANT: eksctl version determines supported Kubernetes versions
+# - eksctl 0.191 supports K8s up to 1.31
+# - eksctl 0.217+ supports K8s 1.32, 1.33, 1.34
+# If you need K8s 1.32+, upgrade eksctl to latest version
+curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+sudo mv /tmp/eksctl /usr/local/bin
+
+
+# Verify installations and check minimum versions
+kubectl version --client    # Minimum: v1.28+
+helm version               # Minimum: v3.12+
+git --version             # Minimum: v2.30+
+jq --version              # Minimum: v1.6+
+yq --version              # Minimum: v4.30+ (mikefarah/yq, NOT Python yq)
+eksctl version            # Minimum: v0.217+ (for K8s 1.34 support)
+aws --version             # Minimum: AWS CLI v2.13+
+
+
+```
+
+### 2. Configure AWS Account and Credentials
+
+```bash
 aws configure
 # Enter:
 #   AWS Access Key ID: YOUR_ACCESS_KEY
@@ -110,9 +147,9 @@ aws configure
 aws sts get-caller-identity
 ```
 
-#### 2. IAM Permissions
+### 3. IAM Permissions
 
-Your AWS user/role needs the following permissions:
+Ensure that your your IAM user/role has the following permissions:
 
 **Required Services:**
 - **EKS**: Create/manage clusters, node groups
@@ -121,6 +158,8 @@ Your AWS user/role needs the following permissions:
 - **S3**: Create/manage buckets
 - **EBS**: Create/manage volumes
 - **CloudFormation**: Create/manage stacks (if using eksctl)
+
+*TROY NOTE:  We should most definately not be recommending that they use `AdministratorAccess`.  That is keys to the kingdom and a huge security risk.  We should produce a least priv inline policy that they can cut and paste*
 
 **Recommended IAM Policy:** `AdministratorAccess` for initial setup, or create a custom policy with the specific permissions above.
 
@@ -136,31 +175,7 @@ aws iam get-role --role-name test-check 2>&1 | grep -q "NoSuchEntity" && echo "�
 aws s3 ls &>/dev/null && echo "✓ S3 access granted" || echo "✗ No S3 access"
 ```
 
-#### 3. VPC Configuration
-
-You need an existing VPC with:
-- **Public subnets** (at least 2, in different AZs) - For load balancers and NAT gateways
-- **Private subnets** (at least 2, in different AZs) - For EKS nodes
-- **Internet Gateway** - For outbound internet access
-- **NAT Gateway(s)** - For private subnet internet access
-
-**Find Your VPC:**
-```bash
-# List all VPCs
-aws ec2 describe-vpcs --query 'Vpcs[*].[VpcId,CidrBlock,Tags[?Key==`Name`].Value|[0]]' --output table
-
-# Get subnets for a VPC
-aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-xxxxx" \
-  --query 'Subnets[*].[SubnetId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' --output table
-```
-
-**Don't Have a VPC?** The script can work with the default VPC, but for production, create a dedicated VPC:
-```bash
-# Create VPC with eksctl (automatically creates subnets, IGW, NAT)
-eksctl create cluster --name temp-cluster --dry-run --vpc-cidr 10.0.0.0/16
-```
-
-#### 4. EC2 Key Pair
+### 4. EC2 Key Pair
 
 Create an SSH key pair for accessing nodes (optional, but recommended for troubleshooting):
 
@@ -176,7 +191,7 @@ chmod 400 ~/.ssh/splunk-ai-key.pem
 aws ec2 describe-key-pairs --key-names splunk-ai-key
 ```
 
-#### 5. Service Quotas
+### 5. Service Quotas
 
 Ensure you have sufficient quotas for:
 
@@ -196,194 +211,11 @@ aws service-quotas request-service-quota-increase \
   --desired-value 64
 ```
 
-### Local Tools
 
-Install required tools on your local machine:
+## Container Images
+All of the following container images must be available during configuration.  While they are all publically available, some enviroments may not allow direct access to docker hub.  In these cases, they must be hosted on an accisble repository and the configuration file updated as instructed below.
 
-```bash
-# macOS
-brew install kubectl helm git jq yq eksctl
-
-# Linux (Ubuntu/Debian)
-# kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-# helm
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# jq
-sudo apt-get install -y jq
-
-# yq
-wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
-chmod +x /usr/local/bin/yq
-
-# eksctl
-curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-sudo mv /tmp/eksctl /usr/local/bin
-
-# Verify installations and check minimum versions
-kubectl version --client    # Minimum: v1.28+
-helm version               # Minimum: v3.12+
-git --version             # Minimum: v2.30+
-jq --version              # Minimum: v1.6+
-yq --version              # Minimum: v4.30+ (mikefarah/yq, NOT Python yq)
-eksctl version            # Minimum: v0.217+ (for K8s 1.34 support)
-aws --version             # Minimum: AWS CLI v2.13+
-
-# IMPORTANT: eksctl version determines supported Kubernetes versions
-# - eksctl 0.191 supports K8s up to 1.31
-# - eksctl 0.217+ supports K8s 1.32, 1.33, 1.34
-# If you need K8s 1.32+, upgrade eksctl to latest version
-```
-
-### Container Images Configuration
-
-**GOOD NEWS:** The script now automatically configures all container images from a single configuration file! You don't need to manually edit YAML files.
-
-#### How Image Configuration Works
-
-All container images are configured in **`cluster-config.yaml`** under the `images:` section. The script:
-
-1. ✅ **Validates** all images exist in their registries before deployment
-2. ✅ **Automatically updates** `artifacts.yaml` and `splunk-operator-cluster.yaml` with your images
-3. ✅ **Fails fast** if any images are missing (saves 20+ minutes of waiting)
-4. ✅ **Creates backups** of original files (`.original` suffix)
-
-#### Simple Registry Configuration
-
-The `registry` field is automatically prepended to ALL image paths (unless they already have a registry):
-
-**`cluster-config.yaml`:**
-```yaml
-images:
-  # Your private container registry (ECR, Docker Hub, Harbor, etc.)
-  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
-
-  # All images below - the script handles registry prefix automatically
-  operator:
-    image: "splunk-ai-operator:v1.0.0"  # Becomes: registry/splunk-ai-operator:v1.0.0
-
-  splunk:
-    image: "splunk/splunk:10.2.0"  # Becomes: registry/splunk/splunk:10.2.0
-
-  ray:
-    headImage: "ray/ray-head:v1"  # Becomes: registry/ray/ray-head:v1
-    workerImage: "ray/ray-worker:v1"  # Becomes: registry/ray/ray-worker:v1
-
-  weaviate:
-    image: "weaviate:1.28.0"  # Becomes: registry/weaviate:1.28.0
-
-  saia:
-    apiImage: "saia/api:v1"  # Becomes: registry/saia/api:v1
-    dataLoaderImage: "saia/loader:v1"  # Becomes: registry/saia/loader:v1
-```
-
-**Result:** ALL images use your private ECR!
-
-#### Mix Public and Private Images
-
-You can also mix images from different registries by specifying full paths:
-
-```yaml
-images:
-  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
-
-  # Your custom operator in ECR (relative path)
-  operator:
-    image: "splunk-ai-operator:v1.0.0"
-    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
-
-  # Public Splunk from Docker Hub (full path, ignores registry)
-  splunk:
-    image: "docker.io/splunk/splunk:10.2.0"
-    # → docker.io/splunk/splunk:10.2.0 (uses as-is)
-
-  # Your custom Ray in ECR (relative paths)
-  ray:
-    headImage: "ml-platform/ray/ray-head:build-17"
-    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-17
-
-  # Public Weaviate from Docker Hub (full path)
-  weaviate:
-    image: "semitechnologies/weaviate:1.28.0"
-    # → semitechnologies/weaviate:1.28.0 (Docker Hub)
-```
-
-#### Image Validation
-
-Before cluster creation, the script validates ALL images exist:
-
-```bash
-./eks_cluster_with_stack.sh install
-```
-
-**Output:**
-```
-[INFO] Validating image availability in registries...
-[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
-[INFO]     ✓ Found (via AWS ECR)
-[INFO]   Checking: docker.io/splunk/splunk:10.2.0
-[INFO]     ✓ Found (via docker)
-...
-[INFO] ✓ All images validated successfully - ready for deployment!
-```
-
-**If images are missing:**
-```
-[ERROR] ❌ Image validation FAILED! The following images were not found:
-  - 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v99
-
-Please verify:
-1. Image names and tags are correct in cluster-config.yaml
-2. You have access to the registries (ECR login, Docker Hub auth)
-3. Images have been pushed to the registries
-
-For ECR images, ensure you're logged in:
-  aws ecr get-login-password --region us-west-2 | \
-    docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
-```
-
-**Skip validation (emergency only):**
-```bash
-SKIP_IMAGE_VALIDATION=true ./eks_cluster_with_stack.sh install
-```
-
-#### Idempotent and Safe
-
-The script is **idempotent** - you can run it multiple times safely:
-
-- ✅ **First run:** Creates `.original` backup files of clean YAML manifests
-- ✅ **Subsequent runs:** Restores from clean backups, applies fresh configuration
-- ✅ **No corruption:** Image paths never get duplicated or stacked
-- ✅ **Safe re-runs:** Change images in `cluster-config.yaml` and re-run anytime
-
-**Backup files created:**
-```
-tools/cluster_setup/
-├── artifacts.yaml              # Modified with your images
-├── artifacts.yaml.original     # Clean backup (preserved)
-├── splunk-operator-cluster.yaml
-└── splunk-operator-cluster.yaml.original
-```
-
-**To reset to clean state:**
-```bash
-# Remove modified files and backups
-rm -f artifacts.yaml artifacts.yaml.original
-rm -f splunk-operator-cluster.yaml splunk-operator-cluster.yaml.original
-
-# Restore clean files from git
-git checkout HEAD -- artifacts.yaml splunk-operator-cluster.yaml
-
-# Re-run script to create fresh backups and apply config
-./eks_cluster_with_stack.sh install
-```
-
-#### Required Images
-
-You must configure these images in `cluster-config.yaml`:
+*TROY NOTE:  May want to add a note here for preview users about which images they need to host*
 
 | Image | Config Field | Description |
 |-------|--------------|-------------|
@@ -397,10 +229,6 @@ You must configure these images in `cluster-config.yaml`:
 | SAIA Data Loader | `saia.dataLoaderImage` | SAIA initialization |
 | Fluent Bit | `fluentBit.image` | Logging (optional, has default) |
 
-**No manual YAML editing required!** The script handles everything.
-
----
-
 ## Quick Start
 
 **Time to complete:** ~45 minutes
@@ -408,7 +236,6 @@ You must configure these images in `cluster-config.yaml`:
 > **✨ NEW:** Automated image configuration and validation! The script now:
 > - ✅ Configures all container images from a single config file
 > - ✅ Validates images exist before cluster creation (fails fast!)
-> - ✅ No manual YAML editing required
 > - ✅ Supports mix of private/public registries
 
 ### 1. Navigate to Cluster Setup Directory
@@ -418,12 +245,6 @@ cd /path/to/splunk-ai-operator/tools/cluster_setup
 ```
 
 ### 2. Prepare AWS Prerequisites
-
-**✅ Ensure you have:**
-- AWS CLI installed and configured (`aws --version`)
-- Valid AWS credentials with appropriate permissions
-- Existing VPC with public and private subnets in multiple AZs **OR** let eksctl create a new VPC automatically
-- Required tools installed: `eksctl`, `kubectl`, `helm`, `jq`, `yq`
 
 **🔐 Set AWS Credentials:**
 ```bash
@@ -459,6 +280,15 @@ export AWS_PROFILE=your-actual-profile
 
 **Option B: Use an existing VPC with subnets**
 
+**Required VPC Networking Components:**
+If using existing VPC, ensure it has:
+- ✅ At least 2 private subnets in different AZs
+- ✅ At least 2 public subnets in different AZs
+- ✅ NAT Gateway (at least 1, preferably 1 per AZ for HA)
+- ✅ Internet Gateway attached to VPC
+- ✅ Private subnets route to NAT Gateway (0.0.0.0/0 → nat-xxxxx)
+- ✅ Public subnets route to Internet Gateway (0.0.0.0/0 → igw-xxxxx)
+
 ```bash
 # List all VPCs in your region
 aws ec2 describe-vpcs --region us-west-2 \
@@ -487,15 +317,6 @@ aws ec2 describe-nat-gateways --region us-west-2 \
   --query 'NatGateways[*].[NatGatewayId,SubnetId,State]' --output table
 ```
 
-**Required VPC Networking Components:**
-If using existing VPC, ensure it has:
-- ✅ At least 2 private subnets in different AZs
-- ✅ At least 2 public subnets in different AZs
-- ✅ NAT Gateway (at least 1, preferably 1 per AZ for HA)
-- ✅ Internet Gateway attached to VPC
-- ✅ Private subnets route to NAT Gateway (0.0.0.0/0 → nat-xxxxx)
-- ✅ Public subnets route to Internet Gateway (0.0.0.0/0 → igw-xxxxx)
-
 **The script will validate all these requirements during preflight checks.**
 
 ### 4. Configure Your Deployment
@@ -511,6 +332,20 @@ cp cluster-config.yaml my-cluster-config.yaml
 ```bash
 vi my-cluster-config.yaml
 ```
+
+**What each section configures:**
+
+| Section | What It Does | Required Changes |
+|---------|--------------|------------------|
+| `cluster.name` | EKS cluster name | ✅ **REQUIRED:** Change to your cluster name |
+| `cluster.region` | AWS region | ✅ **REQUIRED:** Change to your region |
+| `cluster.subnets` | VPC subnets for nodes | ⚙️ **OPTIONAL:** Leave empty for new VPC or provide existing subnet IDs |
+| `storage.s3Bucket` | S3 bucket for AI artifacts | ✅ **REQUIRED:** Choose unique name |
+| `images.registry` | Container registry URL | ✅ **REQUIRED:** Your ECR/Docker registry |
+| `images.*` | All container images | ✅ **REQUIRED:** Configure all image paths |
+| `nodeGroups.cpu` | CPU node group settings | ⚙️ Optional: adjust size/type |
+| `nodeGroups.gpu` | GPU node group settings | ⚙️ Optional: adjust size/type |
+| `aiPlatform` | AI Platform configuration | ⚙️ Optional: customize features |
 
 **Minimum required changes:**
 
@@ -545,51 +380,89 @@ storage:
 - **Subnets**: If provided, script validates NAT Gateway, Internet Gateway, and route tables exist
 - **Subnets**: Leave empty or comment out to let eksctl create a new VPC automatically
 
-**What each section configures:**
+**Optional customizations:**
 
-| Section | What It Does | Required Changes |
-|---------|--------------|------------------|
-| `cluster.name` | EKS cluster name | ✅ **REQUIRED:** Change to your cluster name |
-| `cluster.region` | AWS region | ✅ **REQUIRED:** Change to your region |
-| `cluster.subnets` | VPC subnets for nodes | ⚙️ **OPTIONAL:** Leave empty for new VPC or provide existing subnet IDs |
-| `storage.s3Bucket` | S3 bucket for AI artifacts | ✅ **REQUIRED:** Choose unique name |
-| `images.registry` | Container registry URL | ✅ **REQUIRED:** Your ECR/Docker registry |
-| `images.*` | All container images | ✅ **REQUIRED:** Configure all image paths |
-| `nodeGroups.cpu` | CPU node group settings | ⚙️ Optional: adjust size/type |
-| `nodeGroups.gpu` | GPU node group settings | ⚙️ Optional: adjust size/type |
-| `aiPlatform` | AI Platform configuration | ⚙️ Optional: customize features |
+```yaml
+nodeGroups:
+  cpu:
+    instanceType: "m5.xlarge"      # ← Change for different CPU capacity
+    desiredCapacity: 4             # ← Adjust number of CPU nodes
+    volumeSize: 500                # ← Adjust disk size (GB)
+
+  gpu:
+    enabled: true                  # ← Set false to skip GPU nodes
+    instanceType: "g6e.12xlarge"   # ← Change for different GPU type
+    desiredCapacity: 2             # ← Adjust number of GPU nodes
+```
 
 ### 5. Configure Container Images ⚠️ CRITICAL
 
+**Update the `images:` section in your config file:**
+
 **This is the most important configuration step!** All container images must be specified correctly.
 
-**Update the `images:` section in your config file:**
+The script:
+
+1. ✅ **Validates** all images exist in their registries before deployment
+3. ✅ **Fails fast** if any images are missing (saves 20+ minutes of waiting)
+4. ✅ **Creates backups** of original files (`.original` suffix)
+
+The `registry` field is automatically prepended to ALL image paths (unless they already have a registry):
+
+**`cluster-config.yaml`:**
+```yaml
+images:
+  # Your private container registry (ECR, Docker Hub, Harbor, etc.)
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+
+  # All images below - the script handles registry prefix automatically
+  operator:
+    image: "splunk-ai-operator:v1.0.0"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
+
+  splunk:
+    image: "splunk/splunk:10.2.0"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk/splunk:10.2.0
+
+  ray:
+    headImage: "ray/ray-head:v1"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v1
+    workerImage: "ray/ray-worker:v1"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-worker:v1
+
+  weaviate:
+    image: "weaviate:1.28.0"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/weaviate:1.28.0
+
+  saia:
+    apiImage: "saia/api:v1"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/saia/api:v1
+    dataLoaderImage: "saia/loader:v1"  # Becomes: 123456789012.dkr.ecr.us-west-2.amazonaws.com/saia/loader:v1
+```
+
+**Result:** ALL images use your private ECR!
+
+#### Mix Public and Private Images
+
+You can also mix images from different registries by specifying full paths:
 
 ```yaml
 images:
-  # Your container registry (ECR, Docker Hub, Harbor, etc.)
-  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"  # ← CHANGE THIS
+  registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
 
+  # Your custom operator in ECR (relative path)
   operator:
-    image: "splunk-ai-operator:v1.0.0"  # ← CHANGE: Your operator image
+    image: "splunk-ai-operator:v1.0.0"
+    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
 
+  # Public Splunk from Docker Hub (full path, ignores registry)
   splunk:
-    image: "splunk/splunk:10.2.0"  # ← CHANGE: Splunk Enterprise image
-    operatorImage: "docker.io/splunk/splunk-operator:3.0.0"  # ← OPTIONAL (has default)
+    image: "docker.io/splunk/splunk:10.2.0"
+    # → docker.io/splunk/splunk:10.2.0 (uses as-is)
 
+  # Your custom Ray in ECR (relative paths)
   ray:
-    headImage: "ml-platform/ray/ray-head:build-17"  # ← CHANGE: Ray head image path
-    workerImage: "ml-platform/ray/ray-worker-gpu:build-17"  # ← CHANGE: Ray worker image path
+    headImage: "ml-platform/ray/ray-head:build-17"
+    # → 123456789012.dkr.ecr.us-west-2.amazonaws.com/ml-platform/ray/ray-head:build-17
 
+  # Public Weaviate from Docker Hub (full path)
   weaviate:
-    image: "semitechnologies/weaviate:1.28.0"  # ← CHANGE: Weaviate database
-
-  saia:
-    apiImage: "ml-platform/saia/saia-api:build-1"  # ← CHANGE: SAIA API image path
-    dataLoaderImage: "ml-platform/saia/saia-data-loader:build-1"  # ← CHANGE: SAIA loader
-
-  fluentBit:
-    image: "fluent/fluent-bit:1.9.6"  # ← OPTIONAL (has default)
+    image: "docker.io/semitechnologies/weaviate:1.28.0"
+    # → semitechnologies/weaviate:1.28.0 (Docker Hub)
 ```
 
 **Tips:**
@@ -621,21 +494,6 @@ docker login
 docker pull 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v1
 ```
 
-**Optional customizations:**
-
-```yaml
-nodeGroups:
-  cpu:
-    instanceType: "m5.xlarge"      # ← Change for different CPU capacity
-    desiredCapacity: 4             # ← Adjust number of CPU nodes
-    volumeSize: 500                # ← Adjust disk size (GB)
-
-  gpu:
-    enabled: true                  # ← Set false to skip GPU nodes
-    instanceType: "g6e.12xlarge"   # ← Change for different GPU type
-    desiredCapacity: 2             # ← Adjust number of GPU nodes
-```
-
 ### 7. Deploy the Cluster
 
 ```bash
@@ -646,28 +504,8 @@ CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
 # The script will show progress for each step
 ```
 
-**What happens immediately:**
-```
-[INFO] Loading configuration from: ./my-cluster-config.yaml
-[INFO] Validating image configuration...
-[INFO] ✓ Image configuration validated successfully
-[INFO] Configuring container images in manifest files...
-[INFO] ✓ All images configured successfully
-[INFO] Validating image availability in registries...
-[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/splunk-ai-operator:v1.0.0
-[INFO]     ✓ Found (via AWS ECR)
-[INFO]   Checking: 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:build-17
-[INFO]     ✓ Found (via AWS ECR)
-[INFO]   ... (checking all 9 images)
-[INFO] ✓ All images validated successfully - ready for deployment!
-[INFO] Region: us-west-2, Account: 123456789012, Cluster: my-ai-cluster
-[INFO] Starting preflight checks...
-```
-
-**💡 TIP:** The script validates images exist BEFORE starting cluster creation. This saves 20+ minutes if any images are misconfigured!
-
 **📋 Deployment Steps (30-45 minutes total):**
-1. **Configuration & Validation** (1-2 min) ⚡ NEW!
+1. **Configuration & Validation** (1-2 min)
    - ✓ Validates configuration file
    - ✓ Validates ALL container images exist
    - ✓ Updates manifest files automatically
@@ -703,6 +541,8 @@ CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
    - ✓ Creates AIPlatform CR
    - ✓ Deploys AI services
 
+*TROY NOTE:  This final list doesn't do anything special.  If there is an event that is in here that is important for us to call out, just include it in the lists above and delete the entire list because its mostly duplicative*
+
 **What Happens During Installation:**
 1. ✓ Creates EKS cluster with control plane (5-10 minutes)
 2. ✓ Creates managed node groups (CPU and GPU) (5-10 minutes)
@@ -721,9 +561,10 @@ CONFIG_FILE=./my-cluster-config.yaml ./eks_cluster_with_stack.sh install
 15. ✓ Creates ECR image pull secrets
 16. ✓ Deploys AIPlatform CR
 
-### 4. Verify Installation
+### 8. Verify Installation
 
 ```bash
+*TROY NOTE:  If the script does it, why are we telling them to do it again?*
 # Set kubeconfig (done automatically by script)
 export KUBECONFIG=~/.kube/config
 
@@ -836,6 +677,34 @@ CONFIG_FILE=./my-custom-config.yaml ./eks_cluster_with_stack.sh install
 export CONFIG_FILE=./my-custom-config.yaml
 ./eks_cluster_with_stack.sh install
 ```
+
+### Instance Type Selection Guide
+
+#### CPU Instance Types (For Ray head, Weaviate, general workloads)
+
+| Instance Type | vCPU | Memory | Network | Use Case | Approx Cost/hr |
+|---------------|------|--------|---------|----------|----------------|
+| m5.xlarge | 4 | 16 GB | Up to 10 Gbps | Dev/Test | $0.19 |
+| m5.2xlarge | 8 | 32 GB | Up to 10 Gbps | Small Production | $0.38 |
+| m5.4xlarge | 16 | 64 GB | Up to 10 Gbps | **Recommended** | $0.77 |
+| m5.8xlarge | 32 | 128 GB | 10 Gbps | Large Production | $1.54 |
+| c5.4xlarge | 16 | 32 GB | Up to 10 Gbps | Compute-Optimized | $0.68 |
+| r5.4xlarge | 16 | 128 GB | Up to 10 Gbps | Memory-Optimized | $1.01 |
+
+#### GPU Instance Types (For AI training/inference)
+
+| Instance Type | GPUs | GPU Memory | vCPU | Memory | Use Case | Approx Cost/hr |
+|---------------|------|------------|------|--------|----------|----------------|
+| g5.xlarge | 1x A10G | 24 GB | 4 | 16 GB | Dev/Small Models | $1.01 |
+| g5.2xlarge | 1x A10G | 24 GB | 8 | 32 GB | **Recommended** | $1.21 |
+| g5.4xlarge | 1x A10G | 24 GB | 16 | 64 GB | Large Single-GPU | $1.62 |
+| g5.12xlarge | 4x A10G | 96 GB | 48 | 192 GB | Multi-GPU Training | $5.67 |
+| p3.2xlarge | 1x V100 | 16 GB | 8 | 61 GB | ML Training | $3.06 |
+| p4d.24xlarge | 8x A100 | 320 GB | 96 | 1152 GB | Large-Scale Training | $32.77 |
+
+**Note:** Prices are approximate for US East/West regions and may vary. Check [AWS Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) for current rates.
+
+---
 
 ### Configuration Examples
 
@@ -997,50 +866,9 @@ aiPlatform:
   defaultAcceleratorType: "L40S"
 ```
 
-### Instance Type Selection Guide
-
-#### CPU Instance Types (For Ray head, Weaviate, general workloads)
-
-| Instance Type | vCPU | Memory | Network | Use Case | Approx Cost/hr |
-|---------------|------|--------|---------|----------|----------------|
-| m5.xlarge | 4 | 16 GB | Up to 10 Gbps | Dev/Test | $0.19 |
-| m5.2xlarge | 8 | 32 GB | Up to 10 Gbps | Small Production | $0.38 |
-| m5.4xlarge | 16 | 64 GB | Up to 10 Gbps | **Recommended** | $0.77 |
-| m5.8xlarge | 32 | 128 GB | 10 Gbps | Large Production | $1.54 |
-| c5.4xlarge | 16 | 32 GB | Up to 10 Gbps | Compute-Optimized | $0.68 |
-| r5.4xlarge | 16 | 128 GB | Up to 10 Gbps | Memory-Optimized | $1.01 |
-
-#### GPU Instance Types (For AI training/inference)
-
-| Instance Type | GPUs | GPU Memory | vCPU | Memory | Use Case | Approx Cost/hr |
-|---------------|------|------------|------|--------|----------|----------------|
-| g5.xlarge | 1x A10G | 24 GB | 4 | 16 GB | Dev/Small Models | $1.01 |
-| g5.2xlarge | 1x A10G | 24 GB | 8 | 32 GB | **Recommended** | $1.21 |
-| g5.4xlarge | 1x A10G | 24 GB | 16 | 64 GB | Large Single-GPU | $1.62 |
-| g5.12xlarge | 4x A10G | 96 GB | 48 | 192 GB | Multi-GPU Training | $5.67 |
-| p3.2xlarge | 1x V100 | 16 GB | 8 | 61 GB | ML Training | $3.06 |
-| p4d.24xlarge | 8x A100 | 320 GB | 96 | 1152 GB | Large-Scale Training | $32.77 |
-
-**Note:** Prices are approximate for US East/West regions and may vary. Check [AWS Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) for current rates.
-
----
-
 ## Usage
 
-### Basic Commands
 
-```bash
-# Install EKS cluster and AI Platform
-./eks_cluster_with_stack.sh install
-
-# Delete entire cluster and all AWS resources
-./eks_cluster_with_stack.sh delete
-
-# Full cleanup (including S3 buckets, IAM roles)
-./eks_cluster_with_stack.sh delete-full
-
-# Check AIPlatform status
-./eks_cluster_with_stack.sh status
 ```
 
 ### Post-Installation Tasks
@@ -1111,7 +939,7 @@ kubectl port-forward -n ai-platform \
 ```
 
 #### 5. Access Prometheus/Grafana
-
+*TROY NOTE:  OK, I'm going to ask a stupid question.  Don't we compete against Prometheus and Grafana?  So why are we adding them into the enviroment?*
 ```bash
 # Prometheus
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
@@ -2139,7 +1967,7 @@ EOF
 ### Script Execution Issues
 
 #### Issue: Script Exits Silently Without Error Message
-
+*TROY NOTE:  Why is anything failing silently.  That leaves you guessing rather than being directed to a fix*
 **Symptom:**
 ```bash
 CONFIG_FILE=./cluster-config.yaml ./eks_cluster_with_stack.sh install
@@ -2263,7 +2091,7 @@ The script needs AWS credentials to:
 ```
 Error: Cannot create node group: Insufficient capacity
 ```
-
+*TROY NOTE:  Why have them mess with the enviroment variable?  Why not have them update the script so there is always a source of truth*
 **Solution:**
 ```bash
 # Try different instance type
@@ -2311,6 +2139,7 @@ aws eks describe-cluster --name ${CLUSTER_NAME}
 
 # Options:
 # 1. Use different cluster name
+*TROY NOTE:  Why have them mess with the enviroment variable?  Why not have them update the script so there is always a source of truth*
 export CLUSTER_NAME="splunk-ai-eks-v2"
 
 # 2. Or delete existing cluster first
@@ -2569,6 +2398,7 @@ kubectl run debug-pod -n ai-platform --image=nicolaka/netshoot -it --rm -- bash
 ### Enable Cluster Encryption
 
 ```bash
+*TROY NOTE:  Is there even a way for them to do this since the script is creating the cluster?*
 # Enable secrets encryption when creating cluster
 eksctl create cluster \
   --name ${CLUSTER_NAME} \
@@ -2585,6 +2415,7 @@ aws eks associate-encryption-config \
 ```
 
 ### Network Policies
+*TROY NOTE:  Not following what we're doing with these yaml snipets*
 
 ```yaml
 # Deny all ingress by default
@@ -2658,7 +2489,7 @@ spec:
 ```
 
 ### IAM Policy Best Practices
-
+*TROY NOTE:  What are we doing with this policy?*
 ```json
 {
   "Version": "2012-10-17",

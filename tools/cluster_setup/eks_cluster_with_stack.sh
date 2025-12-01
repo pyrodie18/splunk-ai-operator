@@ -1247,6 +1247,10 @@ ensure_s3_upload_splunk_app() {
     log "SPLUNK_APP_LOCAL_PATH not set; skipping app upload to s3://${S3_BUCKET}/apps/"
     return 0
   fi
+  # TROY NOTE:  This should be a failure here and it should be checked during preflight.
+  # I made it all the way to the very end until it finally failed because of time out.
+  # Also we don't mention this file anywhere in the documentation and the setting itself
+  # is damn near the end of the config file.
   if [[ ! -f "${SPLUNK_APP_LOCAL_PATH}" ]]; then
     warn "SPLUNK_APP_LOCAL_PATH='${SPLUNK_APP_LOCAL_PATH}' not found; skipping upload"
     return 0
@@ -1449,7 +1453,7 @@ install_splunk_standalone() {
   # DEPRECATED: Create s3-secret using AWS credentials
   # This is legacy approach - IRSA above is preferred, but Splunk Operator may still require the secret
   log "Creating s3-secret for Splunk Standalone (fallback if IRSA not fully supported)..."
-  if resolve_aws_creds_for_secret 2>/dev/null; then
+  if resolve_aws_creds_for_secret; then  # Dumping STDERR prevents you from seeing that no creds are set
     local ak="${AWS_ACCESS_KEY_ID:-}"; local sk="${AWS_SECRET_ACCESS_KEY:-}"; local st="${AWS_SESSION_TOKEN:-}"
     if [[ -n "$ak" && -n "$sk" ]]; then
       kubectl -n "${AI_NS}" create secret generic s3-secret \
@@ -2460,7 +2464,7 @@ preflight_env() {
 
   pf_header "AWS credentials available"
   pf_warn "AWS credentials check: Only needed for Splunk Standalone's S3 secret (not for AI platform - uses IRSA)"
-  if resolve_aws_creds_for_secret 2>/dev/null; then
+  if resolve_aws_creds_for_secret; then  # Dumping STDERR prevents you from seeing that no creds are set
     if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
       pf_ok "Env creds OK (with session token) - will create s3-secret for Splunk Standalone"
     else
