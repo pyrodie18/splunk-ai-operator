@@ -7,11 +7,13 @@ Complete guide for deploying Splunk AI Platform on AWS Elastic Kubernetes Servic
 - [Overview](#overview)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
+- [Container Images](#container-images)
 - [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Usage](#usage)
+- [Configuration Details](#configuration-details)
+- [Post Installation Tasks](#post-installation-tasks)
+- [Maintenance Tasks](#maintenance-tasks)
 - [Architecture](#architecture)
-- [Image Pull Secrets](#image-pull-secrets)
+- [Advanced Container Registry](#advanced-container-registry)
 - [Advanced Topics](#advanced-topics)
 - [Troubleshooting](#troubleshooting)
 - [Security](#security)
@@ -211,7 +213,6 @@ aws service-quotas request-service-quota-increase \
   --desired-value 64
 ```
 
-
 ## Container Images
 All of the following container images must be available during configuration.  While they are all publically available, some enviroments may not allow direct access to docker hub.  In these cases, they must be hosted on an accisble repository and the configuration file updated as instructed below.
 
@@ -244,9 +245,8 @@ All of the following container images must be available during configuration.  W
 cd /path/to/splunk-ai-operator/tools/cluster_setup
 ```
 
-### 2. Prepare AWS Prerequisites
+### 2. Set AWS Credentials
 
-**🔐 Set AWS Credentials:**
 ```bash
 # Option 1: Use AWS Profile (recommended)
 export AWS_PROFILE=your-profile-name
@@ -350,6 +350,8 @@ vi my-cluster-config.yaml
 **Minimum required changes:**
 
 ```yaml
+# cluster-config.yaml
+
 cluster:
   name: "my-ai-cluster"           # ← CHANGE: Your unique cluster name (DNS-1123 compliant)
   region: "us-west-2"             # ← CHANGE: Your AWS region
@@ -383,6 +385,8 @@ storage:
 **Optional customizations:**
 
 ```yaml
+# cluster-config.yaml
+
 nodeGroups:
   cpu:
     instanceType: "m5.xlarge"      # ← Change for different CPU capacity
@@ -395,22 +399,17 @@ nodeGroups:
     desiredCapacity: 2             # ← Adjust number of GPU nodes
 ```
 
-### 5. Configure Container Images ⚠️ CRITICAL
+### 5. Configure Container Images
 
 **Update the `images:` section in your config file:**
 
 **This is the most important configuration step!** All container images must be specified correctly.
 
-The script:
-
-1. ✅ **Validates** all images exist in their registries before deployment
-3. ✅ **Fails fast** if any images are missing (saves 20+ minutes of waiting)
-4. ✅ **Creates backups** of original files (`.original` suffix)
-
 The `registry` field is automatically prepended to ALL image paths (unless they already have a registry):
 
-**`cluster-config.yaml`:**
 ```yaml
+# cluster-config.yaml
+
 images:
   # Your private container registry (ECR, Docker Hub, Harbor, etc.)
   registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
@@ -441,6 +440,8 @@ images:
 You can also mix images from different registries by specifying full paths:
 
 ```yaml
+# cluster-config.yaml
+
 images:
   registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
 
@@ -472,15 +473,14 @@ images:
 - Use **full paths** for public Docker Hub images
   - Example: `"docker.io/splunk/splunk:10.2.0"` stays as-is
 
-**The script will validate ALL images exist before deployment!**
-
 ### 6. Login to Container Registries
+This step is required if any non-public repositories are used.
 
 **For AWS ECR:**
 ```bash
 # Login to your ECR registry
 aws ecr get-login-password --region us-west-2 | \
-  docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
+  docker login --username AWS --password-stdin <container repo endpoint>
 ```
 
 **For Docker Hub (if using private images):**
@@ -491,9 +491,10 @@ docker login
 **Verify image access:**
 ```bash
 # Test pull one of your images
-docker pull 123456789012.dkr.ecr.us-west-2.amazonaws.com/ray/ray-head:v1
+docker pull <container repo endpoint>/ray/ray-head:v1
 ```
 
+**See [Advanced Container Registry](#advanced-container-registry) below for additional information**
 ### 7. Deploy the Cluster
 
 ```bash
@@ -580,7 +581,35 @@ kubectl get pods --all-namespaces
 
 ---
 
-## Configuration
+## Configuration Details
+
+### Instance Type Selection Guide
+
+#### CPU Instance Types (For Ray head, Weaviate, general workloads)
+
+| Instance Type | vCPU | Memory | Network | Use Case | Approx Cost/hr |
+|---------------|------|--------|---------|----------|----------------|
+| m5.xlarge | 4 | 16 GB | Up to 10 Gbps | Dev/Test | $0.19 |
+| m5.2xlarge | 8 | 32 GB | Up to 10 Gbps | Small Production | $0.38 |
+| m5.4xlarge | 16 | 64 GB | Up to 10 Gbps | **Recommended** | $0.77 |
+| m5.8xlarge | 32 | 128 GB | 10 Gbps | Large Production | $1.54 |
+| c5.4xlarge | 16 | 32 GB | Up to 10 Gbps | Compute-Optimized | $0.68 |
+| r5.4xlarge | 16 | 128 GB | Up to 10 Gbps | Memory-Optimized | $1.01 |
+
+#### GPU Instance Types (For AI training/inference)
+
+| Instance Type | GPUs | GPU Memory | vCPU | Memory | Use Case | Approx Cost/hr |
+|---------------|------|------------|------|--------|----------|----------------|
+| g5.xlarge | 1x A10G | 24 GB | 4 | 16 GB | Dev/Small Models | $1.01 |
+| g5.2xlarge | 1x A10G | 24 GB | 8 | 32 GB | **Recommended** | $1.21 |
+| g5.4xlarge | 1x A10G | 24 GB | 16 | 64 GB | Large Single-GPU | $1.62 |
+| g5.12xlarge | 4x A10G | 96 GB | 48 | 192 GB | Multi-GPU Training | $5.67 |
+| p3.2xlarge | 1x V100 | 16 GB | 8 | 61 GB | ML Training | $3.06 |
+| p4d.24xlarge | 8x A100 | 320 GB | 96 | 1152 GB | Large-Scale Training | $32.77 |
+
+**Note:** Prices are approximate for US East/West regions and may vary. Check [AWS Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) for current rates.
+
+---
 
 ### EKS Cluster Configuration
 
@@ -677,36 +706,6 @@ CONFIG_FILE=./my-custom-config.yaml ./eks_cluster_with_stack.sh install
 export CONFIG_FILE=./my-custom-config.yaml
 ./eks_cluster_with_stack.sh install
 ```
-
-### Instance Type Selection Guide
-
-#### CPU Instance Types (For Ray head, Weaviate, general workloads)
-
-| Instance Type | vCPU | Memory | Network | Use Case | Approx Cost/hr |
-|---------------|------|--------|---------|----------|----------------|
-| m5.xlarge | 4 | 16 GB | Up to 10 Gbps | Dev/Test | $0.19 |
-| m5.2xlarge | 8 | 32 GB | Up to 10 Gbps | Small Production | $0.38 |
-| m5.4xlarge | 16 | 64 GB | Up to 10 Gbps | **Recommended** | $0.77 |
-| m5.8xlarge | 32 | 128 GB | 10 Gbps | Large Production | $1.54 |
-| c5.4xlarge | 16 | 32 GB | Up to 10 Gbps | Compute-Optimized | $0.68 |
-| r5.4xlarge | 16 | 128 GB | Up to 10 Gbps | Memory-Optimized | $1.01 |
-
-#### GPU Instance Types (For AI training/inference)
-
-| Instance Type | GPUs | GPU Memory | vCPU | Memory | Use Case | Approx Cost/hr |
-|---------------|------|------------|------|--------|----------|----------------|
-| g5.xlarge | 1x A10G | 24 GB | 4 | 16 GB | Dev/Small Models | $1.01 |
-| g5.2xlarge | 1x A10G | 24 GB | 8 | 32 GB | **Recommended** | $1.21 |
-| g5.4xlarge | 1x A10G | 24 GB | 16 | 64 GB | Large Single-GPU | $1.62 |
-| g5.12xlarge | 4x A10G | 96 GB | 48 | 192 GB | Multi-GPU Training | $5.67 |
-| p3.2xlarge | 1x V100 | 16 GB | 8 | 61 GB | ML Training | $3.06 |
-| p4d.24xlarge | 8x A100 | 320 GB | 96 | 1152 GB | Large-Scale Training | $32.77 |
-
-**Note:** Prices are approximate for US East/West regions and may vary. Check [AWS Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) for current rates.
-
----
-
-### Configuration Examples
 
 #### Example 1: Development Cluster (Cost-Optimized, Auto VPC)
 
@@ -866,14 +865,9 @@ aiPlatform:
   defaultAcceleratorType: "L40S"
 ```
 
-## Usage
+## Post Installation Tasks
 
-
-```
-
-### Post-Installation Tasks
-
-#### 1. Access the Cluster
+### 1. Access the Cluster
 
 ```bash
 # Kubeconfig is automatically configured
@@ -887,7 +881,7 @@ aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}
 kubectl cluster-info
 ```
 
-#### 2. Check Installation Status
+### 2. Check Installation Status
 
 ```bash
 # Check AI Platform status
@@ -906,7 +900,7 @@ kubectl get pods -n ai-platform
 kubectl describe aiplatform -n ai-platform
 ```
 
-#### 3. Access MinIO Console (Not applicable for EKS - uses S3)
+### 3. Access MinIO Console (Not applicable for EKS - uses S3)
 
 EKS deployment uses AWS S3 instead of MinIO. Access your data via:
 
@@ -921,7 +915,7 @@ aws s3 sync s3://splunk-ai-platform-data-${CLUSTER_NAME}/artifacts ./local-artif
 aws s3 cp ./my-model.pkl s3://splunk-ai-platform-data-${CLUSTER_NAME}/models/
 ```
 
-#### 4. Access Splunk Enterprise
+### 4. Access Splunk Enterprise
 
 ```bash
 # Get Splunk admin password
@@ -938,7 +932,7 @@ kubectl port-forward -n ai-platform \
 # Password: (from above command)
 ```
 
-#### 5. Access Prometheus/Grafana
+### 5. Access Prometheus/Grafana
 *TROY NOTE:  OK, I'm going to ask a stupid question.  Don't we compete against Prometheus and Grafana?  So why are we adding them into the enviroment?*
 ```bash
 # Prometheus
@@ -952,7 +946,7 @@ kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
 #   -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-#### 6. Access Ray Dashboard
+### 6. Access Ray Dashboard
 
 ```bash
 # Find Ray head service
@@ -964,9 +958,9 @@ kubectl port-forward -n ai-platform svc/<ray-head-svc> 8265:8265
 # Access at http://localhost:8265
 ```
 
-### Updating the Cluster
+## Maintenance Tasks
 
-#### Update Node Group Size
+### Update Node Group Size
 
 ```bash
 # Scale CPU nodes
@@ -982,7 +976,7 @@ aws eks update-nodegroup-config \
   --scaling-config minSize=1,maxSize=5,desiredSize=2
 ```
 
-#### Update Kubernetes Version
+### Update Kubernetes Version
 
 ```bash
 # Check current version
@@ -1000,7 +994,7 @@ aws eks update-nodegroup-version \
   --nodegroup-name cpu-nodes
 ```
 
-#### Update AI Platform Operator
+### Update AI Platform Operator
 
 ```bash
 # Update operator image
@@ -1025,14 +1019,14 @@ kubectl get deployment splunk-ai-operator-controller-manager \
 ### EKS Cluster Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                AWS EKS Control Plane                        │
-│                (Managed by AWS)                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ API Server   │  │    etcd      │  │  Scheduler   │     │
-│  │   :6443      │  │ (HA, Multi-AZ)│  │              │     │
-│  └──────┬───────┘  └──────────────┘  └──────────────┘     │
-└─────────┼──────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   AWS EKS Control Plane                 │
+│                     (Managed by AWS)                    │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────┐  │
+│  │ API Server   │  │    etcd       │  │  Scheduler   │  │
+│  │   :6443      │  │ (HA, Multi-AZ)│  │              │  │
+│  └──────┬───────┘  └───────────────┘  └──────────────┘  │
+└─────────┼───────────────────────────────────────────────┘
           │
     ┌─────┴────────────────────────┐
     │  AWS VPC CNI Network         │
@@ -1131,6 +1125,7 @@ VPC (10.0.0.0/16)
 ```
 
 **Access Patterns:**
+*TROY NOTE:  It is unclear to me what this is for*
 ```yaml
 # S3 Access via IRSA (No credentials in pods!)
 objectStorage:
@@ -1185,9 +1180,7 @@ storage:
 4. Temporary credentials auto-rotate every hour
 5. Fine-grained permissions per service
 
-### Component Architecture
-
-#### Operator and Resource Hierarchy
+### Operator and Resource Hierarchy
 
 ```mermaid
 graph TB
@@ -1259,7 +1252,7 @@ graph TB
     style IRSA fill:#e8f5e9
 ```
 
-#### Data Flow and Interactions
+### Data Flow and Interactions
 
 ```mermaid
 graph LR
@@ -1348,7 +1341,7 @@ graph LR
     style PROM fill:#fff9c4
 ```
 
-#### Complete Platform Deployment
+### Complete Platform Deployment
 
 ```mermaid
 graph TB
@@ -1507,7 +1500,7 @@ graph TB
 
 ---
 
-## Image Pull Secrets
+## Advanced Container Registry
 
 The EKS deployment automatically creates image pull secrets for private container registries, with primary focus on AWS ECR.
 
@@ -1521,7 +1514,6 @@ The EKS deployment automatically creates image pull secrets for private containe
 5. Adds secret to AIPlatform CR `spec.images.imagePullSecrets`
 6. Operator propagates to all AI workloads
 
-**No Configuration Needed:**
 ```bash
 # ECR secret is created automatically if AWS credentials are available
 ./eks_cluster_with_stack.sh install
@@ -1858,36 +1850,6 @@ spec:
         summary: "GPU underutilized"
         description: "GPU {{ $labels.gpu }} on node {{ $labels.node }} has been below 20% for 30min"
 ```
-
-### Spot Instances for Cost Savings
-
-Use EC2 Spot Instances for non-critical workloads:
-
-```bash
-# Create Spot node group
-eksctl create nodegroup \
-  --cluster=${CLUSTER_NAME} \
-  --region=${REGION} \
-  --name=cpu-spot \
-  --node-type=m5.4xlarge \
-  --nodes=2 \
-  --nodes-min=0 \
-  --nodes-max=10 \
-  --spot \
-  --instance-types=m5.4xlarge,m5a.4xlarge,m5n.4xlarge
-
-# Add toleration to workloads
-kubectl patch deployment ray-worker -n ai-platform \
-  --type=json \
-  -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"spotInstance","operator":"Equal","value":"true","effect":"NoSchedule"}]}]'
-```
-
-**Spot Best Practices:**
-- Use multiple instance types for better availability
-- Set appropriate `--max-spot-price`
-- Monitor spot interruptions: `kubectl get events --field-selector reason=SpotInterruption`
-- Not recommended for: Ray head, databases, stateful workloads
-- Recommended for: Ray workers, batch jobs, development workloads
 
 ### Backup and Disaster Recovery
 
@@ -2396,9 +2358,8 @@ kubectl run debug-pod -n ai-platform --image=nicolaka/netshoot -it --rm -- bash
 - [ ] Use AWS Systems Manager Session Manager instead of SSH
 
 ### Enable Cluster Encryption
-
-```bash
 *TROY NOTE:  Is there even a way for them to do this since the script is creating the cluster?*
+```bash
 # Enable secrets encryption when creating cluster
 eksctl create cluster \
   --name ${CLUSTER_NAME} \
@@ -2571,13 +2532,36 @@ aws ce get-savings-plans-purchase-recommendation \
 
 #### 2. Use Spot Instances for Non-Critical Workloads
 
-```bash
-# Spot instances can save up to 90%
-# Not recommended for: Ray head, databases, stateful apps
-# Recommended for: Ray workers, batch jobs, development
+Use EC2 Spot Instances for non-critical workloads.  Spot instances can save up to 90%.  They are not recommended for: Ray head, databases, or stateful apps.  They work well for: Ray workers, batch jobs, and development
 
 # Create Spot node group (see Advanced Topics section)
+*TROY NOTE:  I am confused, is this something that they can do with the script?*
+```bash
+# Create Spot node group
+eksctl create nodegroup \
+  --cluster=${CLUSTER_NAME} \
+  --region=${REGION} \
+  --name=cpu-spot \
+  --node-type=m5.4xlarge \
+  --nodes=2 \
+  --nodes-min=0 \
+  --nodes-max=10 \
+  --spot \
+  --instance-types=m5.4xlarge,m5a.4xlarge,m5n.4xlarge
+
+# Add toleration to workloads
+kubectl patch deployment ray-worker -n ai-platform \
+  --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"spotInstance","operator":"Equal","value":"true","effect":"NoSchedule"}]}]'
 ```
+
+**Spot Best Practices:**
+- Use multiple instance types for better availability
+- Set appropriate `--max-spot-price`
+- Monitor spot interruptions: `kubectl get events --field-selector reason=SpotInterruption`
+- Not recommended for: Ray head, databases, stateful workloads
+- Recommended for: Ray workers, batch jobs, development workloads
+
 
 #### 3. Right-Size Your Instances
 
